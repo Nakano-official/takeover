@@ -62,14 +62,15 @@ function setupMainDb_(ss) {
   const periodsSheet = ss.insertSheet('periods');
   periodsSheet.getRange(1, 1, 1, 3).setValues([['period', 'start_time', 'end_time']]);
   // period（数値型化を防ぐ）・start_time/end_time（時刻型化を防ぐ）を全てテキスト固定
-  periodsSheet.getRange(2, 1, 6, 3).setNumberFormat('@');
-  periodsSheet.getRange(2, 1, 6, 3).setValues([
-    ['1', '09:00', '10:30'],
-    ['2', '10:40', '12:10'],
-    ['3', '13:00', '14:30'],
-    ['4', '14:40', '16:10'],
-    ['5', '16:20', '17:50'],
-    ['6', '18:00', '19:30'],
+  periodsSheet.getRange(2, 1, 7, 3).setNumberFormat('@');
+  periodsSheet.getRange(2, 1, 7, 3).setValues([
+    ['1', '09:15', '11:00'],
+    ['2', '11:15', '12:30'],
+    ['3', '13:30', '15:00'],
+    ['4', '15:15', '16:45'],
+    ['5', '16:55', '18:25'],
+    ['6', '18:35', '20:05'],
+    ['7', '20:10', '21:40'],
   ]);
 
   applyHeaderStyle_(
