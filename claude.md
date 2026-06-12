@@ -93,7 +93,7 @@
 | データ保存 | SpreadsheetApp（GAS組み込み） | 大学Google管理下・職員が直接確認可能 |
 | 認証 | GAS組み込み（大学Googleアカウント自動） | OAuth設定不要 |
 | カレンダー連携 | CalendarApp（GAS組み込み） | 既存カレンダーをそのまま活用 |
-| 通知 | Google Chat Incoming Webhook | Gmail より確実に届く・専用スペースで通知管理 |
+| 通知 | Google Chat Incoming Webhook（スタッフ個人スペースに個別送信） | Gmail より確実に届く・Chat API Bot 不要で個別通知できる |
 | ホスティング | GAS Web App（Googleサーバー） | サーバー管理・Docker・Nginx不要 |
 
 **制約**: 外部データベース（Firebase・Supabase等）は使用不可。
@@ -103,18 +103,24 @@
 
 ## Sheetsデータ設計
 
+スプレッドシートは2つに分離する（詳細は docs/requirements.md・docs/architecture.md）。
+
+- **メインDB**：以下のシート群。アクセスは職員 + GAS
+- **連絡先DB**：contacts シート（staff_id・氏名・メール・電話番号・webhook_url）。**職員のみアクセス可**
+
 ### `staffs` シート
 | カラム | 内容 |
 |---|---|
 | staff_id | スタッフID |
 | name | 氏名 |
-| email | 大学Googleアカウント |
-| available_slots | 空きコマ（クォーター毎に上書き） |
+| role | 職員 / 学生（画面のアクセス制御に使用） |
+| available_slots | 空きコマ。`月1,月2,火3` 形式（クォーター毎に上書き） |
 
 ### `courses` シート
 | カラム | 内容 |
 |---|---|
 | course_id | コマID |
+| quarter | クォーター（例：2026-Q3）。過去分は削除しない |
 | day | 曜日 |
 | period | 時限 |
 | staff_a_id | 担当スタッフA |
@@ -130,6 +136,21 @@
 | notify_status | 通知状況 |
 | result | 補充済 / 1人テイク / 職員対応 |
 
+### `responses` シート
+| カラム | 内容 |
+|---|---|
+| vacancy_id | 対象の欠員ID |
+| staff_id | 回答した候補者 |
+| answer | 承諾 / 辞退 |
+| answered_at | 回答日時 |
+
+### `periods` シート（時限マスタ）
+| カラム | 内容 |
+|---|---|
+| period | 時限（1〜6） |
+| start_time | 開始時刻 |
+| end_time | 終了時刻 |
+
 ---
 
 ## ディレクトリ構成（予定）
@@ -140,7 +161,7 @@ ryukoku-support-shift/
 │   ├── Code.gs                 # エントリポイント（doGet / doPost）
 │   ├── Vacancy.gs              # 欠員補充ロジック
 │   ├── Attendance.gs           # 勤怠整合性チェックロジック
-│   ├── Notify.gs               # Gmail通知
+│   ├── Notify.gs               # Google Chat 通知
 │   ├── Calendar.gs             # カレンダー連携
 │   └── Sheets.gs               # Sheets操作（共通）
 ├── html/                       # フロントエンド（HTML Service）
@@ -163,9 +184,10 @@ GASエディタの「スクリプトのプロパティ」から設定し、コ�
 
 | プロパティキー | 内容 |
 |---|---|
-| SPREADSHEET_ID | データ管理用スプレッドシートのID |
+| SPREADSHEET_ID | メインDB スプレッドシートのID |
+| CONTACTS_SPREADSHEET_ID | 連絡先DB スプレッドシートのID |
 | CALENDAR_ID | 連携するGoogleカレンダーのID |
-| CHAT_WEBHOOK_URL | Google Chat スペースの Incoming Webhook URL |
+| CHAT_WEBHOOK_URL | 職員向け Chat スペースの Incoming Webhook URL（スタッフ個別の Webhook は連絡先DBで管理） |
 
 **.clasp.json はGitにコミットしない（スクリプトIDが含まれるため）。**
 
