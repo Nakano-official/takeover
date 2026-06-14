@@ -179,11 +179,15 @@ function getDashboardData() {
       return String(v.course_id).trim() === courseId;
     });
     var status = '通常';
+    var substitute = '';
     const open = related.filter(function (v) { return !String(v.result).trim(); });
     if (open.length > 0) {
       status = '欠員対応中';
     } else if (related.length > 0) {
-      status = String(related[related.length - 1].result).trim(); // 補充済 / 1人テイク / 職員対応
+      const latest = related[related.length - 1];
+      status = String(latest.result).trim(); // 補充済 / 1人テイク / 職員対応
+      const subId = String(latest.substitute_staff_id || '').trim();
+      if (subId) substitute = nameById[subId] || subId;
     }
 
     return {
@@ -195,6 +199,7 @@ function getDashboardData() {
       staffA: nameById[String(c.staff_a_id).trim()] || c.staff_a_id || '',
       staffB: nameById[String(c.staff_b_id).trim()] || c.staff_b_id || '',
       status: status,
+      substitute: substitute,
     };
   });
 }

@@ -161,6 +161,93 @@ function respondToVacancy(vacancyId, answer) {
   return { ok: true, answer: answer };
 }
 
+// ─── 欠員補充管理（manage画面用・職員限定）─────────────────
+
+const VACANCY_RESULTS = ['補充済', '1人テイク', '職員対応'];
+
+/**
+ * 欠員一覧を回答状況つきで返す（職員のダッシュボード用）。
+ */
+function getVacanciesForManage() {
+  requireStaff_();
+
+  const nameById = buildNameMap_();
+  const periodById = buildPeriodMap_();
+  const courseById = {};
+  readRows(SHEET.COURSES).forEach(function (c) {
+    courseById[String(c.course_id).trim()] = c;
+  });
+
+  // 欠員ごとの回答をまとめる
+  const responsesByVacancy = {};
+  readRows(SHEET.RESPONSES).forEach(function (r) {
+    const vid = String(r.vacancy_id).trim();
+    if (!responsesByVacancy[vid]) responsesByVacancy[vid] = [];
+    responsesByVacancy[vid].push({
+      staff_id: r.staff_id,
+      name: nameById[String(r.staff_id).trim()] || r.staff_id,
+      answer: r.answer,
+      answered_at: String(r.answered_at || ''),
+    });
+  });
+
+  return readRows(SHEET.VACANCIES).map(function (v) {
+    const course = courseById[String(v.course_id).trim()] || {};
+    const p = periodById[String(course.period || '').trim()] || {};
+    const subId = String(v.substitute_staff_id || '').trim();
+    return {
+      vacancy_id: v.vacancy_id,
+      date: dateToStr_(v.date),
+      day: course.day || '',
+      period: String(course.period || '').trim(),
+      time: p.start_time ? p.start_time + '〜' + p.end_time : '',
+      absentName: nameById[String(v.absent_staff_id).trim()] || v.absent_staff_id,
+      result: String(v.result || '').trim(),
+      substituteName: subId ? (nameById[subId] || subId) : '',
+      responses: responsesByVacancy[String(v.vacancy_id).trim()] || [],
+    };
+  });
+}
+
+/**
+ * 代行者を確定する。result を「補充済」にし substitute_staff_id を記録する。
+ * （カレンダー反映は Phase 2 で Calendar.gs から行う）
+ */
+function confirmSubstitute(vacancyId, substituteStaffId) {
+  requireStaff_();
+  if (!substituteStaffId) throw new Error('代行者が指定されていません。');
+
+  const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+  if (!vacancy) throw new Error('対象の欠員が見つかりません。');
+  if (String(vacancy.result).trim()) throw new Error('この欠員は既に確定済みです。');
+
+  const ok = updateRow(SHEET.VACANCIES, 'vacancy_id', vacancyId, {
+    result: '補充済',
+    substitute_staff_id: substituteStaffId,
+  });
+  if (!ok) throw new Error('欠員の更新に失敗しました。');
+  return { ok: true };
+}
+
+/**
+ * 代行者なしで決着させる（1人テイク / 職員対応）。
+ */
+function setVacancyResult(vacancyId, result) {
+  requireStaff_();
+  if (VACANCY_RESULTS.indexOf(result) === -1 || result === '補充済') {
+    throw new Error('指定できる結果は「1人テイク」または「職員対応」です。');
+  }
+  const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+  if (!vacancy) throw new Error('対象の欠員が見つかりません。');
+  if (String(vacancy.result).trim()) throw new Error('この欠員は既に確定済みです。');
+
+  updateRow(SHEET.VACANCIES, 'vacancy_id', vacancyId, {
+    result: result,
+    substitute_staff_id: '',
+  });
+  return { ok: true };
+}
+
 // ─── 候補スクリーニング ──────────────────────────────────────
 
 /**

@@ -27,6 +27,7 @@
     .b-vacant  { background: #fdecea; color: #c0392b; }
     .b-filled  { background: #e7f0fd; color: #2a63c0; }
     .b-other   { background: #f0f0f0; color: #555; }
+    .sub { font-size: .78rem; color: #2a63c0; margin-top: 3px; }
     .state { padding: 24px; text-align: center; color: #888; }
     .empty { color: #888; }
   </style>
@@ -75,14 +76,18 @@
         '<th>曜日</th><th>時限</th><th>時間</th><th>担当A</th><th>担当B</th><th>状況</th>' +
         '</tr></thead><tbody>';
       rows.forEach(function (r) {
+        var statusCell = '<span class="badge ' + badgeClass(r.status) + '">' +
+            escapeHtml(r.status) + '</span>';
+        if (r.substitute) {
+          statusCell += '<div class="sub">→ ' + escapeHtml(r.substitute) + ' が代行</div>';
+        }
         html += '<tr>' +
           '<td>' + escapeHtml(r.day) + '</td>' +
           '<td>' + escapeHtml(r.period) + '限</td>' +
           '<td>' + escapeHtml(r.time) + '</td>' +
           '<td>' + escapeHtml(r.staffA) + '</td>' +
           '<td>' + escapeHtml(r.staffB) + '</td>' +
-          '<td><span class="badge ' + badgeClass(r.status) + '">' +
-              escapeHtml(r.status) + '</span></td>' +
+          '<td>' + statusCell + '</td>' +
           '</tr>';
       });
       html += '</tbody></table>';

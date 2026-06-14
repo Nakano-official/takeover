@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: "Helvetica Neue", Arial, "Hiragino Sans", "Yu Gothic", sans-serif;
+           margin: 0; background: #f5f6f8; color: #222; }
+    header { background: #4a86e8; color: #fff; padding: 14px 16px; }
+    header h1 { font-size: 1.1rem; margin: 0; }
+    header .user { font-size: .8rem; opacity: .9; margin-top: 2px; }
+    nav { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; background: #fff;
+          border-bottom: 1px solid #e3e6ea; }
+    nav a { font-size: .85rem; text-decoration: none; color: #4a86e8;
+            border: 1px solid #cdddfb; border-radius: 999px; padding: 5px 12px; }
+    nav a:hover { background: #eef4ff; }
+    main { padding: 16px; max-width: 720px; margin: 0 auto; }
+    .vac { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 14px;
+           box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .vac h2 { font-size: 1rem; margin: 0 0 4px; }
+    .vac .meta { font-size: .82rem; color: #777; margin-bottom: 10px; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .78rem; }
+    .b-open { background: #fdecea; color: #c0392b; }
+    .b-done { background: #e7f0fd; color: #2a63c0; }
+    .resp { border-top: 1px solid #eef0f3; padding-top: 10px; margin-top: 8px; }
+    .resp-row { display: flex; align-items: center; justify-content: space-between;
+                padding: 6px 0; font-size: .9rem; }
+    .ans { font-size: .78rem; padding: 1px 8px; border-radius: 999px; margin-left: 6px; }
+    .ans-ok { background: #e7f6ec; color: #1e7a3d; }
+    .ans-no { background: #f0f0f0; color: #777; }
+    .confirm { background: #1e7a3d; color: #fff; border: none; border-radius: 6px;
+               padding: 6px 14px; font-size: .85rem; font-weight: 600; cursor: pointer; }
+    .confirm:disabled { opacity: .5; cursor: default; }
+    .alt { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .alt button { background: #fff; border: 1px solid #cdd3da; border-radius: 6px;
+                  padding: 6px 12px; font-size: .82rem; cursor: pointer; color: #555; }
+    .none { font-size: .85rem; color: #999; padding: 6px 0; }
+    .done-line { font-size: .9rem; color: #2a63c0; font-weight: 600; }
+    .state { padding: 24px; text-align: center; color: #888; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>欠員補充管理</h1>
+    <div class="user"><?= user.name ?> さん（<?= user.role ?>）</div>
+  </header>
+
+  <nav>
+    <a href="<?= appUrl ?>?page=home">シフト確認</a>
+    <a href="<?= appUrl ?>?page=absence">欠勤連絡</a>
+    <a href="<?= appUrl ?>?page=manage">欠員補充管理</a>
+    <a href="<?= appUrl ?>?page=check">整合性チェック</a>
+  </nav>
+
+  <main>
+    <div id="content" class="state">読み込み中…</div>
+  </main>
+
+  <script>
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function render(list) {
+      var content = document.getElementById('content');
+      if (!list || list.length === 0) {
+        content.className = 'state';
+        content.textContent = '欠員はありません。';
+        return;
+      }
+      // 未解決を上に並べる
+      list.sort(function (a, b) { return (a.result ? 1 : 0) - (b.result ? 1 : 0); });
+
+      content.className = '';
+      content.innerHTML = list.map(renderVacancy).join('');
+    }
+
+    function renderVacancy(v) {
+      var resolved = !!v.result;
+      var head =
+        '<h2>' + escapeHtml(v.day + v.period) + '限'
+          + (v.time ? '（' + escapeHtml(v.time) + '）' : '') + '</h2>' +
+        '<div class="meta">' + escapeHtml(v.date) + '　欠勤: ' + escapeHtml(v.absentName) +
+          '　／　欠員ID: ' + escapeHtml(v.vacancy_id) + '</div>';
+
+      if (resolved) {
+        var label = v.result === '補充済' && v.substituteName
+          ? '補充済（代行: ' + escapeHtml(v.substituteName) + '）'
+          : escapeHtml(v.result);
+        return '<div class="vac"><span class="badge b-done">確定</span> ' +
+          '<span class="done-line">' + label + '</span>' +
+          '<div style="margin-top:6px">' + head + '</div></div>';
+      }
+
+      // 未解決：回答一覧＋確定ボタン
+      var respHtml;
+      if (v.responses.length === 0) {
+        respHtml = '<div class="none">まだ回答がありません。</div>';
+      } else {
+        respHtml = v.responses.map(function (r) {
+          var ok = r.answer === '承諾';
+          var ansBadge = '<span class="ans ' + (ok ? 'ans-ok' : 'ans-no') + '">' +
+            escapeHtml(r.answer) + '</span>';
+          var btn = ok
+            ? '<button class="confirm" onclick="confirmSub(\'' + v.vacancy_id + '\',\'' +
+                r.staff_id + '\',this)">この人で確定</button>'
+            : '';
+          return '<div class="resp-row"><div>' + escapeHtml(r.name) + ansBadge + '</div>' +
+            '<div>' + btn + '</div></div>';
+        }).join('');
+      }
+
+      var alt =
+        '<div class="alt">' +
+        '<button onclick="setResult(\'' + v.vacancy_id + '\',\'1人テイク\',this)">1人テイクにする</button>' +
+        '<button onclick="setResult(\'' + v.vacancy_id + '\',\'職員対応\',this)">職員対応にする</button>' +
+        '</div>';
+
+      return '<div class="vac"><span class="badge b-open">対応中</span>' + head +
+        '<div class="resp">' + respHtml + '</div>' + alt + '</div>';
+    }
+
+    function reload() {
+      google.script.run.withSuccessHandler(render).withFailureHandler(onError).getVacanciesForManage();
+    }
+
+    function confirmSub(vacancyId, staffId, btn) {
+      if (!confirm('この候補者を代行者として確定します。よろしいですか？')) return;
+      disableAll(btn);
+      google.script.run
+        .withSuccessHandler(reload)
+        .withFailureHandler(function (err) { alert('エラー: ' + err.message); reload(); })
+        .confirmSubstitute(vacancyId, staffId);
+    }
+
+    function setResult(vacancyId, result, btn) {
+      if (!confirm('この欠員を「' + result + '」として決着させます。よろしいですか？')) return;
+      disableAll(btn);
+      google.script.run
+        .withSuccessHandler(reload)
+        .withFailureHandler(function (err) { alert('エラー: ' + err.message); reload(); })
+        .setVacancyResult(vacancyId, result);
+    }
+
+    function disableAll(btn) {
+      var buttons = document.querySelectorAll('button');
+      buttons.forEach(function (b) { b.disabled = true; });
+      if (btn) btn.textContent = '処理中…';
+    }
+
+    function onError(err) {
+      var content = document.getElementById('content');
+      content.className = 'state';
+      content.textContent = 'エラー: ' + err.message;
+    }
+
+    reload();
+  </script>
+</body>
+</html>

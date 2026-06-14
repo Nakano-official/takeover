@@ -50,8 +50,8 @@ function setupMainDb_(ss) {
   ]);
 
   const vacanciesSheet = ss.insertSheet('vacancies');
-  vacanciesSheet.getRange(1, 1, 1, 6).setValues([
-    ['vacancy_id', 'date', 'course_id', 'absent_staff_id', 'notify_status', 'result'],
+  vacanciesSheet.getRange(1, 1, 1, 7).setValues([
+    ['vacancy_id', 'date', 'course_id', 'absent_staff_id', 'notify_status', 'result', 'substitute_staff_id'],
   ]);
 
   const responsesSheet = ss.insertSheet('responses');
