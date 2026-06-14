@@ -120,14 +120,29 @@
         }).join('');
         box.className = 'result';
         box.innerHTML = head + '<div style="margin-top:8px;">代行候補（' + res.candidates.length + '名）:<br>' + chips + '</div>'
-          + '<p class="hint">※ 次の段階で、この候補へChat通知を送る機能を追加します。</p>';
+          + notifyHtml(res.notify);
       } else {
         box.className = 'result warn';
-        box.innerHTML = head + '<div style="margin-top:8px;">⚠️ この時限に空きのある代行候補が見つかりませんでした。職員に相談してください。</div>';
+        box.innerHTML = head + '<div style="margin-top:8px;">⚠️ この時限に空きのある代行候補が見つかりませんでした。職員に相談してください。</div>'
+          + notifyHtml(res.notify);
       }
 
       var btn = document.getElementById('submit');
       btn.textContent = '登録済み';
+    }
+
+    // 通知結果を1行で要約表示する
+    function notifyHtml(n) {
+      if (!n) return '';
+      if (n.error) {
+        return '<p class="hint">⚠️ 通知処理でエラー: ' + escapeHtml(n.error) + '</p>';
+      }
+      var sent = (n.candidates || []).filter(function (c) { return c.sent; }).length;
+      var total = (n.candidates || []).length;
+      var parts = [];
+      parts.push(n.staff ? '職員スペースへ通知しました' : '職員スペースへ通知できませんでした');
+      if (total > 0) parts.push('候補 ' + sent + '/' + total + ' 名へ送信');
+      return '<p class="hint">📨 ' + escapeHtml(parts.join('　／　')) + '</p>';
     }
 
     function onFail(err) {

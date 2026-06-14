@@ -83,6 +83,14 @@ function submitAbsence(courseId, date) {
   // 代行候補を抽出（欠勤者と相方は除外）
   const candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id]);
 
+  // 職員スペース＋候補者へ通知（失敗しても欠員登録は確定させる）
+  var notify;
+  try {
+    notify = notifyNewVacancy(vacancyId);
+  } catch (e) {
+    notify = { error: e.message };
+  }
+
   return {
     vacancy_id: vacancyId,
     course: {
@@ -91,6 +99,7 @@ function submitAbsence(courseId, date) {
       period: String(course.period).trim(),
     },
     candidates: candidates,
+    notify: notify,
   };
 }
 
