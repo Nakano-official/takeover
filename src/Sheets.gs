@@ -156,6 +156,72 @@ function nextId_(sheetName, idColumn, prefix) {
   return prefix + ('000' + (max + 1)).slice(-3);
 }
 
+/**
+ * 連番IDを採番しつつ1行を追記する。採番と追記を同一ロック内で行い競合を防ぐ。
+ * rowObject の idColumn は自動採番で上書きする。生成したIDを返す。
+ */
+function appendRowWithId(sheetName, idColumn, prefix, rowObject) {
+  return withLock_(function () {
+    const id = nextId_(sheetName, idColumn, prefix);
+    const sheet = getSheet_(sheetName);
+    const headers = getHeaders_(sheet);
+    const obj = {};
+    for (var k in rowObject) obj[k] = rowObject[k];
+    obj[idColumn] = id;
+    const row = headers.map(function (h) {
+      return obj[h] !== undefined && obj[h] !== null ? obj[h] : '';
+    });
+    sheet.appendRow(row);
+    return id;
+  });
+}
+
+/**
+ * matchObj の全カラムが一致する行を探し、あれば rowObject の内容で更新、
+ * なければ matchObj + rowObject を1行として追記する（複合キーの upsert）。
+ * responses（vacancy_id + staff_id で1件）のような複合キー更新に使う。
+ * @return {'updated'|'inserted'}
+ */
+function upsertRow(sheetName, matchObj, rowObject) {
+  return withLock_(function () {
+    const sheet = getSheet_(sheetName);
+    const values = sheet.getDataRange().getValues();
+    const headers = values[0];
+
+    // 書き込む値（キー＋更新内容をマージ）
+    const merged = {};
+    for (var mk in matchObj) merged[mk] = matchObj[mk];
+    for (var rk in rowObject) merged[rk] = rowObject[rk];
+
+    for (var r = 1; r < values.length; r++) {
+      if (isEmptyRow_(values[r])) continue;
+      if (rowMatches_(values[r], headers, matchObj)) {
+        for (var c = 0; c < headers.length; c++) {
+          if (merged[headers[c]] !== undefined) {
+            sheet.getRange(r + 1, c + 1).setValue(merged[headers[c]]);
+          }
+        }
+        return 'updated';
+      }
+    }
+    const row = headers.map(function (h) {
+      return merged[h] !== undefined && merged[h] !== null ? merged[h] : '';
+    });
+    sheet.appendRow(row);
+    return 'inserted';
+  });
+}
+
+// 行配列が matchObj の全カラムと一致するか
+function rowMatches_(rowArr, headers, matchObj) {
+  for (var key in matchObj) {
+    var idx = headers.indexOf(key);
+    if (idx === -1) return false;
+    if (String(rowArr[idx]).trim() !== String(matchObj[key]).trim()) return false;
+  }
+  return true;
+}
+
 // ─── 内部ヘルパー ────────────────────────────────────────────
 
 function getHeaders_(sheet) {
