@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: "Helvetica Neue", Arial, "Hiragino Sans", "Yu Gothic", sans-serif;
+           margin: 0; background: #f5f6f8; color: #222; }
+    header { background: #4a86e8; color: #fff; padding: 14px 16px; }
+    header h1 { font-size: 1.1rem; margin: 0; }
+    header .user { font-size: .8rem; opacity: .9; margin-top: 2px; }
+    nav { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; background: #fff;
+          border-bottom: 1px solid #e3e6ea; }
+    nav a { font-size: .85rem; text-decoration: none; color: #4a86e8;
+            border: 1px solid #cdddfb; border-radius: 999px; padding: 5px 12px; }
+    nav a:hover { background: #eef4ff; }
+    main { padding: 16px; max-width: 880px; margin: 0 auto; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px;
+            overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #eef0f3; font-size: .9rem; }
+    th { background: #f0f3f7; font-weight: 600; }
+    tr:last-child td { border-bottom: none; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .78rem; }
+    .b-normal  { background: #e7f6ec; color: #1e7a3d; }
+    .b-vacant  { background: #fdecea; color: #c0392b; }
+    .b-filled  { background: #e7f0fd; color: #2a63c0; }
+    .b-other   { background: #f0f0f0; color: #555; }
+    .state { padding: 24px; text-align: center; color: #888; }
+    .empty { color: #888; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>シフト確認</h1>
+    <div class="user"><?= user.name ?> さん（<?= user.role ?>）</div>
+  </header>
+
+  <nav>
+    <a href="<?= appUrl ?>?page=home">シフト確認</a>
+    <a href="<?= appUrl ?>?page=absence">欠勤連絡</a>
+    <? if (user.role === '職員') { ?>
+      <a href="<?= appUrl ?>?page=input">シフト入力</a>
+      <a href="<?= appUrl ?>?page=manage">欠員補充管理</a>
+      <a href="<?= appUrl ?>?page=check">整合性チェック</a>
+    <? } ?>
+  </nav>
+
+  <main>
+    <div id="content" class="state">読み込み中…</div>
+  </main>
+
+  <script>
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function badgeClass(status) {
+      if (status === '通常') return 'b-normal';
+      if (status === '欠員対応中') return 'b-vacant';
+      if (status === '補充済') return 'b-filled';
+      return 'b-other';
+    }
+
+    function render(rows) {
+      var content = document.getElementById('content');
+      if (!rows || rows.length === 0) {
+        content.className = 'state empty';
+        content.textContent = '登録されているコマがありません。';
+        return;
+      }
+      var html = '<table><thead><tr>' +
+        '<th>曜日</th><th>時限</th><th>時間</th><th>担当A</th><th>担当B</th><th>状況</th>' +
+        '</tr></thead><tbody>';
+      rows.forEach(function (r) {
+        html += '<tr>' +
+          '<td>' + escapeHtml(r.day) + '</td>' +
+          '<td>' + escapeHtml(r.period) + '限</td>' +
+          '<td>' + escapeHtml(r.time) + '</td>' +
+          '<td>' + escapeHtml(r.staffA) + '</td>' +
+          '<td>' + escapeHtml(r.staffB) + '</td>' +
+          '<td><span class="badge ' + badgeClass(r.status) + '">' +
+              escapeHtml(r.status) + '</span></td>' +
+          '</tr>';
+      });
+      html += '</tbody></table>';
+      content.className = '';
+      content.innerHTML = html;
+    }
+
+    function onError(err) {
+      var content = document.getElementById('content');
+      content.className = 'state';
+      content.textContent = 'エラー: ' + err.message;
+    }
+
+    google.script.run.withSuccessHandler(render).withFailureHandler(onError).getDashboardData();
+  </script>
+</body>
+</html>

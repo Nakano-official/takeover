@@ -111,6 +111,7 @@ function renderPage_(config, pageKey, user, params) {
   template.user = user || {};
   template.pageKey = pageKey;
   template.params = params;
+  template.appUrl = getAppUrl_();
 
   return template
     .evaluate()
@@ -140,6 +141,62 @@ function renderMessage_(heading, message) {
 // 使い方： HTML内で <?!= include('style') ?>
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
+
+// このWeb App自身のURL（画面間リンクの生成に使う）
+function getAppUrl_() {
+  return ScriptApp.getService().getUrl();
+}
+
+// ─── 画面用データAPI（google.script.run から呼ぶ）───────────
+
+/**
+ * シフト確認画面（home）用のダッシュボードデータを返す。
+ * courses に staffs(氏名)・periods(時刻)・vacancies(状況) を結合する。
+ */
+function getDashboardData() {
+  // 読み取り専用画面だが、未登録ユーザーには返さない
+  if (!getCurrentUser_()) throw new Error('利用登録がありません。');
+
+  const nameById = {};
+  readRows(SHEET.STAFFS).forEach(function (s) {
+    nameById[String(s.staff_id).trim()] = s.name;
+  });
+
+  const periodById = {};
+  readRows(SHEET.PERIODS).forEach(function (p) {
+    periodById[String(p.period).trim()] = p;
+  });
+
+  const vacancies = readRows(SHEET.VACANCIES);
+
+  return readRows(SHEET.COURSES).map(function (c) {
+    const courseId = String(c.course_id).trim();
+    const p = periodById[String(c.period).trim()] || {};
+
+    // このコマに紐づく欠員から状況を判定する
+    const related = vacancies.filter(function (v) {
+      return String(v.course_id).trim() === courseId;
+    });
+    var status = '通常';
+    const open = related.filter(function (v) { return !String(v.result).trim(); });
+    if (open.length > 0) {
+      status = '欠員対応中';
+    } else if (related.length > 0) {
+      status = String(related[related.length - 1].result).trim(); // 補充済 / 1人テイク / 職員対応
+    }
+
+    return {
+      course_id: courseId,
+      quarter: c.quarter,
+      day: c.day,
+      period: String(c.period).trim(),
+      time: p.start_time ? p.start_time + '〜' + p.end_time : '',
+      staffA: nameById[String(c.staff_a_id).trim()] || c.staff_a_id || '',
+      staffB: nameById[String(c.staff_b_id).trim()] || c.staff_b_id || '',
+      status: status,
+    };
+  });
 }
 
 // 文字列をHTMLエスケープする（メッセージ画面用）
