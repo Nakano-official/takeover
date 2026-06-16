@@ -1,6 +1,10 @@
 # clasp
 .clasp.json
 
+# 実データ（勤怠CSVなど個人情報を含む出力物はコミットしない）
+*.csv
+!data/**/*.csv
+
 # Logs
 logs
 *.log
