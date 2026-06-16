@@ -193,6 +193,7 @@ GASエディタの「スクリプトのプロパティ」から設定し、コ�
 | CONTACTS_SPREADSHEET_ID | 連絡先DB スプレッドシートのID |
 | CALENDAR_ID | 連携するGoogleカレンダーのID |
 | CHAT_WEBHOOK_URL | 職員向け Chat スペースの Incoming Webhook URL（スタッフ個別の Webhook は連絡先DBで管理） |
+| DEVICE_TOKEN | 物理アラート端末（M5Stack）用の認証トークン（D6）。端末スケッチと完全一致させる |
 
 **.clasp.json はGitにコミットしない（スクリプトIDが含まれるため）。**
 

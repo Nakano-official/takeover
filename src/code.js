@@ -26,6 +26,14 @@ const ROLE_STAFF = '職員';
 
 function doGet(e) {
   const params = (e && e.parameter) || {};
+
+  // 物理アラート端末（M5Stack）用の軽量エンドポイント（decisions.md D6）。
+  // ?device=alert&token=（秘密文字列）で叩く。返すのは件数＋最新欠員番号のみ＝個人情報なし（D3と整合）。
+  // 画面のルーティングより前に処理し、ログイン不要（トークンで保護）にする。
+  if (params.device === 'alert') {
+    return handleDevicePoll_(params);
+  }
+
   const pageKey = params.page || DEFAULT_PAGE;
   const config = PAGES[pageKey];
 
