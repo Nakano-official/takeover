@@ -101,6 +101,7 @@
              border-radius: 8px 8px 0 0; }
     .per-h small { color: #888; font-weight: normal; margin-left: 6px; }
     .per-b { padding: 6px 8px; }
+    .per-empty { color: #b3b9c0; font-size: .85rem; padding: 6px 2px; }
 
     .state { padding: 24px; text-align: center; color: #888; }
 
@@ -321,19 +322,15 @@
     function renderDayView() {
       var host = document.getElementById('dayView');
       if (!host) return;
-      // この曜日にコマがある時限だけ表示
-      var rows = VIEW.periods.filter(function (p) {
-        return cellCourses(curDay, p.period).length > 0;
-      });
-      if (rows.length === 0) {
-        host.innerHTML = '<div class="state">' + escapeHtml(curDay) + '曜のコマはありません。</div>';
-        return;
-      }
-      host.innerHTML = rows.map(function (p) {
-        var cards = cellCourses(curDay, p.period).map(card).join('');
+      // 全時限を枠として並べる（コマが無い時限も空欄で残す）
+      host.innerHTML = VIEW.periods.map(function (p) {
+        var list = cellCourses(curDay, p.period);
+        var body = list.length
+          ? list.map(card).join('')
+          : '<div class="per-empty">コマなし</div>';
         return '<div class="per"><div class="per-h">' + escapeHtml(p.period) + '限' +
           (p.time ? '<small>' + escapeHtml(p.time) + '</small>' : '') +
-          '</div><div class="per-b">' + cards + '</div></div>';
+          '</div><div class="per-b">' + body + '</div></div>';
       }).join('');
     }
 
@@ -344,15 +341,10 @@
       renderDayView();
     }
 
-    // 与えられたコマ配列から、登場する曜日・時限だけを元の並び順で取り出す
+    // 時間割の枠は固定（サーバーが返した曜日・時限を常に全部使う）。
+    // コマが無いセルも空欄の枠として残す。
     function buildView(courses) {
-      var dayHas = {}, perHas = {};
-      courses.forEach(function (c) { dayHas[c.day] = true; perHas[c.period] = true; });
-      return {
-        courses: courses,
-        days: DATA.days.filter(function (d) { return dayHas[d]; }),
-        periods: DATA.periods.filter(function (p) { return perHas[p.period]; }),
-      };
+      return { courses: courses, days: DATA.days, periods: DATA.periods };
     }
 
     // 絞り込みを適用して再描画

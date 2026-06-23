@@ -298,10 +298,14 @@ function getTimetable(quarter) {
       };
     });
 
-  // 軸は「登場する曜日・時限のみ」を正規順で（空の行列を作らない）
+  // 軸は「時間割の枠」として固定する。標準曜日（月〜金）と時限マスタの全時限を
+  // 常に並べ、コマが無い曜日・時限も空欄の枠として残す（土日や課外時限は登場時のみ追加）。
   const DAY_ORDER = ['月', '火', '水', '木', '金', '土', '日'];
+  const STANDARD_DAYS = ['月', '火', '水', '木', '金'];
   const daySet = {};
+  STANDARD_DAYS.forEach(function (d) { daySet[d] = true; });
   const periodSet = {};
+  Object.keys(periodIndex).forEach(function (p) { periodSet[p] = true; }); // 時限マスタ全件
   courses.forEach(function (c) { daySet[c.day] = true; periodSet[c.period] = true; });
   const days = DAY_ORDER.filter(function (d) { return daySet[d]; });
   const periods = Object.keys(periodSet)
