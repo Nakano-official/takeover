@@ -4,7 +4,30 @@
  * 実行後、ログに表示された2つのIDをPropertiesServiceに登録すること。
  */
 
+/**
+ * 【動作確認用】ダミーデータ入りでセットアップする。
+ * 架空のスタッフ・利用者・コマが入った状態で2つのDBを作る。デモ・実証実験向け。
+ */
 function setupSpreadsheets() {
+  runSetup_(buildDummyData_(), false);
+}
+
+/**
+ * 【本番用】空（ヘッダーのみ）でセットアップする。
+ * staffs / courses / contacts は空。periods（時限マスタ）だけ入る。
+ * 実データはフォーム取り込み・シフト入力画面・手入力で投入する（docs/operations.md）。
+ */
+function setupSpreadsheetsEmpty() {
+  runSetup_(emptyData_(), true);
+}
+
+// ヘッダーのみ（データ行なし）のセットアップ用データ
+function emptyData_() {
+  return { students: [], staff: [], users: [], staffs: [], courses: [], contacts: [] };
+}
+
+// セットアップ本体（ダミー/空 共通）
+function runSetup_(data, isEmpty) {
   // 再実行ガード：既にIDが登録済みなら中断する（スプレッドシート二重作成を防止）
   const props = PropertiesService.getScriptProperties();
   if (props.getProperty('SPREADSHEET_ID') || props.getProperty('CONTACTS_SPREADSHEET_ID')) {
@@ -13,24 +36,30 @@ function setupSpreadsheets() {
     return;
   }
 
-  // ダミーデータを1回生成し、メインDB／連絡先DBで共有する（staff_id を揃えるため）
-  const data = buildDummyData_();
-
   const mainDb = SpreadsheetApp.create('支援室シフト管理 - メインDB');
   setupMainDb_(mainDb, data);
 
   const contactsDb = SpreadsheetApp.create('支援室シフト管理 - 連絡先DB');
   setupContactsDb_(contactsDb, data);
 
-  Logger.log('========== セットアップ完了 ==========');
-  Logger.log('学生スタッフ ' + data.students.length + '名・職員 ' + data.staff.length +
-    '名・利用者 ' + data.users.length + '名・コマ ' + data.courses.length + '件 を投入しました。');
+  Logger.log('========== セットアップ完了（' + (isEmpty ? '本番・空' : 'デモ・ダミーデータ') + '）==========');
+  if (!isEmpty) {
+    Logger.log('学生スタッフ ' + data.students.length + '名・職員 ' + data.staff.length +
+      '名・利用者 ' + data.users.length + '名・コマ ' + data.courses.length + '件 を投入しました。');
+  }
   Logger.log('【SPREADSHEET_ID】メインDB:      ' + mainDb.getId());
   Logger.log('【CONTACTS_SPREADSHEET_ID】連絡先DB: ' + contactsDb.getId());
   Logger.log('上記IDをGASエディタ > プロジェクトの設定 > スクリプトプロパティに登録してください。');
   Logger.log('連絡先DBは職員のみ共有してください（スプレッドシートの共有設定で制限）。');
-  Logger.log('★ テストで自分が職員としてログインするには、連絡先DB contacts の S001 の email を');
-  Logger.log('  自分のアドレスに書き換えてください（それで「職員」として全画面が見えます）。');
+  if (isEmpty) {
+    Logger.log('★ まずログインできるよう、最初の職員を1行ずつ追加してください：');
+    Logger.log('  - staffs   : staff_id / name / role=職員 /（skills・available_slots は空でOK）');
+    Logger.log('  - contacts : 同じ staff_id / name / email=自分の大学アドレス');
+    Logger.log('  その後、フォーム取り込みやシフト入力画面で学生・コマを投入します（docs/operations.md）。');
+  } else {
+    Logger.log('★ テストで自分が職員としてログインするには、連絡先DB contacts の S001 の email を');
+    Logger.log('  自分のアドレスに書き換えてください（それで「職員」として全画面が見えます）。');
+  }
 }
 
 // ─── ダミーデータ生成（全て架空名。実在の利用者/教員/科目名は使わない）──

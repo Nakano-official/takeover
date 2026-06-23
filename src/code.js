@@ -219,12 +219,26 @@ function getDashboardData() {
  * @param {string} [quarter] 表示するクォーター（省略可）
  */
 function getTimetable(quarter) {
-  if (!getCurrentUser_()) throw new Error('利用登録がありません。');
+  const user = getCurrentUser_();
+  if (!user) throw new Error('利用登録がありません。');
 
   const nameById = {};
   readRows(SHEET.STAFFS).forEach(function (s) {
     nameById[String(s.staff_id).trim()] = s.name;
   });
+
+  // ログイン中スタッフの「対応可能な内容（スキル）」と「空きコマ」。
+  // クライアントで「自分が入れる募集中」を判定するために返す（D8③）。
+  const meRow = findRow(SHEET.STAFFS, 'staff_id', user.staff_id);
+  const splitList = function (v) {
+    return String(v || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+  };
+  const me = {
+    name: user.name,
+    role: user.role,
+    skills: meRow ? splitList(meRow.skills) : [],
+    slots: meRow ? splitList(meRow.available_slots) : [],
+  };
 
   // 時限マスタ（時刻と並び順）
   const periodTime = {};
@@ -284,10 +298,14 @@ function getTimetable(quarter) {
       };
     });
 
-  // 軸は「登場する曜日・時限のみ」を正規順で（空の行列を作らない）
+  // 軸は「時間割の枠」として固定する。標準曜日（月〜金）と時限マスタの全時限を
+  // 常に並べ、コマが無い曜日・時限も空欄の枠として残す（土日や課外時限は登場時のみ追加）。
   const DAY_ORDER = ['月', '火', '水', '木', '金', '土', '日'];
+  const STANDARD_DAYS = ['月', '火', '水', '木', '金'];
   const daySet = {};
+  STANDARD_DAYS.forEach(function (d) { daySet[d] = true; });
   const periodSet = {};
+  Object.keys(periodIndex).forEach(function (p) { periodSet[p] = true; }); // 時限マスタ全件
   courses.forEach(function (c) { daySet[c.day] = true; periodSet[c.period] = true; });
   const days = DAY_ORDER.filter(function (d) { return daySet[d]; });
   const periods = Object.keys(periodSet)
@@ -298,7 +316,10 @@ function getTimetable(quarter) {
     })
     .map(function (p) { return { period: p, time: periodTime[p] || '' }; });
 
-  return { quarters: quarters, quarter: selected, days: days, periods: periods, courses: courses };
+  return {
+    quarters: quarters, quarter: selected,
+    days: days, periods: periods, courses: courses, me: me,
+  };
 }
 
 // 文字列をHTMLエスケープする（メッセージ画面用）

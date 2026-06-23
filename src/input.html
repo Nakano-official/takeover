@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: "Helvetica Neue", Arial, "Hiragino Sans", "Yu Gothic", sans-serif;
+           margin: 0; background: #f5f6f8; color: #222; }
+    header { background: #4a86e8; color: #fff; padding: 14px 16px; }
+    header h1 { font-size: 1.1rem; margin: 0; }
+    header .user { font-size: .8rem; opacity: .9; margin-top: 2px; }
+    nav { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; background: #fff;
+          border-bottom: 1px solid #e3e6ea; }
+    nav a { font-size: .85rem; text-decoration: none; color: #4a86e8;
+            border: 1px solid #cdddfb; border-radius: 999px; padding: 5px 12px; }
+    nav a:hover { background: #eef4ff; }
+    main { padding: 16px; max-width: 760px; margin: 0 auto; }
+    .card { background: #fff; border-radius: 8px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08);
+            margin-bottom: 16px; }
+    .card h2 { font-size: 1rem; margin: 0 0 12px; }
+
+    .qbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .qbar label { font-weight: 600; font-size: .9rem; }
+
+    label { display: block; font-size: .85rem; font-weight: 600; margin: 0 0 6px; }
+    input, select, textarea { width: 100%; padding: 9px 10px; font-size: .95rem;
+            border: 1px solid #cdd3da; border-radius: 6px; background: #fff; font-family: inherit; }
+    textarea { resize: vertical; min-height: 44px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
+    .grid .full { grid-column: 1 / -1; }
+    @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+
+    .btn { margin-top: 16px; width: 100%; padding: 12px; font-size: 1rem; font-weight: 600;
+           color: #fff; background: #2a63c0; border: none; border-radius: 6px; cursor: pointer; }
+    .btn:disabled { background: #9db8e3; cursor: default; }
+    .req { color: #c0392b; margin-left: 3px; }
+    .hint { font-size: .78rem; color: #888; margin-top: 6px; }
+
+    .toast { margin-top: 12px; padding: 12px 14px; border-radius: 8px; font-size: .9rem; display: none; }
+    .toast.ok { display: block; background: #eaf7ee; border: 1px solid #bfe6cb; color: #1e7a3d; }
+    .toast.err { display: block; background: #fdecea; border: 1px solid #f5c6c0; color: #c0392b; }
+
+    .count { font-size: .82rem; color: #666; margin-bottom: 10px; }
+    .row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0;
+           border-top: 1px solid #eef1f4; }
+    .row:first-child { border-top: none; }
+    .row .info { flex: 1; font-size: .88rem; line-height: 1.5; }
+    .row .slot { font-weight: 700; color: #2a63c0; }
+    .row .tag { display: inline-block; font-size: .7rem; padding: 0 7px; border-radius: 999px;
+                color: #fff; margin-left: 6px; vertical-align: 1px; }
+    .row .tag.take { background: #2a63c0; }
+    .row .tag.help { background: #d98a00; }
+    .row .sub { color: #555; }
+    .row .stf { color: #1e7a3d; }
+    .del { flex: 0 0 auto; border: 1px solid #e3b4ae; background: #fff; color: #c0392b;
+           border-radius: 6px; padding: 6px 12px; font-size: .82rem; cursor: pointer; }
+    .del:hover { background: #fdf1f0; }
+    .state { padding: 18px; text-align: center; color: #888; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>シフト入力</h1>
+    <div class="user"><?= user.name ?> さん（<?= user.role ?>）</div>
+  </header>
+
+  <nav>
+    <a href="<?= appUrl ?>?page=home">シフト確認</a>
+    <a href="<?= appUrl ?>?page=absence">欠勤連絡</a>
+    <a href="<?= appUrl ?>?page=input">シフト入力</a>
+    <a href="<?= appUrl ?>?page=manage">欠員補充管理</a>
+    <a href="<?= appUrl ?>?page=check">整合性チェック</a>
+  </nav>
+
+  <main>
+    <div class="card">
+      <div class="qbar">
+        <label for="quarter">クォーター</label>
+        <input id="quarter" list="qlist" style="max-width:200px" onchange="onQuarterChange()">
+        <datalist id="qlist"></datalist>
+        <span class="hint" style="margin:0">このクォーターのコマを編集します（新規も可）</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>コマを追加</h2>
+      <div id="form" class="state">読み込み中…</div>
+      <div id="toast" class="toast"></div>
+    </div>
+
+    <div class="card">
+      <h2>登録済みのコマ</h2>
+      <div id="count" class="count"></div>
+      <div id="list" class="state">—</div>
+    </div>
+  </main>
+
+  <script>
+    var DATA = null;
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    function val(id) { return document.getElementById(id).value; }
+
+    function load(quarter) {
+      document.getElementById('form').className = 'state';
+      document.getElementById('form').textContent = '読み込み中…';
+      google.script.run
+        .withSuccessHandler(onData)
+        .withFailureHandler(function (err) {
+          document.getElementById('form').textContent = 'エラー: ' + err.message;
+        })
+        .getInputData(quarter || null);
+    }
+
+    function onData(data) {
+      DATA = data;
+      // クォーター候補
+      document.getElementById('qlist').innerHTML =
+        data.quarters.map(function (q) { return '<option value="' + escapeHtml(q) + '">'; }).join('');
+      document.getElementById('quarter').value = data.quarter || '';
+      buildForm();
+      renderList();
+    }
+
+    function onQuarterChange() {
+      var q = val('quarter').trim();
+      if (q) load(q);
+    }
+
+    function buildForm() {
+      var dayOpts = DATA.days.map(function (d) {
+        return '<option value="' + escapeHtml(d) + '">' + escapeHtml(d) + '</option>';
+      }).join('');
+      var perOpts = DATA.periods.map(function (p) {
+        return '<option value="' + escapeHtml(p.period) + '">' + escapeHtml(p.period) + '限'
+          + (p.time ? '（' + escapeHtml(p.time) + '）' : '') + '</option>';
+      }).join('');
+
+      document.getElementById('form').className = '';
+      document.getElementById('form').innerHTML =
+        '<div class="grid">' +
+          '<div><label>曜日<span class="req">*</span></label>' +
+            '<select id="day" onchange="rebuildStaff()">' + dayOpts + '</select></div>' +
+          '<div><label>時限<span class="req">*</span></label>' +
+            '<select id="period" onchange="rebuildStaff()">' + perOpts + '</select></div>' +
+          '<div><label>内容<span class="req">*</span></label>' +
+            '<select id="support_type" onchange="onTypeChange()">' +
+            '<option value="テイク">テイク（原則2名）</option>' +
+            '<option value="介助">介助（1名）</option></select></div>' +
+          '<div><label>利用者（被支援者）<span class="req">*</span></label>' +
+            '<select id="user_sel" onchange="onUserSel()"></select>' +
+            '<input id="user_new" style="display:none;margin-top:6px" placeholder="新しい利用者名"></div>' +
+          '<div><label>科目名</label><input id="subject" placeholder="例：基礎数学"></div>' +
+          '<div><label>担当教員</label><input id="instructor" placeholder="例：（仮）教員A"></div>' +
+          '<div><label>教室</label><input id="room" placeholder="例：1-101"></div>' +
+          '<div></div>' +
+          '<div class="full"><label style="font-weight:600;cursor:pointer">' +
+            '<input type="checkbox" id="eligOnly" checked onchange="rebuildStaff()" style="width:auto">' +
+            ' このコマに空きがあり、スキルも合う人だけ表示</label></div>' +
+          '<div><label>担当スタッフA<span class="req">*</span></label>' +
+            '<select id="staff_a_id"></select></div>' +
+          '<div><label>担当スタッフB</label><select id="staff_b_id"></select></div>' +
+          '<div class="full"><label>備考</label><textarea id="note" placeholder="任意"></textarea></div>' +
+        '</div>' +
+        '<button class="btn" id="add" onclick="addCourse()">このコマを追加</button>' +
+        '<p class="hint">＊は必須。テイクはB欄に2人目を選びます（未定なら「なし」のままでも登録可）。' +
+        '担当欄は選んだ曜日・時限に空きがあり内容に対応できる人だけを表示します。</p>';
+
+      fillUserOptions();
+      rebuildStaff();
+    }
+
+    // 利用者プルダウン（既存名＋「新規追加」）
+    function fillUserOptions() {
+      var sel = document.getElementById('user_sel');
+      if (!sel) return;
+      var opts = '<option value="">（選択してください）</option>' +
+        DATA.users.map(function (u) {
+          return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>';
+        }).join('') +
+        '<option value="__new__">＋ 新しい利用者を追加…</option>';
+      sel.innerHTML = opts;
+    }
+
+    function onUserSel() {
+      var box = document.getElementById('user_new');
+      if (val('user_sel') === '__new__') { box.style.display = ''; box.focus(); }
+      else { box.style.display = 'none'; }
+    }
+
+    // 入力された利用者名（既存選択 or 新規入力）
+    function userValue() {
+      return val('user_sel') === '__new__'
+        ? document.getElementById('user_new').value.trim()
+        : val('user_sel');
+    }
+
+    // 介助のときはB欄を無効化（1名）。内容が変わると候補も組み直す。
+    function onTypeChange() {
+      rebuildStaff();
+      var b = document.getElementById('staff_b_id');
+      if (val('support_type') === '介助') { b.value = ''; b.disabled = true; }
+      else { b.disabled = false; }
+    }
+
+    // 担当A/Bの候補を「空き＋スキル」で組み直す（選択中の値は可能なら維持）
+    function staffEligible(s) {
+      var slotKey = val('day') + val('period');
+      var type = val('support_type');
+      var skillOk = !s.skills ||
+        s.skills.split(',').map(function (x) { return x.trim(); }).indexOf(type) !== -1;
+      return skillOk && s.slots.indexOf(slotKey) !== -1;
+    }
+
+    function rebuildStaff() {
+      var eligOnly = document.getElementById('eligOnly').checked;
+      var list = eligOnly ? DATA.staff.filter(staffEligible) : DATA.staff.slice();
+      var opt = function (s) {
+        var label = s.name + (s.skills ? '（' + s.skills + '）' : '');
+        return '<option value="' + escapeHtml(s.staff_id) + '">' + escapeHtml(label) + '</option>';
+      };
+      var body = list.map(opt).join('');
+
+      var a = document.getElementById('staff_a_id');
+      var b = document.getElementById('staff_b_id');
+      var prevA = a.value, prevB = b.value;
+      a.innerHTML = body ||
+        '<option value="">該当者なし（絞り込みを外してください）</option>';
+      b.innerHTML = '<option value="">（なし・1名）</option>' + body;
+      // 直前の選択が候補に残っていれば維持
+      if (list.some(function (s) { return s.staff_id === prevA; })) a.value = prevA;
+      if (prevB && list.some(function (s) { return s.staff_id === prevB; })) b.value = prevB;
+    }
+
+    function addCourse() {
+      var payload = {
+        quarter: val('quarter').trim(),
+        day: val('day'), period: val('period'),
+        support_type: val('support_type'),
+        user_student: userValue(),
+        subject: val('subject').trim(),
+        instructor: val('instructor').trim(),
+        room: val('room').trim(),
+        staff_a_id: val('staff_a_id'),
+        staff_b_id: document.getElementById('staff_b_id').disabled ? '' : val('staff_b_id'),
+        note: val('note').trim(),
+      };
+      if (!payload.quarter) { showToast('クォーターを入力してください。', false); return; }
+      if (!payload.user_student) { showToast('利用者を入力してください。', false); return; }
+
+      var btn = document.getElementById('add');
+      btn.disabled = true; btn.textContent = '追加中…';
+      google.script.run
+        .withSuccessHandler(function (res) {
+          showToast('追加しました（' + res.course_id + '）。', true);
+          // 入力しやすいよう、コマ固有の項目だけクリア（曜日・時限・内容・担当は維持）
+          ['subject', 'instructor', 'room', 'note', 'user_new'].forEach(function (id) {
+            document.getElementById(id).value = '';
+          });
+          document.getElementById('user_new').style.display = 'none';
+          btn.disabled = false; btn.textContent = 'このコマを追加';
+          refreshList(payload.quarter); // フォームは保ったまま一覧だけ更新
+        })
+        .withFailureHandler(function (err) {
+          showToast(err.message, false);
+          btn.disabled = false; btn.textContent = 'このコマを追加';
+        })
+        .addCourse(payload);
+    }
+
+    // フォームを再構築せず、一覧と候補リストだけ更新する
+    function refreshList(quarter) {
+      google.script.run
+        .withSuccessHandler(function (data) {
+          DATA = data;
+          document.getElementById('qlist').innerHTML =
+            data.quarters.map(function (q) { return '<option value="' + escapeHtml(q) + '">'; }).join('');
+          // 新しい利用者が増えている場合に備えてプルダウンを更新（選択はリセット）
+          fillUserOptions();
+          rebuildStaff();
+          renderList();
+        })
+        .withFailureHandler(function (err) { showToast(err.message, false); })
+        .getInputData(quarter || null);
+    }
+
+    function delCourse(id, label) {
+      if (!confirm(label + '\nこのコマを削除しますか？')) return;
+      google.script.run
+        .withSuccessHandler(function () {
+          showToast('削除しました。', true);
+          load(val('quarter').trim());
+        })
+        .withFailureHandler(function (err) { showToast(err.message, false); })
+        .deleteCourse(id);
+    }
+
+    function renderList() {
+      var host = document.getElementById('list');
+      var countEl = document.getElementById('count');
+      var courses = DATA.courses;
+      countEl.textContent = 'このクォーターのコマ: ' + courses.length + ' 件';
+      if (courses.length === 0) {
+        host.className = 'state';
+        host.textContent = 'まだコマがありません。上のフォームから追加してください。';
+        return;
+      }
+      host.className = '';
+      host.innerHTML = courses.map(function (c) {
+        var isTake = c.support_type === 'テイク';
+        var staff = escapeHtml(c.staffA || '—') + (c.staffB ? ' ・ ' + escapeHtml(c.staffB) : '');
+        var slot = escapeHtml(c.day) + escapeHtml(c.period) + '限';
+        var label = slot + ' ' + c.support_type + ' ' + (c.user_student || '');
+        var info =
+          '<span class="slot">' + slot + '</span>' +
+          '<span class="tag ' + (isTake ? 'take' : 'help') + '">' + escapeHtml(c.support_type) + '</span>' +
+          ' <b>' + escapeHtml(c.user_student) + '</b>' +
+          '<div class="sub">' + escapeHtml(c.subject || '—')
+            + (c.room ? ' / ' + escapeHtml(c.room) : '')
+            + (c.instructor ? ' / ' + escapeHtml(c.instructor) : '') + '</div>' +
+          '<div class="stf">担当: ' + staff + '</div>' +
+          (c.note ? '<div class="sub">備考: ' + escapeHtml(c.note) + '</div>' : '');
+        return '<div class="row"><div class="info">' + info + '</div>' +
+          '<button class="del" onclick="delCourse(\'' + escapeHtml(c.course_id) + '\',\''
+            + escapeHtml(label).replace(/'/g, '') + '\')">削除</button></div>';
+      }).join('');
+    }
+
+    function showToast(msg, ok) {
+      var t = document.getElementById('toast');
+      t.className = 'toast ' + (ok ? 'ok' : 'err');
+      t.textContent = msg;
+    }
+
+    load(null);
+  </script>
+</body>
+</html>

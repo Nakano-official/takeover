@@ -30,6 +30,12 @@
     .ans { font-size: .78rem; padding: 1px 8px; border-radius: 999px; margin-left: 6px; }
     .ans-ok { background: #e7f6ec; color: #1e7a3d; }
     .ans-no { background: #f0f0f0; color: #777; }
+    .ans-wait { background: #fff3e0; color: #b06f00; }
+    .resp-h { font-size: .82rem; font-weight: 600; color: #555; margin-bottom: 4px; }
+    .cand-right { display: flex; align-items: center; gap: 10px; }
+    .tel { font-size: .9rem; color: #2a63c0; text-decoration: none; white-space: nowrap; }
+    .tel:hover { text-decoration: underline; }
+    .nophone { font-size: .8rem; color: #b06f00; }
     .confirm { background: #1e7a3d; color: #fff; border: none; border-radius: 6px;
                padding: 6px 14px; font-size: .85rem; font-weight: 600; cursor: pointer; }
     .confirm:disabled { opacity: .5; cursor: default; }
@@ -92,25 +98,32 @@
           : escapeHtml(v.result);
         return '<div class="vac"><span class="badge b-done">確定</span> ' +
           '<span class="done-line">' + label + '</span>' +
-          '<div style="margin-top:6px">' + head + '</div></div>';
+          '<div style="margin-top:6px">' + head + '</div>' +
+          '<div class="alt"><button onclick="reopen(\'' + v.vacancy_id +
+            '\',this)">再オープン（変更する）</button></div>' +
+          '</div>';
       }
 
-      // 未解決：回答一覧＋確定ボタン
+      // 未解決：代行候補（空きコマ学生）を電話番号・回答状況つきで一覧。
+      // 返信が来ないときは職員がこの番号に電話し、口頭でOKなら「確定」する。
       var respHtml;
-      if (v.responses.length === 0) {
-        respHtml = '<div class="none">まだ回答がありません。</div>';
+      if (!v.candidates || v.candidates.length === 0) {
+        respHtml = '<div class="none">空きのある代行候補がいません。下のボタンで決着してください。</div>';
       } else {
-        respHtml = v.responses.map(function (r) {
-          var ok = r.answer === '承諾';
-          var ansBadge = '<span class="ans ' + (ok ? 'ans-ok' : 'ans-no') + '">' +
-            escapeHtml(r.answer) + '</span>';
-          var btn = ok
-            ? '<button class="confirm" onclick="confirmSub(\'' + v.vacancy_id + '\',\'' +
-                r.staff_id + '\',this)">この人で確定</button>'
-            : '';
-          return '<div class="resp-row"><div>' + escapeHtml(r.name) + ansBadge + '</div>' +
-            '<div>' + btn + '</div></div>';
-        }).join('');
+        respHtml = '<div class="resp-h">代行候補（空きコマ・電話）</div>' +
+          v.candidates.map(function (c) {
+            var st = c.answer === '承諾' ? '承諾' : (c.answer === '辞退' ? '辞退' : '未回答');
+            var stCls = c.answer === '承諾' ? 'ans-ok' : (c.answer === '辞退' ? 'ans-no' : 'ans-wait');
+            var phone = c.phone
+              ? '<a class="tel" href="tel:' + escapeHtml(c.phone) + '">📞 ' + escapeHtml(c.phone) + '</a>'
+              : '<span class="nophone">電話未登録</span>';
+            return '<div class="resp-row">' +
+              '<div>' + escapeHtml(c.name) + '<span class="ans ' + stCls + '">' + st + '</span></div>' +
+              '<div class="cand-right">' + phone +
+                '<button class="confirm" onclick="confirmSub(\'' + v.vacancy_id + '\',\'' +
+                  c.staff_id + '\',this)">確定</button>' +
+              '</div></div>';
+          }).join('');
       }
 
       var alt =
@@ -143,6 +156,15 @@
         .withSuccessHandler(reload)
         .withFailureHandler(function (err) { alert('エラー: ' + err.message); reload(); })
         .setVacancyResult(vacancyId, result);
+    }
+
+    function reopen(vacancyId, btn) {
+      if (!confirm('この欠員を未確定に戻します。代行者の充て直しや結果の変更ができます。よろしいですか？')) return;
+      disableAll(btn);
+      google.script.run
+        .withSuccessHandler(reload)
+        .withFailureHandler(function (err) { alert('エラー: ' + err.message); reload(); })
+        .reopenVacancy(vacancyId);
     }
 
     function disableAll(btn) {

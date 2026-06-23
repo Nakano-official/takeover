@@ -257,6 +257,27 @@ function upsertRow(sheetName, matchObj, rowObject) {
   });
 }
 
+/**
+ * keyColumn が keyValue と一致する行を物理削除する。削除件数を返す。
+ * 下の行から走査するため、複数一致でも行番号がずれず安全。LockServiceで保護。
+ */
+function deleteRowByKey(sheetName, keyColumn, keyValue) {
+  return withLock_(function () {
+    const sheet = getSheet_(sheetName);
+    const values = sheet.getDataRange().getValues();
+    const keyIdx = values[0].indexOf(keyColumn);
+    if (keyIdx === -1) throw new Error('キー列が存在しません：' + keyColumn);
+    var deleted = 0;
+    for (var r = values.length - 1; r >= 1; r--) {
+      if (String(values[r][keyIdx]).trim() === String(keyValue).trim()) {
+        sheet.deleteRow(r + 1);
+        deleted++;
+      }
+    }
+    return deleted;
+  });
+}
+
 // 行配列が matchObj の全カラムと一致するか
 function rowMatches_(rowArr, headers, matchObj) {
   for (var key in matchObj) {

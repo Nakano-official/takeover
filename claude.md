@@ -149,7 +149,8 @@
 | course_id | 対象コマID |
 | absent_staff_id | 欠員スタッフID |
 | notify_status | 通知状況 |
-| result | 補充済 / 1人テイク / 職員対応 |
+| result | 補充済 / 1人テイク / 職員対応（空＝未解決） |
+| substitute_staff_id | 確定した代行者のスタッフID（先着確定・手動確定で記録） |
 
 ### `responses` シート
 | カラム | 内容 |
@@ -162,33 +163,41 @@
 ### `periods` シート（時限マスタ）
 | カラム | 内容 |
 |---|---|
-| period | 時限（1〜6） |
+| period | 時限（1〜7） |
 | start_time | 開始時刻 |
 | end_time | 終了時刻 |
 
 ---
 
-## ディレクトリ構成（予定）
+## ディレクトリ構成（現状）
+
+GAS は src/ 一式（.gs と .html を同居）を clasp で push する。html は別ディレクトリではなく src 直下。
 
 ```
 ryukoku-support-shift/
-├── src/                        # GAS スクリプト
-│   ├── Code.gs                 # エントリポイント（doGet / doPost）
-│   ├── Vacancy.gs              # 欠員補充ロジック
-│   ├── Attendance.gs           # 勤怠整合性チェックロジック
+├── src/                        # GAS スクリプト＋画面
+│   ├── code.js                 # エントリポイント（doGet・ルーティング・ロール判定）
+│   ├── Vacancy.gs              # 欠員補充ロジック（候補抽出・先着確定・自動決着・再オープン）
+│   ├── Input.gs                # シフト入力（courses 追加・削除・候補絞り込み）
 │   ├── Notify.gs               # Google Chat 通知
-│   ├── Calendar.gs             # カレンダー連携
-│   └── Sheets.gs               # Sheets操作（共通）
-├── html/                       # フロントエンド（HTML Service）
-│   ├── index.html              # ダッシュボード
-│   ├── vacancies.html          # 欠員管理画面
-│   └── attendance.html         # 勤怠チェック画面
-├── docs/                       # 設計ドキュメント
-├── data/                       # Sheetsテンプレート
+│   ├── Calendar.gs             # カレンダー連携（機能Bの基盤・診断のみ）
+│   ├── Device.gs               # M5Stack 端末用エンドポイント
+│   ├── Sheets.gs               # Sheets操作（共通）
+│   ├── Setup.js                # DB初期化・ダミーデータ生成・マイグレーション
+│   ├── home.html               # シフト確認（時間割）
+│   ├── absence.html            # 欠勤連絡
+│   ├── respond.html            # 代行依頼への回答
+│   ├── input.html              # シフト入力（職員）
+│   ├── manage.html             # 欠員補充管理（職員）
+│   └── appsscript.json         # GASマニフェスト
+├── device/                     # M5Stack スケッチと手順
+├── docs/                       # 設計・運用ドキュメント
 ├── .clasp.json                 # clasp設定（GitIgnore対象）
-├── appsscript.json             # GASマニフェスト
 └── CLAUDE.md                   # このファイル
 ```
+
+※ 勤怠整合性チェック（機能B）の `Attendance.gs` と `check.html` は未実装（Phase 2）。`input`/`check` ルートは
+  `code.js` に予約済み（`check` は「準備中」表示）。
 
 ---
 
@@ -211,22 +220,27 @@ GASエディタの「スクリプトのプロパティ」から設定し、コ�
 
 ## 開発フェーズ
 
-### Phase 1 - MVP（最優先）
-- [ ] GASプロジェクト作成・clasp設定
-- [ ] Sheetsデータ設計・テンプレート作成
-- [ ] 欠員登録フォーム（HTML Service）
-- [ ] 候補者への Google Chat 通知（Incoming Webhook）
-- [ ] 職員ダッシュボード（欠員一覧・回答状況）
+### Phase 1 - MVP（最優先）— 完了
+- [x] GASプロジェクト作成・clasp設定
+- [x] Sheetsデータ設計・テンプレート作成
+- [x] 欠員登録フォーム（HTML Service）
+- [x] 候補者への Google Chat 通知（Incoming Webhook）
+- [x] 職員ダッシュボード（欠員一覧・回答状況）
+- [x] 先着自動確定（D1）・候補0人の自動決着（D10）・再オープン
+- [x] 利用者中心の時間割デジタル化（D8）・マイビュー
+- [x] スタッフのスキル区分（D9）・シフト入力画面（input）
+- [x] 欠員補充管理に候補の電話番号表示（D11）
 
 ### Phase 2
 - [ ] Google Calendar API連携（代行記録の自動反映）
-- [ ] 勤怠整合性チェック（カレンダー ↔ 勤怠データ照合）
+- [ ] 勤怠整合性チェック（カレンダー ↔ 勤怠データ照合）※`Calendar.gs` に診断のみ
 - [ ] 差分ハイライト一覧表示
+- [ ] 通知の非同期化・締切リマインド・エスカレーション（時間トリガー基盤・review #5/#7）
 
 ### Phase 3
 - [ ] 月末リマインダー通知
 - [ ] 教務課向け照合レポート出力
-- [ ] クォーター更新フロー（スタッフ空きコマ再収集）
+- [ ] クォーター更新フロー（スタッフ空きコマ再収集）※入力画面・空きコマ反映は一部対応
 
 ---
 
