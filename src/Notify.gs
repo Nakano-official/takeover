@@ -277,6 +277,44 @@ function notifyVacancyClosed(vacancyId, resultLabel) {
 }
 
 /**
+ * 再オープンで代行確定が解除されたことを、元の確定者へ知らせる（review 3次レビュー）。
+ * 「補充済（先着/手動）」を再オープンしたとき、確定通知を受けた本人へ解除を伝え、
+ * 入る気のまま放置されないようにする（#8 の挙動対称性に揃える）。
+ *
+ * @param  {string} vacancyId
+ * @param  {string} substituteStaffId  解除された元の代行者
+ * @return {{sent:boolean, reason:string}}
+ */
+function notifySubstituteReleased(vacancyId, substituteStaffId) {
+  const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+  if (!vacancy) throw new Error('対象の欠員が見つかりません。');
+  const course = findRow(SHEET.COURSES, 'course_id', vacancy.course_id);
+  if (!course) throw new Error('対象のコマが見つかりません。');
+
+  const periodById = buildPeriodMap_();
+  const p = periodById[String(course.period).trim()] || {};
+  const timeText = p.start_time ? p.start_time + '〜' + p.end_time : '';
+  const dateText = dateToStr_(vacancy.date);
+  const slot = String(course.day).trim() + String(course.period).trim() + '限';
+  const name = buildNameMap_()[String(substituteStaffId).trim()] || substituteStaffId;
+
+  const url = getStaffWebhook_(substituteStaffId);
+  if (!url) return { sent: false, reason: 'Webhook未登録' };
+
+  const msg =
+    name + ' さん\n' +
+    'さきほど確定していた代行は解除されました（再調整中です）。\n' +
+    '日付: ' + dateText + '\n' +
+    'コマ: ' + slot + (timeText ? '（' + timeText + '）' : '');
+  try {
+    postToWebhook_(url, msg);
+    return { sent: true, reason: '' };
+  } catch (e) {
+    return { sent: false, reason: e.message };
+  }
+}
+
+/**
  * 補充候補が0人で自動決着したことを職員スペースへ知らせる（review #4）。
  * 候補がいないため個別通知の宛先は無く、職員への一報のみ。
  *

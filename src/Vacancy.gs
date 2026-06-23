@@ -387,13 +387,28 @@ function reopenVacancy(vacancyId) {
   if (!vacancy) throw new Error('対象の欠員が見つかりません。');
   if (!String(vacancy.result).trim()) throw new Error('この欠員はまだ未確定です（再オープン不要）。');
 
+  // クリア前に「補充済で確定していた代行者」を控える（解除通知のため）
+  const prevSub = String(vacancy.result).trim() === '補充済'
+    ? String(vacancy.substitute_staff_id || '').trim()
+    : '';
+
   const ok = updateRow(SHEET.VACANCIES, 'vacancy_id', vacancyId, {
     result: '',
     substitute_staff_id: '',
     notify_status: NOTIFY_STATUS_PENDING,
   });
   if (!ok) throw new Error('欠員の更新に失敗しました。');
-  return { ok: true };
+
+  // 元の確定者へ解除を通知（review 3次レビュー・#8 の対称性に揃える）
+  var notify = null;
+  if (prevSub) {
+    try {
+      notify = notifySubstituteReleased(vacancyId, prevSub);
+    } catch (e) {
+      notify = { error: e.message };
+    }
+  }
+  return { ok: true, notify: notify };
 }
 
 // ─── 候補スクリーニング ──────────────────────────────────────
