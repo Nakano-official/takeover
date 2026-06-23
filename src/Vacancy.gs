@@ -290,23 +290,52 @@ function getVacanciesForManage() {
     courseById[String(c.course_id).trim()] = c;
   });
 
-  // 欠員ごとの回答をまとめる
+  // 連絡先（電話）。連絡先DBは職員のみ＝この画面（職員限定）でのみ表示する（D4）。
+  const phoneById = {};
+  readRows(SHEET.CONTACTS).forEach(function (c) {
+    phoneById[String(c.staff_id).trim()] = String(c.phone || '').trim();
+  });
+
+  // 欠員ごとの回答をまとめる（＋ staff_id → answer の索引）
   const responsesByVacancy = {};
+  const answerByVacancy = {};
   readRows(SHEET.RESPONSES).forEach(function (r) {
     const vid = String(r.vacancy_id).trim();
+    const sid = String(r.staff_id).trim();
     if (!responsesByVacancy[vid]) responsesByVacancy[vid] = [];
     responsesByVacancy[vid].push({
       staff_id: r.staff_id,
-      name: nameById[String(r.staff_id).trim()] || r.staff_id,
+      name: nameById[sid] || r.staff_id,
       answer: r.answer,
       answered_at: String(r.answered_at || ''),
     });
+    if (!answerByVacancy[vid]) answerByVacancy[vid] = {};
+    answerByVacancy[vid][sid] = r.answer;
   });
 
   return readRows(SHEET.VACANCIES).map(function (v) {
+    const vid = String(v.vacancy_id).trim();
     const course = courseById[String(v.course_id).trim()] || {};
     const p = periodById[String(course.period || '').trim()] || {};
     const subId = String(v.substitute_staff_id || '').trim();
+    const resolved = !!String(v.result || '').trim();
+
+    // 未解決のみ、電話フロー用に「候補（空きコマ学生）＋電話＋回答状況」を付ける。
+    // 返信が来ないとき、職員がこの電話番号に直接連絡して口頭で決めるための導線。
+    var candidates = [];
+    if (!resolved && String(course.course_id || '').trim()) {
+      candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id], v.date)
+        .map(function (cand) {
+          const sid = String(cand.staff_id).trim();
+          return {
+            staff_id: cand.staff_id,
+            name: cand.name,
+            phone: phoneById[sid] || '',
+            answer: (answerByVacancy[vid] && answerByVacancy[vid][sid]) || '',
+          };
+        });
+    }
+
     return {
       vacancy_id: v.vacancy_id,
       date: dateToStr_(v.date),
@@ -316,7 +345,8 @@ function getVacanciesForManage() {
       absentName: nameById[String(v.absent_staff_id).trim()] || v.absent_staff_id,
       result: String(v.result || '').trim(),
       substituteName: subId ? (nameById[subId] || subId) : '',
-      responses: responsesByVacancy[String(v.vacancy_id).trim()] || [],
+      responses: responsesByVacancy[vid] || [],
+      candidates: candidates,
     };
   });
 }
