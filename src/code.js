@@ -212,6 +212,95 @@ function getDashboardData() {
   });
 }
 
+/**
+ * 時間割ビュー（home）用データ。利用者中心の courses（D8）に
+ * 担当氏名・時限の時刻・欠員状況を結合して返す。
+ * クォーターで絞り込み（未指定なら最新クォーター）。
+ * @param {string} [quarter] 表示するクォーター（省略可）
+ */
+function getTimetable(quarter) {
+  if (!getCurrentUser_()) throw new Error('利用登録がありません。');
+
+  const nameById = {};
+  readRows(SHEET.STAFFS).forEach(function (s) {
+    nameById[String(s.staff_id).trim()] = s.name;
+  });
+
+  // 時限マスタ（時刻と並び順）
+  const periodTime = {};
+  const periodIndex = {};
+  readRows(SHEET.PERIODS).forEach(function (p, i) {
+    const key = String(p.period).trim();
+    periodTime[key] = p.start_time ? p.start_time + '〜' + p.end_time : '';
+    periodIndex[key] = i;
+  });
+
+  const vacancies = readRows(SHEET.VACANCIES);
+  const allCourses = readRows(SHEET.COURSES);
+
+  // クォーター一覧と既定（最新）
+  const quarters = [];
+  allCourses.forEach(function (c) {
+    const q = String(c.quarter).trim();
+    if (q && quarters.indexOf(q) === -1) quarters.push(q);
+  });
+  quarters.sort();
+  const selected = (quarter && quarters.indexOf(quarter) !== -1)
+    ? quarter
+    : (quarters.length ? quarters[quarters.length - 1] : '');
+
+  const courses = allCourses
+    .filter(function (c) { return String(c.quarter).trim() === selected; })
+    .map(function (c) {
+      const courseId = String(c.course_id).trim();
+      const related = vacancies.filter(function (v) {
+        return String(v.course_id).trim() === courseId;
+      });
+      var status = '通常';
+      var substitute = '';
+      const open = related.filter(function (v) { return !String(v.result).trim(); });
+      if (open.length > 0) {
+        status = '欠員対応中';
+      } else if (related.length > 0) {
+        const latest = related[related.length - 1];
+        status = String(latest.result).trim(); // 補充済 / 1人テイク / 職員対応
+        const subId = String(latest.substitute_staff_id || '').trim();
+        if (subId) substitute = nameById[subId] || subId;
+      }
+      return {
+        course_id: courseId,
+        day: String(c.day).trim(),
+        period: String(c.period).trim(),
+        support_type: String(c.support_type || '').trim(),
+        user_student: String(c.user_student || '').trim(),
+        subject: String(c.subject || '').trim(),
+        instructor: String(c.instructor || '').trim(),
+        room: String(c.room || '').trim(),
+        staffA: nameById[String(c.staff_a_id).trim()] || String(c.staff_a_id || '').trim(),
+        staffB: nameById[String(c.staff_b_id).trim()] || String(c.staff_b_id || '').trim(),
+        note: String(c.note || '').trim(),
+        status: status,
+        substitute: substitute,
+      };
+    });
+
+  // 軸は「登場する曜日・時限のみ」を正規順で（空の行列を作らない）
+  const DAY_ORDER = ['月', '火', '水', '木', '金', '土', '日'];
+  const daySet = {};
+  const periodSet = {};
+  courses.forEach(function (c) { daySet[c.day] = true; periodSet[c.period] = true; });
+  const days = DAY_ORDER.filter(function (d) { return daySet[d]; });
+  const periods = Object.keys(periodSet)
+    .sort(function (a, b) {
+      const ia = periodIndex[a] !== undefined ? periodIndex[a] : 999;
+      const ib = periodIndex[b] !== undefined ? periodIndex[b] : 999;
+      return ia - ib;
+    })
+    .map(function (p) { return { period: p, time: periodTime[p] || '' }; });
+
+  return { quarters: quarters, quarter: selected, days: days, periods: periods, courses: courses };
+}
+
 // 文字列をHTMLエスケープする（メッセージ画面用）
 function escapeHtml_(str) {
   return String(str)
