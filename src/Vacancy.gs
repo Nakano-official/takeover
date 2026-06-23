@@ -283,10 +283,18 @@ const VACANCY_RESULTS = ['補充済', '1人テイク', '職員対応'];
 function getVacanciesForManage() {
   requireStaff_();
 
-  const nameById = buildNameMap_();
+  // 各シートは一度だけ読み、findCandidates_ に ctx として渡して
+  // 欠員ごとのフルリード（courses/staffs/vacancies）を防ぐ（最適化）。
+  const allStaffs = readRows(SHEET.STAFFS);
+  const allCourses = readRows(SHEET.COURSES);
+  const allVacancies = readRows(SHEET.VACANCIES);
+  const ctx = { staffs: allStaffs, courses: allCourses, vacancies: allVacancies };
+
+  const nameById = {};
+  allStaffs.forEach(function (s) { nameById[String(s.staff_id).trim()] = s.name; });
   const periodById = buildPeriodMap_();
   const courseById = {};
-  readRows(SHEET.COURSES).forEach(function (c) {
+  allCourses.forEach(function (c) {
     courseById[String(c.course_id).trim()] = c;
   });
 
@@ -313,7 +321,7 @@ function getVacanciesForManage() {
     answerByVacancy[vid][sid] = r.answer;
   });
 
-  return readRows(SHEET.VACANCIES).map(function (v) {
+  return allVacancies.map(function (v) {
     const vid = String(v.vacancy_id).trim();
     const course = courseById[String(v.course_id).trim()] || {};
     const p = periodById[String(course.period || '').trim()] || {};
@@ -324,7 +332,7 @@ function getVacanciesForManage() {
     // 返信が来ないとき、職員がこの電話番号に直接連絡して口頭で決めるための導線。
     var candidates = [];
     if (!resolved && String(course.course_id || '').trim()) {
-      candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id], v.date)
+      candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id], v.date, ctx)
         .map(function (cand) {
           const sid = String(cand.staff_id).trim();
           return {
@@ -455,8 +463,11 @@ function reopenVacancy(vacancyId) {
  * @param {Object} course           対象コマ
  * @param {Array}  excludeStaffIds  除外するスタッフID（欠勤者・相方など）
  * @param {string} [date]           欠勤日（YYYY-MM-DD）。指定時は当日の代行確定者も除外
+ * @param {Object} [ctx]            読み込み済みの行データ {staffs, courses, vacancies}。
+ *                                  渡すとシート再読込を省く（一覧で多数回呼ぶ場合の最適化）。
+ *                                  省略時は各シートを内部で読む（従来動作・後方互換）。
  */
-function findCandidates_(course, excludeStaffIds, date) {
+function findCandidates_(course, excludeStaffIds, date, ctx) {
   const slotKey = String(course.day).trim() + String(course.period).trim();
   const exclude = (excludeStaffIds || []).map(function (x) { return String(x).trim(); });
   const supportType = String(course.support_type || '').trim();        // テイク / 介助
@@ -464,7 +475,7 @@ function findCandidates_(course, excludeStaffIds, date) {
   const courseId = String(course.course_id).trim();
 
   // 同一スロットで「埋まっている」学生（ダブルブッキング除外用）
-  const allCourses = readRows(SHEET.COURSES);
+  const allCourses = (ctx && ctx.courses) || readRows(SHEET.COURSES);
   const slotOf = {};   // course_id → day+period
   const busy = {};     // staff_id → そのスロットは空けられない
   allCourses.forEach(function (c) {
@@ -483,7 +494,8 @@ function findCandidates_(course, excludeStaffIds, date) {
   // date 指定時：その日・同スロットで既に代行確定済みの学生も除外
   if (date) {
     const target = dateToStr_(date);
-    readRows(SHEET.VACANCIES).forEach(function (v) {
+    const allVacancies = (ctx && ctx.vacancies) || readRows(SHEET.VACANCIES);
+    allVacancies.forEach(function (v) {
       const sub = String(v.substitute_staff_id || '').trim();
       if (!sub) return;
       if (dateToStr_(v.date) !== target) return;
@@ -491,7 +503,8 @@ function findCandidates_(course, excludeStaffIds, date) {
     });
   }
 
-  return readRows(SHEET.STAFFS)
+  const allStaffs = (ctx && ctx.staffs) || readRows(SHEET.STAFFS);
+  return allStaffs
     .filter(function (s) {
       const id = String(s.staff_id).trim();
       if (String(s.role).trim() !== '学生') return false;             // 学生のみ候補
