@@ -115,6 +115,71 @@ flowchart LR
 
 ## 5. スプレッドシート構成
 
+### データ構造（ER図）
+
+`courses` を中心に、利用者中心の時間割（D8）と欠員補充（vacancies/responses）が
+`staff_id` / `course_id` / `vacancy_id` で結びつく。`contacts` のみ別ブック（連絡先DB）。
+
+```mermaid
+erDiagram
+    staffs   ||--o{ courses    : "担当A/B"
+    periods  ||--o{ courses    : "時限"
+    courses  ||--o{ vacancies  : "欠員対象"
+    staffs   ||--o{ vacancies  : "欠勤者/代行者"
+    vacancies ||--o{ responses : "回答"
+    staffs   ||--o{ responses  : "回答者"
+    staffs   ||--|| contacts   : "連絡先(別DB)"
+
+    staffs {
+        string staff_id PK
+        string name
+        string role "職員 / 学生"
+        string skills "テイク / 介助"
+        string available_slots "月1,火3 …"
+    }
+    courses {
+        string course_id PK
+        string quarter
+        string day
+        string period FK
+        string support_type "テイク / 介助"
+        string user_student "利用者(被支援者)"
+        string subject
+        string instructor
+        string room
+        string staff_a_id FK
+        string staff_b_id FK "介助は空"
+        string note
+    }
+    vacancies {
+        string vacancy_id PK
+        date   date
+        string course_id FK
+        string absent_staff_id FK
+        string notify_status
+        string result "補充済/1人テイク/職員対応"
+        string substitute_staff_id FK
+    }
+    responses {
+        string vacancy_id FK
+        string staff_id FK
+        string answer "承諾 / 辞退"
+        datetime answered_at
+    }
+    periods {
+        string period PK
+        string start_time
+        string end_time
+    }
+    contacts {
+        string staff_id PK
+        string name
+        string email
+        string phone
+        string webhook_url "秘密・職員のみ"
+    }
+```
+
 ### メインDB（シフト管理）
 - アクセス権限：職員 + GASスクリプト
 - シート構成：staffs / courses / vacancies / responses / periods（時限マスタ）
