@@ -184,4 +184,5 @@ npx clasp push --force
 | [`docs/setup.md`](docs/setup.md) | **構築・引き継ぎ手順**（管理者が一度だけ行うセットアップ） |
 | [`docs/architecture.md`](docs/architecture.md) | アーキテクチャ・データフロー・ER図・権限設計 |
 | [`docs/decisions.md`](docs/decisions.md) | 相談で決まった仕様・経緯（決定ログ） |
+| [`docs/changelog.md`](docs/changelog.md) | 開発の経緯（日付ごとの変更履歴） |
 | [`docs/backlog.md`](docs/backlog.md) | 未対応の改善点 |
