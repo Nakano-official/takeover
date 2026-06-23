@@ -13,17 +13,153 @@ function setupSpreadsheets() {
     return;
   }
 
+  // ダミーデータを1回生成し、メインDB／連絡先DBで共有する（staff_id を揃えるため）
+  const data = buildDummyData_();
+
   const mainDb = SpreadsheetApp.create('支援室シフト管理 - メインDB');
-  setupMainDb_(mainDb);
+  setupMainDb_(mainDb, data);
 
   const contactsDb = SpreadsheetApp.create('支援室シフト管理 - 連絡先DB');
-  setupContactsDb_(contactsDb);
+  setupContactsDb_(contactsDb, data);
 
   Logger.log('========== セットアップ完了 ==========');
+  Logger.log('学生スタッフ ' + data.students.length + '名・職員 ' + data.staff.length +
+    '名・利用者 ' + data.users.length + '名・コマ ' + data.courses.length + '件 を投入しました。');
   Logger.log('【SPREADSHEET_ID】メインDB:      ' + mainDb.getId());
   Logger.log('【CONTACTS_SPREADSHEET_ID】連絡先DB: ' + contactsDb.getId());
   Logger.log('上記IDをGASエディタ > プロジェクトの設定 > スクリプトプロパティに登録してください。');
   Logger.log('連絡先DBは職員のみ共有してください（スプレッドシートの共有設定で制限）。');
+  Logger.log('★ テストで自分が職員としてログインするには、連絡先DB contacts の S001 の email を');
+  Logger.log('  自分のアドレスに書き換えてください（それで「職員」として全画面が見えます）。');
+}
+
+// ─── ダミーデータ生成（全て架空名。実在の利用者/教員/科目名は使わない）──
+
+/**
+ * 月〜金に授業を配置し、シフトを破綻なく割り当てたダミーデータを生成する。
+ * 制約：①同じ利用者を同一コマに重複させない ②同じスタッフを同一コマに二重起用しない
+ *       ③スタッフの available_slots は「担当が入っていない＝空いている」コマにする。
+ * 生成は決定的（毎回同じ結果）。
+ * @return {{students:Array, staff:Array, users:Array, staffs:Array, courses:Array, contacts:Array}}
+ */
+function buildDummyData_() {
+  const QUARTER = '2026-Q3';
+  const DAYS = ['月', '火', '水', '木', '金'];
+  const PERIODS = ['1', '2', '3', '4'];
+  const SLOTS = DAYS.length * PERIODS.length; // 20
+
+  // 学生スタッフ（架空名）
+  const students = [
+    { id: 'S101', name: '佐藤 美咲' }, { id: 'S102', name: '高橋 健太' },
+    { id: 'S103', name: '田中 由衣' }, { id: 'S104', name: '渡辺 翔' },
+    { id: 'S105', name: '伊藤 彩花' }, { id: 'S106', name: '山本 大輝' },
+    { id: 'S107', name: '中村 結菜' }, { id: 'S108', name: '小林 駿' },
+    { id: 'S109', name: '加藤 莉子' }, { id: 'S110', name: '吉田 颯' },
+    { id: 'S111', name: '山口 七海' }, { id: 'S112', name: '松本 陸' },
+  ];
+  const staff = [{ id: 'S001', name: '山田 花子' }]; // 職員
+  const users = ['利用者A', '利用者B', '利用者C', '利用者D', '利用者E', '利用者F', '利用者G', '利用者H'];
+
+  const SUBJECTS = ['基礎数学', '英語コミュニケーション', '情報リテラシー', '心理学概論',
+    '物理学基礎', '経済学入門', '線形代数', '化学基礎', '統計学', '社会学概論',
+    'プログラミング入門', '日本国憲法'];
+  const ROOMS = ['1-101', '1-203', '2-105', '2-210', '3-102', '3-301', '4-201', '5-110'];
+
+  // slot index → day/period
+  function slotInfo(slot) {
+    return { day: DAYS[Math.floor(slot / PERIODS.length)], period: PERIODS[slot % PERIODS.length] };
+  }
+
+  // 各利用者に週4コマを distinct な slot で割り当て（stride 5 で必ず4つとも別スロット）
+  const sessions = [];
+  var sCount = 0;
+  for (var u = 0; u < users.length; u++) {
+    for (var k = 0; k < 4; k++) {
+      const slot = (u + k * 5) % SLOTS;
+      const info = slotInfo(slot);
+      sessions.push({
+        day: info.day, period: info.period, slotKey: info.day + info.period,
+        user: users[u],
+        support_type: (sCount % 4 === 3) ? '介助' : 'テイク', // 4件に1件は介助(1名)
+        subject: SUBJECTS[sCount % SUBJECTS.length],
+        instructor: '（仮）教員' + String.fromCharCode(65 + (sCount % 12)),
+        room: ROOMS[sCount % ROOMS.length],
+      });
+      sCount++;
+    }
+  }
+  // 表示が綺麗になるよう曜日→時限順に並べる
+  const dayOrder = {}; DAYS.forEach(function (d, i) { dayOrder[d] = i; });
+  sessions.sort(function (a, b) {
+    return dayOrder[a.day] - dayOrder[b.day] || Number(a.period) - Number(b.period);
+  });
+
+  // スタッフ割り当て（ローテーションで負荷分散・同一コマ重複回避）
+  const busy = {}; students.forEach(function (s) { busy[s.id] = {}; });
+  var ptr = 0;
+  function pickStaff(slotKey, count) {
+    const picked = [];
+    var attempts = 0;
+    while (picked.length < count && attempts < students.length * 2) {
+      const cand = students[ptr % students.length];
+      ptr++; attempts++;
+      if (!busy[cand.id][slotKey] && picked.indexOf(cand.id) === -1) {
+        picked.push(cand.id);
+        busy[cand.id][slotKey] = true;
+      }
+    }
+    return picked;
+  }
+
+  const courses = sessions.map(function (se, i) {
+    const need = se.support_type === 'テイク' ? 2 : 1;
+    const assigned = pickStaff(se.slotKey, need);
+    return {
+      course_id: 'C' + ('00' + (i + 1)).slice(-3),
+      quarter: QUARTER,
+      day: se.day, period: se.period,
+      support_type: se.support_type,
+      user_student: se.user,
+      subject: se.subject,
+      instructor: se.instructor,
+      room: se.room,
+      staff_a_id: assigned[0] || '',
+      staff_b_id: assigned[1] || '',
+      note: '',
+    };
+  });
+
+  // available_slots = 担当が入っていない（空いている）全スロット
+  const allSlots = [];
+  for (var s = 0; s < SLOTS; s++) { const inf = slotInfo(s); allSlots.push(inf.day + inf.period); }
+  const staffs = staff.map(function (st) {
+    return { staff_id: st.id, name: st.name, role: '職員', available_slots: '' };
+  }).concat(students.map(function (st) {
+    const free = allSlots.filter(function (sk) { return !busy[st.id][sk]; });
+    return { staff_id: st.id, name: st.name, role: '学生', available_slots: free.join(',') };
+  }));
+
+  // 連絡先（ダミー）。webhook_url は空（運用時に登録）
+  const contacts = staff.concat(students).map(function (p, i) {
+    return {
+      staff_id: p.id, name: p.name,
+      email: p.id.toLowerCase() + '@example.ryukoku.ac.jp',
+      phone: '000-0000-' + ('000' + (i + 1)).slice(-4),
+      webhook_url: '',
+    };
+  });
+
+  return { students: students, staff: staff, users: users, staffs: staffs, courses: courses, contacts: contacts };
+}
+
+// ヘッダー＋オブジェクト配列をシートに書き込む（列順はヘッダーに従う）
+function writeTable_(sheet, headers, rows) {
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  if (rows.length === 0) return;
+  const values = rows.map(function (r) {
+    return headers.map(function (h) { return r[h] !== undefined && r[h] !== null ? r[h] : ''; });
+  });
+  sheet.getRange(2, 1, values.length, headers.length).setValues(values);
 }
 
 // ─── マイグレーション（既存シートへのカラム追加）─────────────
@@ -57,15 +193,10 @@ function migrateCoursesColumns() {
 
 // ─── メインDB ────────────────────────────────────────────────
 
-function setupMainDb_(ss) {
+function setupMainDb_(ss, data) {
   const staffsSheet = ss.getActiveSheet();
   staffsSheet.setName('staffs');
-  staffsSheet.getRange(1, 1, 1, 4).setValues([['staff_id', 'name', 'role', 'available_slots']]);
-  staffsSheet.getRange(2, 1, 3, 4).setValues([
-    ['S001', '山田 花子', '職員', ''],
-    ['S002', '田中 太郎', '学生', '月1,月2,火3,水1'],
-    ['S003', '鈴木 次郎', '学生', '火1,火2,木3,金2'],
-  ]);
+  writeTable_(staffsSheet, ['staff_id', 'name', 'role', 'available_slots'], data.staffs);
 
   // courses は「利用者中心の時間割」を表す（decisions.md D8）。
   // 1行＝1コマ（利用者×曜日×時限）。同じ曜日・時限に複数の利用者が並ぶ。
@@ -81,16 +212,9 @@ function setupMainDb_(ss) {
     'staff_a_id', 'staff_b_id',
     'note',           // 備考
   ];
-  coursesSheet.getRange(1, 1, 1, COURSE_HEADERS.length).setValues([COURSE_HEADERS]);
   // period 列（D列）は periods シートと突合するためテキスト固定
-  coursesSheet.getRange(2, 4, 3, 1).setNumberFormat('@');
-  // サンプル：月1限に2名の利用者が同時（テイク2名／介助1名）、火2限に1件。
-  // ※ すべて架空のダミー値。実在の利用者名・教員名・科目名は入れないこと。
-  coursesSheet.getRange(2, 1, 3, COURSE_HEADERS.length).setValues([
-    ['C001', '2026-Q3', '月', '1', 'テイク', '利用者A', 'サンプル科目A', '（仮）教員A', 'A-101', 'S002', 'S003', ''],
-    ['C002', '2026-Q3', '月', '1', '介助',   '利用者B', 'サンプル科目B', '（仮）教員B', 'A-102', 'S002', '',     '9:00-10:45'],
-    ['C003', '2026-Q3', '火', '2', 'テイク', '利用者A', 'サンプル科目C', '（仮）教員C', 'B-201', 'S002', 'S003', ''],
-  ]);
+  coursesSheet.getRange(2, 4, Math.max(data.courses.length, 1), 1).setNumberFormat('@');
+  writeTable_(coursesSheet, COURSE_HEADERS, data.courses);
 
   const vacanciesSheet = ss.insertSheet('vacancies');
   vacanciesSheet.getRange(1, 1, 1, 7).setValues([
@@ -124,20 +248,12 @@ function setupMainDb_(ss) {
 
 // ─── 連絡先DB ────────────────────────────────────────────────
 
-function setupContactsDb_(ss) {
+function setupContactsDb_(ss, data) {
   const contactsSheet = ss.getActiveSheet();
   contactsSheet.setName('contacts');
-  contactsSheet.getRange(1, 1, 1, 5).setValues([
-    ['staff_id', 'name', 'email', 'phone', 'webhook_url'],
-  ]);
-  // phone 列（D列）は先頭0欠落・数値化を防ぐためテキスト固定
-  contactsSheet.getRange(2, 4, 3, 1).setNumberFormat('@');
-  // ダミーデータ（実運用前に差し替える）
-  contactsSheet.getRange(2, 1, 3, 5).setValues([
-    ['S001', '山田 花子', 'yamada@example.ryukoku.ac.jp', '000-0000-0001', ''],
-    ['S002', '田中 太郎', 'tanaka@example.ryukoku.ac.jp', '000-0000-0002', ''],
-    ['S003', '鈴木 次郎', 'suzuki@example.ryukoku.ac.jp', '000-0000-0003', ''],
-  ]);
+  // phone 列（C…ではなくD列）は先頭0欠落・数値化を防ぐためテキスト固定
+  contactsSheet.getRange(2, 4, Math.max(data.contacts.length, 1), 1).setNumberFormat('@');
+  writeTable_(contactsSheet, ['staff_id', 'name', 'email', 'phone', 'webhook_url'], data.contacts);
 
   applyHeaderStyle_([contactsSheet], '#cc0000');
 }
