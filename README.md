@@ -22,6 +22,61 @@
 
 ---
 
+## 🏗 アーキテクチャ
+
+```mermaid
+flowchart TB
+  S["学生スタッフ"]
+  T["職員"]
+  D["M5Stack 端末"]
+
+  subgraph App["GAS Web App（Googleサーバー）"]
+    UI["HTML Service 画面<br/>home / absence / respond / input / manage / check"]
+    Logic["サーバーロジック<br/>code.js / Vacancy / Input / Notify / Calendar / Sheets / Device"]
+    UI --> Logic
+  end
+
+  subgraph DataLayer["Google Workspace 内データ"]
+    M[("メインDB<br/>staffs / courses / vacancies / responses / periods")]
+    C[("連絡先DB<br/>contacts ※職員のみ")]
+  end
+
+  Chat["Google Chat<br/>Incoming Webhook"]
+  Cal["Google Calendar"]
+
+  S -->|ブラウザ| UI
+  T -->|ブラウザ| UI
+  D -->|ポーリング・token認証| Logic
+
+  Logic --> M
+  Logic --> C
+  Logic -->|個別・全体通知| Chat
+  Logic -->|勤務予定の照合・反映| Cal
+  Chat -->|通知| S
+  Chat -->|通知| T
+```
+
+### 欠員補充の流れ（機能A）
+
+```mermaid
+sequenceDiagram
+    actor A as 欠勤するスタッフ
+    participant App as GAS
+    participant DB as Sheets
+    participant Chat as Google Chat
+    actor C as 代行候補
+    A->>App: 欠勤連絡
+    App->>DB: 欠員を起票（vacancies）
+    App->>DB: 候補抽出（空き＋スキル）
+    App->>Chat: 候補へ個別依頼／職員へ通知
+    Chat-->>C: 代行依頼リンク
+    C->>App: 承諾
+    App->>DB: 先着で確定（LockService）
+    App-->>Chat: 本人・他候補・職員へ結果通知
+```
+
+---
+
 ## 🖥 画面一覧
 
 | 画面 | URL | 対象 | 概要 |
