@@ -299,7 +299,15 @@ function confirmSubstitute(vacancyId, substituteStaffId) {
     substitute_staff_id: substituteStaffId,
   });
   if (!ok) throw new Error('欠員の更新に失敗しました。');
-  return { ok: true };
+
+  // 確定を関係者へ通知（先着確定と挙動を揃える・review #8）
+  var notify;
+  try {
+    notify = notifyVacancyFilled(vacancyId, substituteStaffId);
+  } catch (e) {
+    notify = { error: e.message };
+  }
+  return { ok: true, notify: notify };
 }
 
 /**
@@ -318,7 +326,15 @@ function setVacancyResult(vacancyId, result) {
     result: result,
     substitute_staff_id: '',
   });
-  return { ok: true };
+
+  // 募集終了を候補者へ通知（先着確定と挙動を揃える・review #8）
+  var notify;
+  try {
+    notify = notifyVacancyClosed(vacancyId, result);
+  } catch (e) {
+    notify = { error: e.message };
+  }
+  return { ok: true, notify: notify };
 }
 
 // ─── 候補スクリーニング ──────────────────────────────────────

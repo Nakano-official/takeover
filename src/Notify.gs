@@ -232,6 +232,50 @@ function notifyVacancyFilled(vacancyId, substituteStaffId) {
   return result;
 }
 
+// ─── 手動決着の通知（職員対応 / 1人テイク・review #8）──────
+
+/**
+ * 代行者なしで決着（1人テイク / 職員対応）したことを候補者へ知らせる。
+ * 先着自動確定（notifyVacancyFilled）と挙動を対称にし、候補が放置されないようにする。
+ *
+ * @param  {string} vacancyId
+ * @param  {string} resultLabel  '1人テイク' / '職員対応'
+ * @return {{others:Array, errors:Array}}
+ */
+function notifyVacancyClosed(vacancyId, resultLabel) {
+  const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+  if (!vacancy) throw new Error('対象の欠員が見つかりません。');
+  const course = findRow(SHEET.COURSES, 'course_id', vacancy.course_id);
+  if (!course) throw new Error('対象のコマが見つかりません。');
+
+  const periodById = buildPeriodMap_();
+  const p = periodById[String(course.period).trim()] || {};
+  const timeText = p.start_time ? p.start_time + '〜' + p.end_time : '';
+  const dateText = dateToStr_(vacancy.date);
+  const slot = String(course.day).trim() + String(course.period).trim() + '限';
+
+  const result = { others: [], errors: [] };
+  const candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id], vacancy.date);
+  candidates.forEach(function (cand) {
+    const entry = { staff_id: cand.staff_id, name: cand.name, sent: false, reason: '' };
+    const url = getStaffWebhook_(cand.staff_id);
+    if (!url) { entry.reason = 'Webhook未登録'; result.others.push(entry); return; }
+    const msg =
+      cand.name + ' さん\n' +
+      '先ほどの代行募集は「' + resultLabel + '」で締め切られました。ご確認ありがとうございました。\n' +
+      '日付: ' + dateText + '\n' +
+      'コマ: ' + slot + (timeText ? '（' + timeText + '）' : '');
+    try {
+      postToWebhook_(url, msg);
+      entry.sent = true;
+    } catch (e) {
+      entry.reason = e.message;
+    }
+    result.others.push(entry);
+  });
+  return result;
+}
+
 // ─── デバッグ用 ──────────────────────────────────────────────
 
 /**
