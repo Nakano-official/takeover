@@ -98,8 +98,8 @@ function notifyNewVacancy(vacancyId) {
     result.errors.push('職員スペース: ' + e.message);
   }
 
-  // 2) 代行候補者へ個別に依頼
-  const candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id]);
+  // 2) 代行候補者へ個別に依頼（当日のダブルブッキングも除外）
+  const candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id], vacancy.date);
   candidates.forEach(function (cand) {
     const entry = { staff_id: cand.staff_id, name: cand.name, sent: false, reason: '' };
     const url = getStaffWebhook_(cand.staff_id);
@@ -204,8 +204,8 @@ function notifyVacancyFilled(vacancyId, substituteStaffId) {
     }
   }
 
-  // 3) 他の候補者へ「募集終了」
-  const candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id]);
+  // 3) 他の候補者へ「募集終了」（当日のダブルブッキングも除外）
+  const candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id], vacancy.date);
   candidates.forEach(function (cand) {
     if (String(cand.staff_id).trim() === subId) return; // 確定本人は除外
     const entry = { staff_id: cand.staff_id, name: cand.name, sent: false, reason: '' };

@@ -23,9 +23,20 @@ function getMyCourses() {
   const nameById = buildNameMap_();
   const periodById = buildPeriodMap_();
 
-  return readRows(SHEET.COURSES)
+  // 最新クォーターに限定する（過去学期の古いコマは選択肢に出さない・review #3）。
+  // 「過去分は削除しない」方針のため、courses には旧クォーターが累積している。
+  const allCourses = readRows(SHEET.COURSES);
+  const quarters = [];
+  allCourses.forEach(function (c) {
+    const q = String(c.quarter).trim();
+    if (q && quarters.indexOf(q) === -1) quarters.push(q);
+  });
+  quarters.sort();
+  const latest = quarters.length ? quarters[quarters.length - 1] : '';
+
+  return allCourses
     .filter(function (c) {
-      return isAssigned_(c, user.staff_id);
+      return String(c.quarter).trim() === latest && isAssigned_(c, user.staff_id);
     })
     .map(function (c) {
       const partnerId = String(c.staff_a_id).trim() === user.staff_id ? c.staff_b_id : c.staff_a_id;
@@ -60,10 +71,25 @@ function submitAbsence(courseId, date) {
   }
   if (!date) throw new Error('欠勤日を指定してください。');
 
+  // 日付バリデーション（review #2）：形式・過去日・曜日一致をチェック
+  const dateStr = dateToStr_(date);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    throw new Error('欠勤日の形式が不正です。');
+  }
+  const today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+  if (dateStr < today) {
+    throw new Error('過去の日付には欠勤登録できません。');
+  }
+  const wd = weekdayOf_(dateStr);
+  const courseDay = String(course.day).trim();
+  if (wd && courseDay && wd !== courseDay) {
+    throw new Error('欠勤日（' + dateStr + '・' + wd + '曜）が、このコマの曜日（' + courseDay + '曜）と一致しません。');
+  }
+
   // 二重登録の防止（同じ人・同じコマ・同じ日で未解決の欠員が既にある）
   const dup = readRows(SHEET.VACANCIES).filter(function (v) {
     return String(v.course_id).trim() === String(courseId).trim() &&
-           String(v.date).trim() === String(date).trim() &&
+           dateToStr_(v.date) === dateStr &&
            String(v.absent_staff_id).trim() === user.staff_id &&
            !String(v.result).trim();
   });
@@ -73,15 +99,15 @@ function submitAbsence(courseId, date) {
 
   // 欠員を登録（採番と追記を同一ロックで）
   const vacancyId = appendRowWithId(SHEET.VACANCIES, 'vacancy_id', 'V', {
-    date: date,
+    date: dateStr,
     course_id: courseId,
     absent_staff_id: user.staff_id,
     notify_status: NOTIFY_STATUS_PENDING,
     result: '',
   });
 
-  // 代行候補を抽出（欠勤者と相方は除外）
-  const candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id]);
+  // 代行候補を抽出（欠勤者と相方＋当日のダブルブッキングを除外）
+  const candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id], dateStr);
 
   // 職員スペース＋候補者へ通知（失敗しても欠員登録は確定させる）
   var notify;
@@ -135,7 +161,7 @@ function getVacancyForRespond(vacancyId) {
     time: p.start_time ? p.start_time + '〜' + p.end_time : '',
     absentName: nameById[String(vacancy.absent_staff_id).trim()] || vacancy.absent_staff_id,
     closed: !!String(vacancy.result).trim(),       // 対応確定済みなら true
-    eligible: course ? isCandidate_(course, user.staff_id) : false,
+    eligible: course ? isCandidate_(course, user.staff_id, vacancy.date) : false,
     myAnswer: mine.length ? mine[0].answer : '',
   };
 }
@@ -164,7 +190,7 @@ function respondToVacancy(vacancyId, answer) {
   if (!course) throw new Error('対象のコマが見つかりません。');
 
   // 候補資格チェック（候補以外は回答不可）
-  if (!isCandidate_(course, user.staff_id)) {
+  if (!isCandidate_(course, user.staff_id, vacancy.date)) {
     throw new Error('あなたはこの欠員の代行候補ではありません。');
   }
 
@@ -300,18 +326,57 @@ function setVacancyResult(vacancyId, result) {
 /**
  * コマの曜日・時限に空きがある学生を代行候補として抽出する。
  * available_slots は「月1,月2,火3」形式。コマのスロットキーは day+period（例：月1）。
+ *
+ * 同一スロットでの二重起用を防ぐため、以下も除外する（review #1）：
+ *  - 同じクォーター・曜日・時限の「別コマ」の担当になっている学生
+ *    （毎週その枠は埋まるため。available_slots と courses は別収集でドリフトしうる）
+ *  - date 指定時：その日付・同じスロットで既に代行確定済み（substitute）の学生
+ *
  * @param {Object} course           対象コマ
  * @param {Array}  excludeStaffIds  除外するスタッフID（欠勤者・相方など）
+ * @param {string} [date]           欠勤日（YYYY-MM-DD）。指定時は当日の代行確定者も除外
  */
-function findCandidates_(course, excludeStaffIds) {
+function findCandidates_(course, excludeStaffIds, date) {
   const slotKey = String(course.day).trim() + String(course.period).trim();
   const exclude = (excludeStaffIds || []).map(function (x) { return String(x).trim(); });
   const supportType = String(course.support_type || '').trim();        // テイク / 介助
+  const quarter = String(course.quarter).trim();
+  const courseId = String(course.course_id).trim();
+
+  // 同一スロットで「埋まっている」学生（ダブルブッキング除外用）
+  const allCourses = readRows(SHEET.COURSES);
+  const slotOf = {};   // course_id → day+period
+  const busy = {};     // staff_id → そのスロットは空けられない
+  allCourses.forEach(function (c) {
+    const cid = String(c.course_id).trim();
+    slotOf[cid] = String(c.day).trim() + String(c.period).trim();
+    if (cid !== courseId &&
+        String(c.quarter).trim() === quarter &&
+        slotOf[cid] === slotKey) {
+      [c.staff_a_id, c.staff_b_id].forEach(function (id) {
+        id = String(id).trim();
+        if (id) busy[id] = true;
+      });
+    }
+  });
+
+  // date 指定時：その日・同スロットで既に代行確定済みの学生も除外
+  if (date) {
+    const target = dateToStr_(date);
+    readRows(SHEET.VACANCIES).forEach(function (v) {
+      const sub = String(v.substitute_staff_id || '').trim();
+      if (!sub) return;
+      if (dateToStr_(v.date) !== target) return;
+      if (slotOf[String(v.course_id).trim()] === slotKey) busy[sub] = true;
+    });
+  }
 
   return readRows(SHEET.STAFFS)
     .filter(function (s) {
+      const id = String(s.staff_id).trim();
       if (String(s.role).trim() !== '学生') return false;             // 学生のみ候補
-      if (exclude.indexOf(String(s.staff_id).trim()) !== -1) return false; // 欠勤者・相方を除外
+      if (exclude.indexOf(id) !== -1) return false;                   // 欠勤者・相方を除外
+      if (busy[id]) return false;                                     // 同一スロットで二重起用になる
       const slots = String(s.available_slots).split(',').map(function (x) { return x.trim(); });
       if (slots.indexOf(slotKey) === -1) return false;                // 該当スロットに空き
       // 対応可能な内容（スキル）チェック。skills 未設定は従来どおり全対応扱い
@@ -336,11 +401,20 @@ function isAssigned_(course, staffId) {
 }
 
 // スタッフが指定コマの代行候補か（担当A/Bを除外したスクリーニング結果に含まれるか）
-function isCandidate_(course, staffId) {
+// date を渡すと当日のダブルブッキング（別コマ担当・代行確定済み）も考慮する。
+function isCandidate_(course, staffId, date) {
   const target = String(staffId).trim();
-  return findCandidates_(course, [course.staff_a_id, course.staff_b_id]).some(function (c) {
+  return findCandidates_(course, [course.staff_a_id, course.staff_b_id], date).some(function (c) {
     return String(c.staff_id).trim() === target;
   });
+}
+
+// 'YYYY-MM-DD' から曜日（月〜日）を返す。形式不正なら空文字。
+function weekdayOf_(dateStr) {
+  const m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return '';
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return ['日', '月', '火', '水', '木', '金', '土'][d.getDay()];
 }
 
 // 現在時刻を 'yyyy-MM-dd HH:mm:ss'（日本時間）の文字列で返す
