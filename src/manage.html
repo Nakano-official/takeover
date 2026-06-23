@@ -92,7 +92,10 @@
           : escapeHtml(v.result);
         return '<div class="vac"><span class="badge b-done">確定</span> ' +
           '<span class="done-line">' + label + '</span>' +
-          '<div style="margin-top:6px">' + head + '</div></div>';
+          '<div style="margin-top:6px">' + head + '</div>' +
+          '<div class="alt"><button onclick="reopen(\'' + v.vacancy_id +
+            '\',this)">再オープン（変更する）</button></div>' +
+          '</div>';
       }
 
       // 未解決：回答一覧＋確定ボタン
@@ -143,6 +146,15 @@
         .withSuccessHandler(reload)
         .withFailureHandler(function (err) { alert('エラー: ' + err.message); reload(); })
         .setVacancyResult(vacancyId, result);
+    }
+
+    function reopen(vacancyId, btn) {
+      if (!confirm('この欠員を未確定に戻します。代行者の充て直しや結果の変更ができます。よろしいですか？')) return;
+      disableAll(btn);
+      google.script.run
+        .withSuccessHandler(reload)
+        .withFailureHandler(function (err) { alert('エラー: ' + err.message); reload(); })
+        .reopenVacancy(vacancyId);
     }
 
     function disableAll(btn) {

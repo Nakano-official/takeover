@@ -112,10 +112,20 @@ function submitAbsence(courseId, date) {
   // 補充候補が0人 → 自動決着（review #4・CLAUDE.md ドメイン）。
   // 相方が残るコマ（2名テイク等）は「1人テイク」、残らない1名コマは「職員対応」。
   if (candidates.length === 0) {
+    // 同コマ・同日に欠勤登録済みのスタッフ（相方も欠勤しているケース）を把握する（review再レビューB）
+    const absentSameSlot = {};
+    readRows(SHEET.VACANCIES).forEach(function (v) {
+      if (String(v.course_id).trim() === String(courseId).trim() &&
+          dateToStr_(v.date) === dateStr) {
+        const a = String(v.absent_staff_id).trim();
+        if (a) absentSameSlot[a] = true;
+      }
+    });
+    // 欠勤者本人＋同コマ同日に欠勤している人を除いて、残るスタッフがいるか
     const remaining = [course.staff_a_id, course.staff_b_id]
       .map(function (x) { return String(x).trim(); })
       .filter(Boolean)
-      .filter(function (id) { return id !== user.staff_id; });
+      .filter(function (id) { return id !== user.staff_id && !absentSameSlot[id]; });
     const autoResult = remaining.length > 0 ? '1人テイク' : '職員対応';
     updateRow(SHEET.VACANCIES, 'vacancy_id', vacancyId, { result: autoResult });
 
@@ -364,6 +374,26 @@ function setVacancyResult(vacancyId, result) {
     notify = { error: e.message };
   }
   return { ok: true, notify: notify };
+}
+
+/**
+ * 確定済みの欠員を未確定（オープン）に戻す（職員のみ・review再レビューA）。
+ * 候補0人で自動決着（1人テイク/職員対応）した後などに、見つかった代行者を
+ * 充て直したり結果を変えたりするための導線。result と代行者をクリアして開き直す。
+ */
+function reopenVacancy(vacancyId) {
+  requireStaff_();
+  const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+  if (!vacancy) throw new Error('対象の欠員が見つかりません。');
+  if (!String(vacancy.result).trim()) throw new Error('この欠員はまだ未確定です（再オープン不要）。');
+
+  const ok = updateRow(SHEET.VACANCIES, 'vacancy_id', vacancyId, {
+    result: '',
+    substitute_staff_id: '',
+    notify_status: NOTIFY_STATUS_PENDING,
+  });
+  if (!ok) throw new Error('欠員の更新に失敗しました。');
+  return { ok: true };
 }
 
 // ─── 候補スクリーニング ──────────────────────────────────────
