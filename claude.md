@@ -122,14 +122,23 @@
 | available_slots | 空きコマ。`月1,月2,火3` 形式（クォーター毎に上書き） |
 
 ### `courses` シート
+「利用者中心の時間割」を表す（decisions.md D8）。1行＝1コマ（利用者×曜日×時限）。
+同じ曜日・時限に複数の利用者が並ぶ。テイク＝スタッフ2名、介助＝1名（`staff_b_id` 空）のことがある。
+
 | カラム | 内容 |
 |---|---|
 | course_id | コマID |
 | quarter | クォーター（例：2026-Q3）。過去分は削除しない |
 | day | 曜日 |
 | period | 時限 |
+| support_type | 内容：テイク / 介助 |
+| user_student | 利用学生（被支援者）の氏名 |
+| subject | 科目名 |
+| instructor | 担当教員 |
+| room | 教室 |
 | staff_a_id | 担当スタッフA |
-| staff_b_id | 担当スタッフB |
+| staff_b_id | 担当スタッフB（介助で1名なら空） |
+| note | 備考 |
 
 ### `vacancies` シート
 | カラム | 内容 |

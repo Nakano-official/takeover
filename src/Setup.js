@@ -26,6 +26,35 @@ function setupSpreadsheets() {
   Logger.log('連絡先DBは職員のみ共有してください（スプレッドシートの共有設定で制限）。');
 }
 
+// ─── マイグレーション（既存シートへのカラム追加）─────────────
+
+/**
+ * 既存の courses シートに、時間割デジタル化（D8）で増えたカラムを追加する。
+ * 既にデータがある運用シートを壊さず、不足しているヘッダーだけ末尾に足す（冪等）。
+ * GASエディタから1回実行する。コードはヘッダー名で読むため列順は問わない。
+ */
+function migrateCoursesColumns() {
+  const NEEDED = ['support_type', 'user_student', 'subject', 'instructor', 'room', 'note'];
+  const ss = openMainDb_();
+  const sheet = ss.getSheetByName('courses');
+  if (!sheet) { Logger.log('❌ courses シートが見つかりません。'); return; }
+
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
+    return String(h).trim();
+  });
+
+  const toAdd = NEEDED.filter(function (h) { return headers.indexOf(h) === -1; });
+  if (toAdd.length === 0) {
+    Logger.log('✅ courses は既に最新のカラム構成です（追加なし）。');
+    return;
+  }
+
+  sheet.getRange(1, lastCol + 1, 1, toAdd.length).setValues([toAdd]);
+  Logger.log('✅ courses に ' + toAdd.length + ' 列を追加しました: ' + toAdd.join(', '));
+  Logger.log('   既存行の新カラムは空です。時間割の内容を入力してください。');
+}
+
 // ─── メインDB ────────────────────────────────────────────────
 
 function setupMainDb_(ss) {
@@ -38,15 +67,29 @@ function setupMainDb_(ss) {
     ['S003', '鈴木 次郎', '学生', '火1,火2,木3,金2'],
   ]);
 
+  // courses は「利用者中心の時間割」を表す（decisions.md D8）。
+  // 1行＝1コマ（利用者×曜日×時限）。同じ曜日・時限に複数の利用者が並ぶ。
+  // support_type=テイク は staff 2名、介助 は1名（staff_b_id 空）のことがある。
   const coursesSheet = ss.insertSheet('courses');
-  coursesSheet.getRange(1, 1, 1, 6).setValues([
-    ['course_id', 'quarter', 'day', 'period', 'staff_a_id', 'staff_b_id'],
-  ]);
+  const COURSE_HEADERS = [
+    'course_id', 'quarter', 'day', 'period',
+    'support_type',   // 内容：テイク / 介助
+    'user_student',   // 利用学生（被支援者）の氏名
+    'subject',        // 科目名
+    'instructor',     // 担当教員
+    'room',           // 教室
+    'staff_a_id', 'staff_b_id',
+    'note',           // 備考
+  ];
+  coursesSheet.getRange(1, 1, 1, COURSE_HEADERS.length).setValues([COURSE_HEADERS]);
   // period 列（D列）は periods シートと突合するためテキスト固定
-  coursesSheet.getRange(2, 4, 2, 1).setNumberFormat('@');
-  coursesSheet.getRange(2, 1, 2, 6).setValues([
-    ['C001', '2026-Q3', '月', '1', 'S002', 'S003'],
-    ['C002', '2026-Q3', '火', '2', 'S002', 'S003'],
+  coursesSheet.getRange(2, 4, 3, 1).setNumberFormat('@');
+  // サンプル：月1限に2名の利用者が同時（テイク2名／介助1名）、火2限に1件。
+  // ※ すべて架空のダミー値。実在の利用者名・教員名・科目名は入れないこと。
+  coursesSheet.getRange(2, 1, 3, COURSE_HEADERS.length).setValues([
+    ['C001', '2026-Q3', '月', '1', 'テイク', '利用者A', 'サンプル科目A', '（仮）教員A', 'A-101', 'S002', 'S003', ''],
+    ['C002', '2026-Q3', '月', '1', '介助',   '利用者B', 'サンプル科目B', '（仮）教員B', 'A-102', 'S002', '',     '9:00-10:45'],
+    ['C003', '2026-Q3', '火', '2', 'テイク', '利用者A', 'サンプル科目C', '（仮）教員C', 'B-201', 'S002', 'S003', ''],
   ]);
 
   const vacanciesSheet = ss.insertSheet('vacancies');

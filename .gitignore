@@ -5,6 +5,14 @@
 *.csv
 !data/**/*.csv
 
+# 実データ画像（時間割・スクリーンショット等。被支援者/スタッフの氏名を含むためコミット禁止）
+*.png
+*.jpg
+*.jpeg
+*.pdf
+!docs/**/*.png
+!docs/**/*.jpg
+
 # Logs
 logs
 *.log
