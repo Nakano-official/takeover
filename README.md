@@ -180,7 +180,8 @@ npx clasp push --force
 | ファイル | 内容 |
 |---|---|
 | [`CLAUDE.md`](CLAUDE.md) | プロジェクト全体像・ドメイン知識・データ設計・プロパティ一覧 |
-| [`docs/operations.md`](docs/operations.md) | **運用手順書**（セットアップ・Webhook・フォーム・クォーター更新・FAQ） |
+| [`docs/operations.md`](docs/operations.md) | **職員向け利用マニュアル**（URL受領後の使い方・GAS不要） |
+| [`docs/setup.md`](docs/setup.md) | **構築・引き継ぎ手順**（管理者が一度だけ行うセットアップ） |
 | [`docs/architecture.md`](docs/architecture.md) | アーキテクチャ・データフロー・ER図・権限設計 |
 | [`docs/decisions.md`](docs/decisions.md) | 相談で決まった仕様・経緯（決定ログ） |
 | [`docs/backlog.md`](docs/backlog.md) | 未対応の改善点 |
