@@ -276,6 +276,51 @@ function notifyVacancyClosed(vacancyId, resultLabel) {
   return result;
 }
 
+/**
+ * 補充候補が0人で自動決着したことを職員スペースへ知らせる（review #4）。
+ * 候補がいないため個別通知の宛先は無く、職員への一報のみ。
+ *
+ * @param  {string} vacancyId
+ * @param  {string} resultLabel  '1人テイク' / '職員対応'
+ * @return {{staff:boolean, errors:Array}}
+ */
+function notifyAutoResolved(vacancyId, resultLabel) {
+  const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+  if (!vacancy) throw new Error('対象の欠員が見つかりません。');
+  const course = findRow(SHEET.COURSES, 'course_id', vacancy.course_id);
+  if (!course) throw new Error('対象のコマが見つかりません。');
+
+  const nameById = buildNameMap_();
+  const periodById = buildPeriodMap_();
+  const p = periodById[String(course.period).trim()] || {};
+  const timeText = p.start_time ? p.start_time + '〜' + p.end_time : '';
+  const dateText = dateToStr_(vacancy.date);
+  const slot = String(course.day).trim() + String(course.period).trim() + '限';
+  const absentName = nameById[String(vacancy.absent_staff_id).trim()] || vacancy.absent_staff_id;
+
+  const msg =
+    '⚠️ *補充候補がいませんでした*\n' +
+    '日付: ' + dateText + '\n' +
+    'コマ: ' + slot + (timeText ? '（' + timeText + '）' : '') + '\n' +
+    '欠勤: ' + absentName + '\n' +
+    '→ 自動で「' + resultLabel + '」に設定しました。変更が必要なら管理画面で対応してください。\n' +
+    '欠員ID: ' + vacancyId;
+
+  const result = { staff: false, errors: [] };
+  try {
+    postToWebhook_(getStaffSpaceWebhook_(), msg);
+    result.staff = true;
+  } catch (e) {
+    result.errors.push('職員スペース: ' + e.message);
+  }
+  try {
+    updateRow(SHEET.VACANCIES, 'vacancy_id', vacancyId, { notify_status: NOTIFY_STATUS.DONE });
+  } catch (e) {
+    result.errors.push('ステータス更新: ' + e.message);
+  }
+  return result;
+}
+
 // ─── デバッグ用 ──────────────────────────────────────────────
 
 /**

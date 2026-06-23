@@ -109,6 +109,35 @@ function submitAbsence(courseId, date) {
   // 代行候補を抽出（欠勤者と相方＋当日のダブルブッキングを除外）
   const candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id], dateStr);
 
+  // 補充候補が0人 → 自動決着（review #4・CLAUDE.md ドメイン）。
+  // 相方が残るコマ（2名テイク等）は「1人テイク」、残らない1名コマは「職員対応」。
+  if (candidates.length === 0) {
+    const remaining = [course.staff_a_id, course.staff_b_id]
+      .map(function (x) { return String(x).trim(); })
+      .filter(Boolean)
+      .filter(function (id) { return id !== user.staff_id; });
+    const autoResult = remaining.length > 0 ? '1人テイク' : '職員対応';
+    updateRow(SHEET.VACANCIES, 'vacancy_id', vacancyId, { result: autoResult });
+
+    var autoNotify;
+    try {
+      autoNotify = notifyAutoResolved(vacancyId, autoResult);
+    } catch (e) {
+      autoNotify = { error: e.message };
+    }
+    return {
+      vacancy_id: vacancyId,
+      course: {
+        course_id: course.course_id,
+        day: course.day,
+        period: String(course.period).trim(),
+      },
+      candidates: [],
+      autoResult: autoResult,
+      notify: autoNotify,
+    };
+  }
+
   // 職員スペース＋候補者へ通知（失敗しても欠員登録は確定させる）
   var notify;
   try {

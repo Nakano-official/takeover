@@ -121,6 +121,12 @@
         box.className = 'result';
         box.innerHTML = head + '<div style="margin-top:8px;">代行候補（' + res.candidates.length + '名）:<br>' + chips + '</div>'
           + notifyHtml(res.notify);
+      } else if (res.autoResult) {
+        // 補充候補が0人 → 自動決着（1人テイク / 職員対応）
+        box.className = 'result warn';
+        box.innerHTML = head + '<div style="margin-top:8px;">空きのある代行候補がいませんでした。'
+          + '自動で <b>「' + escapeHtml(res.autoResult) + '」</b> として処理し、職員へ連絡しました。</div>'
+          + notifyHtml(res.notify);
       } else {
         box.className = 'result warn';
         box.innerHTML = head + '<div style="margin-top:8px;">⚠️ この時限に空きのある代行候補が見つかりませんでした。職員に相談してください。</div>'
