@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: "Helvetica Neue", Arial, "Hiragino Sans", "Yu Gothic", sans-serif;
+           margin: 0; background: #f5f6f8; color: #222; }
+    header { background: #4a86e8; color: #fff; padding: 14px 16px; }
+    header h1 { font-size: 1.1rem; margin: 0; }
+    header .user { font-size: .8rem; opacity: .9; margin-top: 2px; }
+    nav { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; background: #fff;
+          border-bottom: 1px solid #e3e6ea; }
+    nav a { font-size: .85rem; text-decoration: none; color: #4a86e8;
+            border: 1px solid #cdddfb; border-radius: 999px; padding: 5px 12px; }
+    nav a:hover { background: #eef4ff; }
+    main { padding: 16px; max-width: 560px; margin: 0 auto; }
+    .card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    label { display: block; font-size: .85rem; font-weight: 600; margin: 14px 0 6px; }
+    select, input[type=date] { width: 100%; padding: 10px; font-size: 1rem;
+            border: 1px solid #cdd3da; border-radius: 6px; background: #fff; }
+    button { margin-top: 20px; width: 100%; padding: 12px; font-size: 1rem; font-weight: 600;
+             color: #fff; background: #c0392b; border: none; border-radius: 6px; cursor: pointer; }
+    button:disabled { background: #d8a39c; cursor: default; }
+    .state { padding: 18px; text-align: center; color: #888; }
+    .result { margin-top: 18px; padding: 16px; border-radius: 8px; background: #eef6ff;
+              border: 1px solid #cfe2fb; font-size: .9rem; line-height: 1.7; }
+    .result.warn { background: #fff7e6; border-color: #ffe0a3; }
+    .result h2 { font-size: 1rem; margin: 0 0 8px; }
+    .cand { display: inline-block; background: #e7f0fd; color: #2a63c0;
+            border-radius: 999px; padding: 2px 10px; margin: 2px 4px 2px 0; font-size: .85rem; }
+    .hint { font-size: .8rem; color: #888; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>欠勤連絡</h1>
+    <div class="user"><?= user.name ?> さん（<?= user.role ?>）</div>
+  </header>
+
+  <nav>
+    <a href="<?= appUrl ?>?page=home">シフト確認</a>
+    <a href="<?= appUrl ?>?page=absence">欠勤連絡</a>
+    <? if (user.role === '職員') { ?>
+      <a href="<?= appUrl ?>?page=input">シフト入力</a>
+      <a href="<?= appUrl ?>?page=manage">欠員補充管理</a>
+      <a href="<?= appUrl ?>?page=check">整合性チェック</a>
+    <? } ?>
+  </nav>
+
+  <main>
+    <div class="card">
+      <div id="form" class="state">担当コマを読み込み中…</div>
+    </div>
+    <div id="result"></div>
+  </main>
+
+  <script>
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // 担当コマを読み込んでフォームを組み立てる
+    function buildForm(courses) {
+      var form = document.getElementById('form');
+      if (!courses || courses.length === 0) {
+        form.className = 'state';
+        form.textContent = 'あなたが担当しているコマがありません。欠勤連絡は担当コマがある場合のみ行えます。';
+        return;
+      }
+      var opts = courses.map(function (c) {
+        var label = c.day + c.period + '限'
+          + (c.time ? '（' + c.time + '）' : '')
+          + '　相方: ' + (c.partner || '—');
+        return '<option value="' + escapeHtml(c.course_id) + '">' + escapeHtml(label) + '</option>';
+      }).join('');
+
+      var today = new Date();
+      var iso = today.getFullYear() + '-'
+        + ('0' + (today.getMonth() + 1)).slice(-2) + '-'
+        + ('0' + today.getDate()).slice(-2);
+
+      form.className = '';
+      form.innerHTML =
+        '<label for="course">欠勤するコマ</label>' +
+        '<select id="course">' + opts + '</select>' +
+        '<label for="date">欠勤日</label>' +
+        '<input type="date" id="date" value="' + iso + '">' +
+        '<button id="submit" onclick="submit()">欠勤を登録して代行候補を探す</button>' +
+        '<p class="hint">登録すると、その曜日・時限に空きのある学生が代行候補として表示されます。</p>';
+    }
+
+    function submit() {
+      var courseId = document.getElementById('course').value;
+      var date = document.getElementById('date').value;
+      if (!date) { alert('欠勤日を選んでください。'); return; }
+
+      var btn = document.getElementById('submit');
+      btn.disabled = true;
+      btn.textContent = '登録中…';
+
+      google.script.run
+        .withSuccessHandler(onDone)
+        .withFailureHandler(onFail)
+        .submitAbsence(courseId, date);
+    }
+
+    function onDone(res) {
+      var box = document.getElementById('result');
+      var c = res.course;
+      var head = '<h2>✅ 欠員を登録しました</h2>'
+        + '<div>欠員ID: ' + escapeHtml(res.vacancy_id) + '（' + escapeHtml(c.day + c.period) + '限）</div>';
+
+      if (res.candidates && res.candidates.length > 0) {
+        var chips = res.candidates.map(function (x) {
+          return '<span class="cand">' + escapeHtml(x.name) + '</span>';
+        }).join('');
+        box.className = 'result';
+        box.innerHTML = head + '<div style="margin-top:8px;">代行候補（' + res.candidates.length + '名）:<br>' + chips + '</div>'
+          + notifyHtml(res.notify);
+      } else {
+        box.className = 'result warn';
+        box.innerHTML = head + '<div style="margin-top:8px;">⚠️ この時限に空きのある代行候補が見つかりませんでした。職員に相談してください。</div>'
+          + notifyHtml(res.notify);
+      }
+
+      var btn = document.getElementById('submit');
+      btn.textContent = '登録済み';
+    }
+
+    // 通知結果を1行で要約表示する
+    function notifyHtml(n) {
+      if (!n) return '';
+      if (n.error) {
+        return '<p class="hint">⚠️ 通知処理でエラー: ' + escapeHtml(n.error) + '</p>';
+      }
+      var sent = (n.candidates || []).filter(function (c) { return c.sent; }).length;
+      var total = (n.candidates || []).length;
+      var parts = [];
+      parts.push(n.staff ? '職員スペースへ通知しました' : '職員スペースへ通知できませんでした');
+      if (total > 0) parts.push('候補 ' + sent + '/' + total + ' 名へ送信');
+      return '<p class="hint">📨 ' + escapeHtml(parts.join('　／　')) + '</p>';
+    }
+
+    function onFail(err) {
+      alert('エラー: ' + err.message);
+      var btn = document.getElementById('submit');
+      btn.disabled = false;
+      btn.textContent = '欠勤を登録して代行候補を探す';
+    }
+
+    google.script.run.withSuccessHandler(buildForm).withFailureHandler(function (err) {
+      document.getElementById('form').textContent = 'エラー: ' + err.message;
+    }).getMyCourses();
+  </script>
+</body>
+</html>

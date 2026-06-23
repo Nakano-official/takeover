@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: "Helvetica Neue", Arial, "Hiragino Sans", "Yu Gothic", sans-serif;
+           margin: 0; background: #f5f6f8; color: #222; }
+    header { background: #4a86e8; color: #fff; padding: 14px 16px; }
+    header h1 { font-size: 1.1rem; margin: 0; }
+    header .user { font-size: .8rem; opacity: .9; margin-top: 2px; }
+    nav { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; background: #fff;
+          border-bottom: 1px solid #e3e6ea; }
+    nav a { font-size: .85rem; text-decoration: none; color: #4a86e8;
+            border: 1px solid #cdddfb; border-radius: 999px; padding: 5px 12px; }
+    nav a:hover { background: #eef4ff; }
+    main { padding: 14px; max-width: 1100px; margin: 0 auto; }
+
+    .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+    .toolbar label { font-size: .85rem; color: #555; }
+    select { padding: 7px 10px; font-size: .9rem; border: 1px solid #cdd3da; border-radius: 6px; background: #fff; }
+    .reset { padding: 7px 12px; font-size: .82rem; border: 1px solid #cdd3da; border-radius: 6px;
+             background: #fff; color: #555; cursor: pointer; }
+    .reset:hover { background: #f3f5f8; }
+    .legend { font-size: .76rem; color: #777; margin-left: auto; }
+    .count { font-size: .8rem; color: #666; margin-bottom: 8px; }
+
+    /* コマのカード（ボタン式・PC/スマホ共通） */
+    .cd { display: block; width: 100%; text-align: left; font-family: inherit; cursor: pointer;
+          border: 1px solid #e3e6ea; border-left: 4px solid #bbb; border-radius: 7px;
+          padding: 8px 9px; margin: 5px 0; font-size: .95rem; line-height: 1.5;
+          background: #fafbfc; color: #222; }
+    .cd:hover { background: #eef4ff; }
+    .cd:active { background: #e3edfc; }
+    .cd.take { border-left-color: #2a63c0; }
+    .cd.help { border-left-color: #d98a00; }
+    .cd.open { border-left-color: #2e9e54; background: #f1faf3; }
+    .cd.open:hover { background: #e6f6ea; }
+    .cd-staff { display: block; color: #1e7a3d; margin-top: 3px; }
+    .cd-room { display: block; color: #444; margin-top: 1px; }
+    .cd-more { float: right; color: #9aa3ad; font-size: .82rem; }
+    .tag { display: inline-block; font-size: .8rem; padding: 1px 8px; border-radius: 999px;
+           color: #fff; margin-right: 4px; vertical-align: 1px; }
+    .tag.take { background: #2a63c0; }
+    .tag.help { background: #d98a00; }
+    .st { display: inline-block; font-size: .82rem; padding: 1px 8px; border-radius: 999px; margin-top: 4px; }
+    .st-normal { background: #e7f6ec; color: #1e7a3d; }
+    .st-open { background: #d8f1e0; color: #1e7a3d; font-weight: 600; }
+    .st-vacant { background: #fdecea; color: #c0392b; }
+    .st-filled { background: #e7f0fd; color: #2a63c0; }
+    .st-other  { background: #f0f0f0; color: #555; }
+    .sub-name { color: #2a63c0; }
+
+    /* ===== 詳細モーダル ===== */
+    .modal { display: none; position: fixed; inset: 0; z-index: 50; padding: 16px;
+             background: rgba(0,0,0,.42); align-items: center; justify-content: center; }
+    .modal.show { display: flex; }
+    .sheet { position: relative; background: #fff; border-radius: 12px; width: 100%; max-width: 420px;
+             max-height: 90vh; overflow: auto; padding: 18px 18px 22px;
+             box-shadow: 0 8px 30px rgba(0,0,0,.25); }
+    .sheet .x { position: absolute; top: 6px; right: 10px; border: none; background: none;
+                font-size: 1.5rem; line-height: 1; color: #999; cursor: pointer; }
+    .m-title { margin: 0 0 16px; font-size: 1.2rem; }
+    .m-dl { display: grid; grid-template-columns: 92px 1fr; gap: 9px 12px; margin: 0; font-size: 1.02rem; }
+    .m-dl dt { color: #888; }
+    .m-dl dd { margin: 0; }
+    .m-status { margin-top: 16px; font-size: .98rem; color: #555; }
+    @media (max-width: 760px) {
+      .modal { align-items: flex-end; padding: 0; }
+      .sheet { max-width: none; border-radius: 14px 14px 0 0; max-height: 85vh; }
+    }
+
+    /* ===== PC：時間割グリッド ===== */
+    .pc table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px;
+                overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.08); table-layout: fixed; }
+    .pc th, .pc td { border: 1px solid #d7dde4; vertical-align: top; }
+    .pc thead th { background: #4a86e8; color: #fff; padding: 9px; font-size: .98rem; }
+    .pc .ph { background: #f0f3f7; width: 88px; text-align: center; font-size: .92rem; padding: 7px; color: #333; }
+    .pc .ph small { display: block; color: #888; font-weight: normal; font-size: .74rem; margin-top: 2px; }
+    .pc td.cell, .pc td.empty { padding: 5px; height: 56px; }
+    .pc td.empty { background: #f7f9fb; }
+
+    /* ===== スマホ：曜日タブ＋その日のカード ===== */
+    .mb { display: none; }
+    .tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; }
+    .tabs button { flex: 0 0 auto; border: 1px solid #cdddfb; background: #fff; color: #4a86e8;
+                   border-radius: 999px; padding: 7px 16px; font-size: .95rem; cursor: pointer; }
+    .tabs button.on { background: #4a86e8; color: #fff; border-color: #4a86e8; }
+    .per { background: #fff; border-radius: 8px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .per-h { background: #f0f3f7; padding: 8px 11px; font-size: .98rem; font-weight: 600; color: #333;
+             border-radius: 8px 8px 0 0; }
+    .per-h small { color: #888; font-weight: normal; margin-left: 6px; }
+    .per-b { padding: 6px 8px; }
+
+    .state { padding: 24px; text-align: center; color: #888; }
+
+    @media (max-width: 760px) {
+      .pc { display: none; }
+      .mb { display: block; }
+      .legend { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>シフト確認（時間割）</h1>
+    <div class="user"><?= user.name ?> さん（<?= user.role ?>）</div>
+  </header>
+
+  <nav>
+    <a href="<?= appUrl ?>?page=home">シフト確認</a>
+    <a href="<?= appUrl ?>?page=absence">欠勤連絡</a>
+    <? if (user.role === '職員') { ?>
+      <a href="<?= appUrl ?>?page=input">シフト入力</a>
+      <a href="<?= appUrl ?>?page=manage">欠員補充管理</a>
+      <a href="<?= appUrl ?>?page=check">整合性チェック</a>
+    <? } ?>
+  </nav>
+
+  <main>
+    <div class="toolbar">
+      <label for="q">クォーター</label>
+      <select id="q" onchange="onQuarter()"></select>
+      <label for="fUser">利用者</label>
+      <select id="fUser" onchange="applyFilters()"></select>
+      <label for="fStaff">スタッフ</label>
+      <select id="fStaff" onchange="applyFilters()"></select>
+      <label for="fType">内容</label>
+      <select id="fType" onchange="applyFilters()">
+        <option value="__all__">すべて</option>
+        <option value="テイク">テイク</option>
+        <option value="介助">介助</option>
+      </select>
+      <button class="reset" onclick="resetFilters()" type="button">クリア</button>
+      <span class="legend">■テイク（2名）　■介助（1名）</span>
+    </div>
+    <div id="count" class="count"></div>
+    <div id="content" class="state">読み込み中…</div>
+  </main>
+
+  <div id="modal" class="modal" onclick="closeDetail(event)">
+    <div class="sheet" onclick="event.stopPropagation()">
+      <button class="x" type="button" onclick="closeDetail()" aria-label="閉じる">×</button>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <script>
+    var DATA = null;          // サーバーから来た全データ
+    var VIEW = null;          // 絞り込み後の { courses, days, periods }
+    var curDay = null;
+    var ME = '<?= user.name ?>';  // ログイン中スタッフの氏名（自分絞り込み用）
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // コマ1件のカードHTML（ボタン式。顔は最小限、詳細はタップで表示）
+    function card(c) {
+      var isTake = c.support_type === 'テイク';
+      var cls = isTake ? 'take' : 'help';
+      var isOpen = isTake && !c.staffB && (!c.status || c.status === '通常');
+      if (isOpen) cls += ' open';
+      var staff = escapeHtml(c.staffA || '—') + (c.staffB ? ' ・ ' + escapeHtml(c.staffB) : '');
+      var html = '<button type="button" class="cd ' + cls + '" onclick="openDetail(\'' +
+        escapeAttr(c.course_id) + '\')">' +
+        '<span class="cd-more">詳細 ›</span>' +
+        '<span class="tag ' + cls + '">' + escapeHtml(c.support_type || 'コマ') + '</span>' +
+        '<span class="cd-staff">' + staff + '</span>';
+      if (c.room) html += '<span class="cd-room">教室: ' + escapeHtml(c.room) + '</span>';
+      html += statusBadge(c) + '</button>';
+      return html;
+    }
+
+    function statusBadge(c) {
+      // テイクなのに担当が1名 ＝ 恒常的に枠が空いている（誰でも入れる）
+      if ((!c.status || c.status === '通常') && c.support_type === 'テイク' && !c.staffB) {
+        return '<span class="st st-open">あと1名 募集中</span>';
+      }
+      if (!c.status || c.status === '通常') return '';
+      var cls = c.status === '欠員対応中' ? 'st-vacant'
+              : c.status === '補充済' ? 'st-filled' : 'st-other';
+      var txt = escapeHtml(c.status);
+      if (c.status === '補充済' && c.substitute) {
+        txt = '補充済 → <span class="sub-name">' + escapeHtml(c.substitute) + '</span>';
+      }
+      return '<span class="st ' + cls + '">' + txt + '</span>';
+    }
+
+    function escapeAttr(s) {
+      return escapeHtml(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+    }
+
+    // ===== 詳細モーダル =====
+    function courseById(id) {
+      if (!DATA) return null;
+      for (var i = 0; i < DATA.courses.length; i++) {
+        if (DATA.courses[i].course_id === id) return DATA.courses[i];
+      }
+      return null;
+    }
+
+    function periodTime(period) {
+      if (!DATA || !DATA.periods) return '';
+      for (var i = 0; i < DATA.periods.length; i++) {
+        if (DATA.periods[i].period === period) return DATA.periods[i].time || '';
+      }
+      return '';
+    }
+
+    function openDetail(courseId) {
+      var c = courseById(courseId);
+      if (!c) return;
+      var pt = periodTime(c.period);
+      var rows = [
+        ['内容', escapeHtml(c.support_type || '—')],
+        ['日時', escapeHtml(c.day) + '曜 ' + escapeHtml(c.period) + '限' +
+          (pt ? '（' + escapeHtml(pt) + '）' : '')],
+        ['利用者', escapeHtml(c.user_student || '—')],
+        ['科目', escapeHtml(c.subject || '—')],
+        ['担当教員', escapeHtml(c.instructor || '—')],
+        ['教室', escapeHtml(c.room || '—')],
+        ['担当スタッフ', escapeHtml(c.staffA || '—') + (c.staffB ? ' ・ ' + escapeHtml(c.staffB) : '')],
+      ];
+      if (c.note) rows.push(['備考', escapeHtml(c.note)]);
+
+      var tagCls = c.support_type === 'テイク' ? 'take' : 'help';
+      var body = '<h3 class="m-title"><span class="tag ' + tagCls + '">' +
+        escapeHtml(c.support_type || 'コマ') + '</span>' + escapeHtml(c.user_student || '') + '</h3>';
+      body += '<dl class="m-dl">' + rows.map(function (r) {
+        return '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>';
+      }).join('') + '</dl>';
+      var sb = statusBadge(c);
+      if (sb) body += '<div class="m-status">状態 ' + sb + '</div>';
+
+      document.getElementById('modalBody').innerHTML = body;
+      document.getElementById('modal').classList.add('show');
+    }
+
+    function closeDetail(e) {
+      if (e && e.type === 'click' && e.target.id !== 'modal') return;
+      document.getElementById('modal').classList.remove('show');
+    }
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeDetail();
+    });
+
+    // 指定 day+period のコマ配列（絞り込み後の VIEW から）
+    function cellCourses(day, period) {
+      return VIEW.courses.filter(function (c) { return c.day === day && c.period === period; });
+    }
+
+    // ===== PC：グリッド =====
+    function renderPC() {
+      var d = VIEW;
+      var h = '<div class="pc"><table><thead><tr><th class="ph">時限</th>';
+      d.days.forEach(function (day) { h += '<th>' + escapeHtml(day) + '</th>'; });
+      h += '</tr></thead><tbody>';
+      d.periods.forEach(function (p) {
+        h += '<tr><th class="ph">' + escapeHtml(p.period) + '限' +
+             (p.time ? '<small>' + escapeHtml(p.time) + '</small>' : '') + '</th>';
+        d.days.forEach(function (day) {
+          var list = cellCourses(day, p.period);
+          if (list.length === 0) { h += '<td class="cell empty"></td>'; return; }
+          h += '<td class="cell">' + list.map(card).join('') + '</td>';
+        });
+        h += '</tr>';
+      });
+      h += '</tbody></table></div>';
+      return h;
+    }
+
+    // ===== スマホ：曜日タブ＋カード =====
+    function renderMobile() {
+      var h = '<div class="mb"><div class="tabs" id="tabs">';
+      VIEW.days.forEach(function (day) {
+        h += '<button class="' + (day === curDay ? 'on' : '') + '" onclick="selDay(\'' +
+             day + '\')">' + escapeHtml(day) + '</button>';
+      });
+      h += '</div><div id="dayView"></div></div>';
+      return h;
+    }
+
+    function renderDayView() {
+      var host = document.getElementById('dayView');
+      if (!host) return;
+      // この曜日にコマがある時限だけ表示
+      var rows = VIEW.periods.filter(function (p) {
+        return cellCourses(curDay, p.period).length > 0;
+      });
+      if (rows.length === 0) {
+        host.innerHTML = '<div class="state">' + escapeHtml(curDay) + '曜のコマはありません。</div>';
+        return;
+      }
+      host.innerHTML = rows.map(function (p) {
+        var cards = cellCourses(curDay, p.period).map(card).join('');
+        return '<div class="per"><div class="per-h">' + escapeHtml(p.period) + '限' +
+          (p.time ? '<small>' + escapeHtml(p.time) + '</small>' : '') +
+          '</div><div class="per-b">' + cards + '</div></div>';
+      }).join('');
+    }
+
+    function selDay(day) {
+      curDay = day;
+      var tabs = document.querySelectorAll('#tabs button');
+      tabs.forEach(function (b) { b.classList.toggle('on', b.textContent === day); });
+      renderDayView();
+    }
+
+    // 与えられたコマ配列から、登場する曜日・時限だけを元の並び順で取り出す
+    function buildView(courses) {
+      var dayHas = {}, perHas = {};
+      courses.forEach(function (c) { dayHas[c.day] = true; perHas[c.period] = true; });
+      return {
+        courses: courses,
+        days: DATA.days.filter(function (d) { return dayHas[d]; }),
+        periods: DATA.periods.filter(function (p) { return perHas[p.period]; }),
+      };
+    }
+
+    // 絞り込みを適用して再描画
+    function applyFilters() {
+      var u = val('fUser'), s = val('fStaff'), t = val('fType');
+      var courses = DATA.courses.filter(function (c) {
+        if (u !== '__all__' && c.user_student !== u) return false;
+        if (t !== '__all__' && c.support_type !== t) return false;
+        if (s === '__me__') { if (c.staffA !== ME && c.staffB !== ME) return false; }
+        else if (s !== '__all__') { if (c.staffA !== s && c.staffB !== s) return false; }
+        return true;
+      });
+      VIEW = buildView(courses);
+      render();
+    }
+
+    function resetFilters() {
+      ['fUser', 'fStaff', 'fType'].forEach(function (id) { document.getElementById(id).value = '__all__'; });
+      applyFilters();
+    }
+
+    function val(id) { return document.getElementById(id).value; }
+
+    function render() {
+      var content = document.getElementById('content');
+      var countEl = document.getElementById('count');
+      if (!DATA || DATA.courses.length === 0) {
+        countEl.textContent = '';
+        content.className = 'state';
+        content.textContent = '表示できるコマがありません。（このクォーターの時間割が未登録の可能性があります）';
+        return;
+      }
+      countEl.textContent = '表示中: ' + VIEW.courses.length + ' / ' + DATA.courses.length + ' コマ';
+      if (VIEW.courses.length === 0) {
+        content.className = 'state';
+        content.textContent = '条件に合うコマがありません。「クリア」で絞り込みを解除できます。';
+        return;
+      }
+      // スマホ初期表示曜日：今日の曜日があればそれ、なければ先頭
+      var today = ['日', '月', '火', '水', '木', '金', '土'][new Date().getDay()];
+      curDay = VIEW.days.indexOf(today) !== -1 ? today : VIEW.days[0];
+
+      content.className = '';
+      content.innerHTML = renderPC() + renderMobile();
+      renderDayView();
+    }
+
+    function fillQuarters() {
+      var sel = document.getElementById('q');
+      sel.innerHTML = DATA.quarters.map(function (q) {
+        return '<option value="' + escapeHtml(q) + '"' +
+          (q === DATA.quarter ? ' selected' : '') + '>' + escapeHtml(q) + '</option>';
+      }).join('');
+      sel.style.display = DATA.quarters.length > 1 ? '' : 'none';
+    }
+
+    // 利用者・スタッフの絞り込み候補を投入（選択値は可能なら維持）
+    function fillFilters() {
+      var users = uniqueSorted(DATA.courses.map(function (c) { return c.user_student; }));
+      var staffNames = uniqueSorted([].concat(
+        DATA.courses.map(function (c) { return c.staffA; }),
+        DATA.courses.map(function (c) { return c.staffB; })
+      ).filter(Boolean));
+
+      setOptions('fUser',
+        [{ v: '__all__', t: '全利用者' }].concat(users.map(function (u) { return { v: u, t: u }; })));
+
+      var staffOpts = [{ v: '__all__', t: '全スタッフ' }];
+      if (ME && staffNames.indexOf(ME) !== -1) staffOpts.push({ v: '__me__', t: '自分（' + ME + '）' });
+      staffOpts = staffOpts.concat(staffNames.map(function (n) { return { v: n, t: n }; }));
+      setOptions('fStaff', staffOpts);
+    }
+
+    function setOptions(id, opts) {
+      var sel = document.getElementById(id);
+      var keep = sel.value;
+      sel.innerHTML = opts.map(function (o) {
+        return '<option value="' + escapeHtml(o.v) + '">' + escapeHtml(o.t) + '</option>';
+      }).join('');
+      // 再描画前の選択値が残っていれば維持
+      var has = opts.some(function (o) { return o.v === keep; });
+      sel.value = has ? keep : '__all__';
+    }
+
+    function uniqueSorted(arr) {
+      var seen = {}, out = [];
+      arr.forEach(function (x) { if (x && !seen[x]) { seen[x] = true; out.push(x); } });
+      return out.sort();
+    }
+
+    function onQuarter() {
+      var q = document.getElementById('q').value;
+      load(q);
+    }
+
+    function onError(err) {
+      var content = document.getElementById('content');
+      content.className = 'state';
+      content.textContent = 'エラー: ' + err.message;
+    }
+
+    function load(quarter) {
+      document.getElementById('content').className = 'state';
+      document.getElementById('content').textContent = '読み込み中…';
+      google.script.run
+        .withSuccessHandler(function (data) {
+          DATA = data;
+          fillQuarters();
+          fillFilters();
+          applyFilters(); // VIEW を作って描画
+        })
+        .withFailureHandler(onError)
+        .getTimetable(quarter || null);
+    }
+
+    load(null);
+  </script>
+</body>
+</html>
