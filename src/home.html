@@ -36,6 +36,8 @@
     .cd:active { background: #e3edfc; }
     .cd.take { border-left-color: #2a63c0; }
     .cd.help { border-left-color: #d98a00; }
+    .cd.open { border-left-color: #2e9e54; background: #f1faf3; }
+    .cd.open:hover { background: #e6f6ea; }
     .cd-staff { display: block; color: #1e7a3d; margin-top: 3px; }
     .cd-room { display: block; color: #444; margin-top: 1px; }
     .cd-more { float: right; color: #9aa3ad; font-size: .82rem; }
@@ -45,6 +47,7 @@
     .tag.help { background: #d98a00; }
     .st { display: inline-block; font-size: .82rem; padding: 1px 8px; border-radius: 999px; margin-top: 4px; }
     .st-normal { background: #e7f6ec; color: #1e7a3d; }
+    .st-open { background: #d8f1e0; color: #1e7a3d; font-weight: 600; }
     .st-vacant { background: #fdecea; color: #c0392b; }
     .st-filled { background: #e7f0fd; color: #2a63c0; }
     .st-other  { background: #f0f0f0; color: #555; }
@@ -159,6 +162,8 @@
     function card(c) {
       var isTake = c.support_type === 'テイク';
       var cls = isTake ? 'take' : 'help';
+      var isOpen = isTake && !c.staffB && (!c.status || c.status === '通常');
+      if (isOpen) cls += ' open';
       var staff = escapeHtml(c.staffA || '—') + (c.staffB ? ' ・ ' + escapeHtml(c.staffB) : '');
       var html = '<button type="button" class="cd ' + cls + '" onclick="openDetail(\'' +
         escapeAttr(c.course_id) + '\')">' +
@@ -171,6 +176,10 @@
     }
 
     function statusBadge(c) {
+      // テイクなのに担当が1名 ＝ 恒常的に枠が空いている（誰でも入れる）
+      if ((!c.status || c.status === '通常') && c.support_type === 'テイク' && !c.staffB) {
+        return '<span class="st st-open">あと1名 募集中</span>';
+      }
       if (!c.status || c.status === '通常') return '';
       var cls = c.status === '欠員対応中' ? 'st-vacant'
               : c.status === '補充済' ? 'st-filled' : 'st-other';
