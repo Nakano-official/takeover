@@ -56,24 +56,7 @@ flowchart TB
   Chat -->|通知| T
 ```
 
-### 欠員補充の流れ（機能A）
-
-```mermaid
-sequenceDiagram
-    actor A as 欠勤するスタッフ
-    participant App as GAS
-    participant DB as Sheets
-    participant Chat as Google Chat
-    actor C as 代行候補
-    A->>App: 欠勤連絡
-    App->>DB: 欠員を起票（vacancies）
-    App->>DB: 候補抽出（空き＋スキル）
-    App->>Chat: 候補へ個別依頼／職員へ通知
-    Chat-->>C: 代行依頼リンク
-    C->>App: 承諾
-    App->>DB: 先着で確定（LockService）
-    App-->>Chat: 本人・他候補・職員へ結果通知
-```
+> 📐 画面ごとのデータフロー・通知シーケンス・権限設計など**詳細は [`docs/architecture.md`](docs/architecture.md)** を参照。
 
 ---
 

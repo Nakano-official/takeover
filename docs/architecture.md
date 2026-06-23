@@ -23,15 +23,18 @@
 
 Google Sheets を中心（Single Source of Truth）に置き、各画面は独立して読み書きする。画面同士は直接通信しない。
 
+```mermaid
+flowchart LR
+  In["シフト入力"] -->|書き込み| Sheets[("Google Sheets")]
+  Ab["欠勤連絡"] -->|書き込み| Sheets
+  Re["回答"] -->|書き込み| Sheets
+  Mg["欠員補充管理"] -->|書き込み| Sheets
+  Sheets -->|読み込み| Home["シフト確認"]
+  Sheets -->|読み込み| Ck["整合性チェック"]
+  Cal["Google カレンダー"] -->|読み込み| Ck
 ```
-シフト入力画面   ──書き込み──┐
-欠勤連絡画面     ──書き込み──┤
-回答画面        ──書き込み──┼──→ Google Sheets ──読み込み──→ シフト確認画面
-欠員補充管理画面  ──書き込み──┘
 
-整合性チェック画面 ──読み込み──→ Google Sheets
-                 ──読み込み──→ Google カレンダー
-```
+> 全体構成（利用者・GAS・外部連携を含む俯瞰図）は [`README.md`](../README.md#-アーキテクチャ) を参照。
 
 ---
 
@@ -126,22 +129,29 @@ Google Sheets を中心（Single Source of Truth）に置き、各画面は独�
 
 ## 6. 通知フロー
 
+```mermaid
+sequenceDiagram
+    actor A as 欠勤するスタッフ
+    participant App as GAS
+    participant Main as メインDB
+    participant Cont as 連絡先DB
+    participant Chat as Google Chat
+    actor C as 代行候補
+
+    A->>App: 欠勤連絡
+    App->>Main: 欠員を起票（vacancies）
+    App->>Main: 空き＋スキルで候補をスクリーニング
+    App->>Cont: 候補ごとの webhook_url を取得
+    App->>Chat: 各候補の個人スペースへ個別依頼（回答リンク付き）
+    Chat-->>C: 代行依頼（他スタッフには見えない）
+    C->>App: 回答画面で承諾／辞退（responses に記録）
+    App->>Main: 先着で確定（LockService・D1）
+    App-->>Chat: 本人・他候補・職員へ結果通知
 ```
-欠勤連絡画面で欠勤報告
-        ↓
-GAS：人材プールから空きスタッフをスクリーニング
-        ↓
-GAS：連絡先DBから候補者ごとの webhook_url を取得
-        ↓
-候補者それぞれの個人スペースに個別通知
-（「回答する」リンクボタン付き。他のスタッフには見えない）
-        ↓
-候補者がボタンをタップ → 回答画面で承諾/辞退 → responses シートに記録
-        ↓
-欠員補充管理画面に回答状況が表示される
-        ↓
-職員が代行者を確定 → Google カレンダーに自動反映
-```
+
+> **先着自動確定（D1）**：最初に承諾した候補へ自動で確定する。職員は通常介在せず、
+> 誰も承諾しない等の例外時のみ欠員補充管理画面で「1人テイク／職員対応」に決着させる。
+> 確定の Google カレンダー反映は今後実装（機能Aの完結・未着手）。
 
 ### 個別通知の仕組み（個人スペース + Incoming Webhook 方式）
 
