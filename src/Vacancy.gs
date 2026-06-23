@@ -306,13 +306,21 @@ function setVacancyResult(vacancyId, result) {
 function findCandidates_(course, excludeStaffIds) {
   const slotKey = String(course.day).trim() + String(course.period).trim();
   const exclude = (excludeStaffIds || []).map(function (x) { return String(x).trim(); });
+  const supportType = String(course.support_type || '').trim();        // テイク / 介助
 
   return readRows(SHEET.STAFFS)
     .filter(function (s) {
       if (String(s.role).trim() !== '学生') return false;             // 学生のみ候補
       if (exclude.indexOf(String(s.staff_id).trim()) !== -1) return false; // 欠勤者・相方を除外
       const slots = String(s.available_slots).split(',').map(function (x) { return x.trim(); });
-      return slots.indexOf(slotKey) !== -1;                           // 該当スロットに空き
+      if (slots.indexOf(slotKey) === -1) return false;                // 該当スロットに空き
+      // 対応可能な内容（スキル）チェック。skills 未設定は従来どおり全対応扱い
+      if (supportType) {
+        const skills = String(s.skills || '').split(',')
+          .map(function (x) { return x.trim(); }).filter(Boolean);
+        if (skills.length && skills.indexOf(supportType) === -1) return false;
+      }
+      return true;
     })
     .map(function (s) {
       return { staff_id: s.staff_id, name: s.name };

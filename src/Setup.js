@@ -65,6 +65,16 @@ function buildDummyData_() {
     'プログラミング入門', '日本国憲法'];
   const ROOMS = ['1-101', '1-203', '2-105', '2-210', '3-102', '3-301', '4-201', '5-110'];
 
+  // 対応可能な内容（スキル）。テイクと介助は別区分で、片方しかできない人もいる（D9）。
+  //   i%6===0 → テイクのみ ／ i%6===3 → 介助のみ ／ それ以外 → 両方
+  const skillById = {};
+  students.forEach(function (st, i) {
+    skillById[st.id] = (i % 6 === 0) ? 'テイク' : (i % 6 === 3) ? '介助' : 'テイク,介助';
+  });
+  function canDo(id, type) {
+    return skillById[id].split(',').indexOf(type) !== -1;
+  }
+
   // slot index → day/period
   function slotInfo(slot) {
     return { day: DAYS[Math.floor(slot / PERIODS.length)], period: PERIODS[slot % PERIODS.length] };
@@ -97,13 +107,13 @@ function buildDummyData_() {
   // スタッフ割り当て（ローテーションで負荷分散・同一コマ重複回避）
   const busy = {}; students.forEach(function (s) { busy[s.id] = {}; });
   var ptr = 0;
-  function pickStaff(slotKey, count) {
+  function pickStaff(slotKey, count, type) {
     const picked = [];
     var attempts = 0;
     while (picked.length < count && attempts < students.length * 2) {
       const cand = students[ptr % students.length];
       ptr++; attempts++;
-      if (!busy[cand.id][slotKey] && picked.indexOf(cand.id) === -1) {
+      if (!busy[cand.id][slotKey] && picked.indexOf(cand.id) === -1 && canDo(cand.id, type)) {
         picked.push(cand.id);
         busy[cand.id][slotKey] = true;
       }
@@ -113,7 +123,7 @@ function buildDummyData_() {
 
   const courses = sessions.map(function (se, i) {
     const need = se.support_type === 'テイク' ? 2 : 1;
-    const assigned = pickStaff(se.slotKey, need);
+    const assigned = pickStaff(se.slotKey, need, se.support_type);
     return {
       course_id: 'C' + ('00' + (i + 1)).slice(-3),
       quarter: QUARTER,
@@ -133,10 +143,13 @@ function buildDummyData_() {
   const allSlots = [];
   for (var s = 0; s < SLOTS; s++) { const inf = slotInfo(s); allSlots.push(inf.day + inf.period); }
   const staffs = staff.map(function (st) {
-    return { staff_id: st.id, name: st.name, role: '職員', available_slots: '' };
+    return { staff_id: st.id, name: st.name, role: '職員', skills: '', available_slots: '' };
   }).concat(students.map(function (st) {
     const free = allSlots.filter(function (sk) { return !busy[st.id][sk]; });
-    return { staff_id: st.id, name: st.name, role: '学生', available_slots: free.join(',') };
+    return {
+      staff_id: st.id, name: st.name, role: '学生',
+      skills: skillById[st.id], available_slots: free.join(','),
+    };
   }));
 
   // 連絡先（ダミー）。webhook_url は空（運用時に登録）
@@ -191,12 +204,37 @@ function migrateCoursesColumns() {
   Logger.log('   既存行の新カラムは空です。時間割の内容を入力してください。');
 }
 
+/**
+ * 既存の staffs シートに skills 列（対応可能な内容：テイク/介助）を追加する（D9）。
+ * 既存運用シートを壊さず、無ければ末尾に1列足す（冪等）。GASエディタから1回実行する。
+ * skills 未設定の行は findCandidates_ で「全対応扱い」となるため、運用前に入力すること。
+ */
+function migrateStaffsColumns() {
+  const ss = openMainDb_();
+  const sheet = ss.getSheetByName('staffs');
+  if (!sheet) { Logger.log('❌ staffs シートが見つかりません。'); return; }
+
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
+    return String(h).trim();
+  });
+  if (headers.indexOf('skills') !== -1) {
+    Logger.log('✅ staffs には既に skills 列があります（追加なし）。');
+    return;
+  }
+
+  sheet.getRange(1, lastCol + 1, 1, 1).setValues([['skills']]);
+  Logger.log('✅ staffs に skills 列を追加しました。');
+  Logger.log('   各学生に「テイク」「介助」「テイク,介助」のいずれかを入力してください。');
+  Logger.log('   空欄は当面「全対応」として候補に出ます（運用前に入力推奨）。');
+}
+
 // ─── メインDB ────────────────────────────────────────────────
 
 function setupMainDb_(ss, data) {
   const staffsSheet = ss.getActiveSheet();
   staffsSheet.setName('staffs');
-  writeTable_(staffsSheet, ['staff_id', 'name', 'role', 'available_slots'], data.staffs);
+  writeTable_(staffsSheet, ['staff_id', 'name', 'role', 'skills', 'available_slots'], data.staffs);
 
   // courses は「利用者中心の時間割」を表す（decisions.md D8）。
   // 1行＝1コマ（利用者×曜日×時限）。同じ曜日・時限に複数の利用者が並ぶ。
