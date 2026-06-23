@@ -21,7 +21,11 @@
     .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
     .toolbar label { font-size: .85rem; color: #555; }
     select { padding: 7px 10px; font-size: .9rem; border: 1px solid #cdd3da; border-radius: 6px; background: #fff; }
+    .reset { padding: 7px 12px; font-size: .82rem; border: 1px solid #cdd3da; border-radius: 6px;
+             background: #fff; color: #555; cursor: pointer; }
+    .reset:hover { background: #f3f5f8; }
     .legend { font-size: .76rem; color: #777; margin-left: auto; }
+    .count { font-size: .8rem; color: #666; margin-bottom: 8px; }
 
     /* コマのカード（PC/スマホ共通） */
     .cd { border-radius: 7px; padding: 7px 8px; margin: 4px 0; font-size: .8rem; line-height: 1.45;
@@ -94,14 +98,28 @@
     <div class="toolbar">
       <label for="q">クォーター</label>
       <select id="q" onchange="onQuarter()"></select>
+      <label for="fUser">利用者</label>
+      <select id="fUser" onchange="applyFilters()"></select>
+      <label for="fStaff">スタッフ</label>
+      <select id="fStaff" onchange="applyFilters()"></select>
+      <label for="fType">内容</label>
+      <select id="fType" onchange="applyFilters()">
+        <option value="__all__">すべて</option>
+        <option value="テイク">テイク</option>
+        <option value="介助">介助</option>
+      </select>
+      <button class="reset" onclick="resetFilters()" type="button">クリア</button>
       <span class="legend">■テイク（2名）　■介助（1名）</span>
     </div>
+    <div id="count" class="count"></div>
     <div id="content" class="state">読み込み中…</div>
   </main>
 
   <script>
-    var DATA = null;
+    var DATA = null;          // サーバーから来た全データ
+    var VIEW = null;          // 絞り込み後の { courses, days, periods }
     var curDay = null;
+    var ME = '<?= user.name ?>';  // ログイン中スタッフの氏名（自分絞り込み用）
 
     function escapeHtml(s) {
       return String(s == null ? '' : s)
@@ -134,14 +152,14 @@
       return '<div><span class="st ' + cls + '">' + txt + '</span></div>';
     }
 
-    // 指定 day+period のコマ配列
+    // 指定 day+period のコマ配列（絞り込み後の VIEW から）
     function cellCourses(day, period) {
-      return DATA.courses.filter(function (c) { return c.day === day && c.period === period; });
+      return VIEW.courses.filter(function (c) { return c.day === day && c.period === period; });
     }
 
     // ===== PC：グリッド =====
     function renderPC() {
-      var d = DATA;
+      var d = VIEW;
       var h = '<div class="pc"><table><thead><tr><th class="ph">時限</th>';
       d.days.forEach(function (day) { h += '<th>' + escapeHtml(day) + '</th>'; });
       h += '</tr></thead><tbody>';
@@ -162,7 +180,7 @@
     // ===== スマホ：曜日タブ＋カード =====
     function renderMobile() {
       var h = '<div class="mb"><div class="tabs" id="tabs">';
-      DATA.days.forEach(function (day) {
+      VIEW.days.forEach(function (day) {
         h += '<button class="' + (day === curDay ? 'on' : '') + '" onclick="selDay(\'' +
              day + '\')">' + escapeHtml(day) + '</button>';
       });
@@ -174,7 +192,7 @@
       var host = document.getElementById('dayView');
       if (!host) return;
       // この曜日にコマがある時限だけ表示
-      var rows = DATA.periods.filter(function (p) {
+      var rows = VIEW.periods.filter(function (p) {
         return cellCourses(curDay, p.period).length > 0;
       });
       if (rows.length === 0) {
@@ -196,16 +214,56 @@
       renderDayView();
     }
 
+    // 与えられたコマ配列から、登場する曜日・時限だけを元の並び順で取り出す
+    function buildView(courses) {
+      var dayHas = {}, perHas = {};
+      courses.forEach(function (c) { dayHas[c.day] = true; perHas[c.period] = true; });
+      return {
+        courses: courses,
+        days: DATA.days.filter(function (d) { return dayHas[d]; }),
+        periods: DATA.periods.filter(function (p) { return perHas[p.period]; }),
+      };
+    }
+
+    // 絞り込みを適用して再描画
+    function applyFilters() {
+      var u = val('fUser'), s = val('fStaff'), t = val('fType');
+      var courses = DATA.courses.filter(function (c) {
+        if (u !== '__all__' && c.user_student !== u) return false;
+        if (t !== '__all__' && c.support_type !== t) return false;
+        if (s === '__me__') { if (c.staffA !== ME && c.staffB !== ME) return false; }
+        else if (s !== '__all__') { if (c.staffA !== s && c.staffB !== s) return false; }
+        return true;
+      });
+      VIEW = buildView(courses);
+      render();
+    }
+
+    function resetFilters() {
+      ['fUser', 'fStaff', 'fType'].forEach(function (id) { document.getElementById(id).value = '__all__'; });
+      applyFilters();
+    }
+
+    function val(id) { return document.getElementById(id).value; }
+
     function render() {
       var content = document.getElementById('content');
+      var countEl = document.getElementById('count');
       if (!DATA || DATA.courses.length === 0) {
+        countEl.textContent = '';
         content.className = 'state';
         content.textContent = '表示できるコマがありません。（このクォーターの時間割が未登録の可能性があります）';
         return;
       }
+      countEl.textContent = '表示中: ' + VIEW.courses.length + ' / ' + DATA.courses.length + ' コマ';
+      if (VIEW.courses.length === 0) {
+        content.className = 'state';
+        content.textContent = '条件に合うコマがありません。「クリア」で絞り込みを解除できます。';
+        return;
+      }
       // スマホ初期表示曜日：今日の曜日があればそれ、なければ先頭
       var today = ['日', '月', '火', '水', '木', '金', '土'][new Date().getDay()];
-      curDay = DATA.days.indexOf(today) !== -1 ? today : DATA.days[0];
+      curDay = VIEW.days.indexOf(today) !== -1 ? today : VIEW.days[0];
 
       content.className = '';
       content.innerHTML = renderPC() + renderMobile();
@@ -219,6 +277,40 @@
           (q === DATA.quarter ? ' selected' : '') + '>' + escapeHtml(q) + '</option>';
       }).join('');
       sel.style.display = DATA.quarters.length > 1 ? '' : 'none';
+    }
+
+    // 利用者・スタッフの絞り込み候補を投入（選択値は可能なら維持）
+    function fillFilters() {
+      var users = uniqueSorted(DATA.courses.map(function (c) { return c.user_student; }));
+      var staffNames = uniqueSorted([].concat(
+        DATA.courses.map(function (c) { return c.staffA; }),
+        DATA.courses.map(function (c) { return c.staffB; })
+      ).filter(Boolean));
+
+      setOptions('fUser',
+        [{ v: '__all__', t: '全利用者' }].concat(users.map(function (u) { return { v: u, t: u }; })));
+
+      var staffOpts = [{ v: '__all__', t: '全スタッフ' }];
+      if (ME && staffNames.indexOf(ME) !== -1) staffOpts.push({ v: '__me__', t: '自分（' + ME + '）' });
+      staffOpts = staffOpts.concat(staffNames.map(function (n) { return { v: n, t: n }; }));
+      setOptions('fStaff', staffOpts);
+    }
+
+    function setOptions(id, opts) {
+      var sel = document.getElementById(id);
+      var keep = sel.value;
+      sel.innerHTML = opts.map(function (o) {
+        return '<option value="' + escapeHtml(o.v) + '">' + escapeHtml(o.t) + '</option>';
+      }).join('');
+      // 再描画前の選択値が残っていれば維持
+      var has = opts.some(function (o) { return o.v === keep; });
+      sel.value = has ? keep : '__all__';
+    }
+
+    function uniqueSorted(arr) {
+      var seen = {}, out = [];
+      arr.forEach(function (x) { if (x && !seen[x]) { seen[x] = true; out.push(x); } });
+      return out.sort();
     }
 
     function onQuarter() {
@@ -239,7 +331,8 @@
         .withSuccessHandler(function (data) {
           DATA = data;
           fillQuarters();
-          render();
+          fillFilters();
+          applyFilters(); // VIEW を作って描画
         })
         .withFailureHandler(onError)
         .getTimetable(quarter || null);
