@@ -137,6 +137,51 @@ function updateRow(sheetName, keyColumn, keyValue, updates) {
   });
 }
 
+/**
+ * 先着確保（compare-and-set）。
+ * keyColumn=keyValue の行について、guardColumn が「空」のときだけ updates を書き込む。
+ * 判定（guardが空か）と書き込みを同一ロック内で行うため、複数人が同時に承諾しても
+ * 先に入った1人だけが確保でき、残りは「確保失敗（先約あり）」になる（decisions.md D1）。
+ *
+ * @return {{ok:boolean, claimed:boolean, current:(Object|null)}}
+ *   ok=false           : 対象行が見つからない
+ *   ok=true, claimed=true : 確保成功（先着でこの呼び出しが書き込んだ）
+ *   ok=true, claimed=false: 既に guardColumn が埋まっていた（current に確保前の行内容）
+ */
+function claimIfEmpty(sheetName, keyColumn, keyValue, guardColumn, updates) {
+  return withLock_(function () {
+    const sheet = getSheet_(sheetName);
+    const values = sheet.getDataRange().getValues();
+    const headers = values[0];
+    const keyIdx = headers.indexOf(keyColumn);
+    const guardIdx = headers.indexOf(guardColumn);
+    if (keyIdx === -1) throw new Error('キー列が存在しません：' + keyColumn);
+    if (guardIdx === -1) throw new Error('ガード列が存在しません：' + guardColumn);
+
+    for (var r = 1; r < values.length; r++) {
+      if (String(values[r][keyIdx]).trim() !== String(keyValue).trim()) continue;
+
+      // 確保前の行内容（誰が先約か等を呼び出し側へ返すため）
+      const current = {};
+      for (var c = 0; c < headers.length; c++) current[headers[c]] = values[r][c];
+
+      // 既に埋まっていれば確保失敗
+      if (String(values[r][guardIdx]).trim()) {
+        return { ok: true, claimed: false, current: current };
+      }
+
+      // 空なので updates を書き込む（先着で確保）
+      for (var c2 = 0; c2 < headers.length; c2++) {
+        if (updates[headers[c2]] !== undefined) {
+          sheet.getRange(r + 1, c2 + 1).setValue(updates[headers[c2]]);
+        }
+      }
+      return { ok: true, claimed: true, current: current };
+    }
+    return { ok: false, claimed: false, current: null };
+  });
+}
+
 // ─── ID採番 ──────────────────────────────────────────────────
 
 /**

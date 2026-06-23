@@ -141,8 +141,16 @@ function getVacancyForRespond(vacancyId) {
 }
 
 /**
- * 代行依頼に回答する（承諾 / 辞退）。responses シートに upsert する。
+ * 代行依頼に回答する（承諾 / 辞退）＝先着自動確定（decisions.md D1）。
+ *  - 「承諾」: まだ誰も確定していなければ、その場でこの回答者を代行に確定する（職員は介在しない）。
+ *             同時承諾は claimIfEmpty（LockService内の compare-and-set）で1人だけが確保。
+ *  - 「辞退」: 記録のみ。欠員は開いたまま。
  * 回答者は Session から特定するため、URLのvacancy_idだけでは他人になりすませない。
+ *
+ * @return 次のいずれか：
+ *   {ok:true,  answer:'承諾', confirmed:true,  notify} … 自分に確定
+ *   {ok:true,  answer:'辞退', confirmed:false}        … 辞退を記録
+ *   {ok:false, filled:true,   closed:true}            … 既に他の人で埋まった（受付終了）
  */
 function respondToVacancy(vacancyId, answer) {
   const user = getCurrentUser_();
@@ -151,7 +159,6 @@ function respondToVacancy(vacancyId, answer) {
 
   const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
   if (!vacancy) throw new Error('対象の欠員が見つかりません。');
-  if (String(vacancy.result).trim()) throw new Error('この欠員は既に対応が確定しています。');
 
   const course = findRow(SHEET.COURSES, 'course_id', vacancy.course_id);
   if (!course) throw new Error('対象のコマが見つかりません。');
@@ -161,13 +168,44 @@ function respondToVacancy(vacancyId, answer) {
     throw new Error('あなたはこの欠員の代行候補ではありません。');
   }
 
+  // 早期判定：既に確定済みなら受け付けない（権威ある判定は後段の claimIfEmpty）
+  if (String(vacancy.result).trim()) {
+    return { ok: false, filled: true, closed: true };
+  }
+
+  // 回答そのものは記録しておく（先着で負けても「承諾した事実」はログに残す）
   upsertRow(
     SHEET.RESPONSES,
     { vacancy_id: vacancyId, staff_id: user.staff_id },
     { answer: answer, answered_at: nowString_() }
   );
 
-  return { ok: true, answer: answer };
+  // 辞退は確定処理を動かさない
+  if (answer === '辞退') {
+    return { ok: true, answer: answer, confirmed: false };
+  }
+
+  // 承諾 → 先着確保（result が空のときだけ自分を代行に確定）
+  const claim = claimIfEmpty(
+    SHEET.VACANCIES, 'vacancy_id', vacancyId, 'result',
+    { result: '補充済', substitute_staff_id: user.staff_id }
+  );
+  if (!claim.ok) throw new Error('対象の欠員が見つかりません。');
+
+  // 一瞬差で他の人に確定された → 受付終了
+  if (!claim.claimed) {
+    return { ok: false, filled: true, closed: true };
+  }
+
+  // 確定できた → 関係者へ通知（通知失敗でも確定は確定）
+  var notify;
+  try {
+    notify = notifyVacancyFilled(vacancyId, user.staff_id);
+  } catch (e) {
+    notify = { error: e.message };
+  }
+
+  return { ok: true, answer: answer, confirmed: true, notify: notify };
 }
 
 // ─── 欠員補充管理（manage画面用・職員限定）─────────────────

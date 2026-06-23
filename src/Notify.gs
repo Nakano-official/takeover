@@ -144,6 +144,94 @@ function notifyNewVacancy(vacancyId) {
   return result;
 }
 
+// ─── 補充確定の通知（先着自動確定 D1）──────────────────────
+
+/**
+ * 欠員が補充確定したことを関係者へ通知する。
+ *  1) 職員スペース … 「補充されました（代行=氏名）」
+ *  2) 確定した本人 … 「あなたに代行が決まりました」
+ *  3) 他の候補者   … 「募集は終了しました」（無駄に承諾しに来ないように）
+ * いずれも送信失敗は握りつぶし、結果を集約して返す（確定処理は別途確定済み）。
+ *
+ * @param  {string} vacancyId
+ * @param  {string} substituteStaffId  確定した代行者
+ * @return {{staff:boolean, substitute:boolean, others:Array, errors:Array}}
+ */
+function notifyVacancyFilled(vacancyId, substituteStaffId) {
+  const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+  if (!vacancy) throw new Error('対象の欠員が見つかりません。');
+  const course = findRow(SHEET.COURSES, 'course_id', vacancy.course_id);
+  if (!course) throw new Error('対象のコマが見つかりません。');
+
+  const nameById = buildNameMap_();
+  const periodById = buildPeriodMap_();
+  const p = periodById[String(course.period).trim()] || {};
+  const timeText = p.start_time ? p.start_time + '〜' + p.end_time : '';
+  const dateText = dateToStr_(vacancy.date);
+  const slot = String(course.day).trim() + String(course.period).trim() + '限';
+  const subId = String(substituteStaffId).trim();
+  const subName = nameById[subId] || subId;
+
+  const result = { staff: false, substitute: false, others: [], errors: [] };
+
+  // 1) 職員スペースへ「補充済」
+  const staffMsg =
+    '✅ *欠員が補充されました*\n' +
+    '日付: ' + dateText + '\n' +
+    'コマ: ' + slot + (timeText ? '（' + timeText + '）' : '') + '\n' +
+    '代行: ' + subName + '\n' +
+    '欠員ID: ' + vacancyId;
+  try {
+    postToWebhook_(getStaffSpaceWebhook_(), staffMsg);
+    result.staff = true;
+  } catch (e) {
+    result.errors.push('職員スペース: ' + e.message);
+  }
+
+  // 2) 確定した本人へ
+  const subUrl = getStaffWebhook_(subId);
+  if (subUrl) {
+    const msg =
+      subName + ' さん\n' +
+      '代行が確定しました。ご協力ありがとうございます。\n' +
+      '日付: ' + dateText + '\n' +
+      'コマ: ' + slot + (timeText ? '（' + timeText + '）' : '');
+    try {
+      postToWebhook_(subUrl, msg);
+      result.substitute = true;
+    } catch (e) {
+      result.errors.push('確定者: ' + e.message);
+    }
+  }
+
+  // 3) 他の候補者へ「募集終了」
+  const candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id]);
+  candidates.forEach(function (cand) {
+    if (String(cand.staff_id).trim() === subId) return; // 確定本人は除外
+    const entry = { staff_id: cand.staff_id, name: cand.name, sent: false, reason: '' };
+    const url = getStaffWebhook_(cand.staff_id);
+    if (!url) {
+      entry.reason = 'Webhook未登録';
+      result.others.push(entry);
+      return;
+    }
+    const msg =
+      cand.name + ' さん\n' +
+      '先ほどの代行募集は他の方で補充が決まりました。ご確認ありがとうございました。\n' +
+      '日付: ' + dateText + '\n' +
+      'コマ: ' + slot;
+    try {
+      postToWebhook_(url, msg);
+      entry.sent = true;
+    } catch (e) {
+      entry.reason = e.message;
+    }
+    result.others.push(entry);
+  });
+
+  return result;
+}
+
 // ─── デバッグ用 ──────────────────────────────────────────────
 
 /**

@@ -130,9 +130,27 @@
 
       google.script.run
         .withSuccessHandler(function (res) {
-          document.getElementById('msg').innerHTML =
-            '<div class="msg ok">回答を受け付けました：<b>' + escapeHtml(res.answer) + '</b><br>' +
-            'ご協力ありがとうございます。</div>';
+          var msg = document.getElementById('msg');
+          res = res || {};
+
+          // 先約で埋まった → 受付終了。ボタンは無効のままにする。
+          if (res.filled) {
+            msg.innerHTML =
+              '<div class="msg info">この欠員は既に他の方で補充が決まりました。<br>' +
+              '回答は締め切られています。</div>';
+            return;
+          }
+          // 承諾が通って自分に確定した
+          if (res.confirmed) {
+            msg.innerHTML =
+              '<div class="msg ok">あなたに代行が決まりました！<br>' +
+              'ご協力ありがとうございます。</div>';
+            return; // 確定済みなのでボタンは無効のまま
+          }
+          // 辞退を記録（欠員はまだ開いているので、気が変われば承諾できるよう再度有効化）
+          buttons.forEach(function (b) { b.disabled = false; });
+          msg.innerHTML =
+            '<div class="msg info">辞退で承りました。ご確認ありがとうございます。</div>';
         })
         .withFailureHandler(function (err) {
           buttons.forEach(function (b) { b.disabled = false; });
