@@ -38,6 +38,12 @@
     .cd.help { border-left-color: #d98a00; }
     .cd.open { border-left-color: #2e9e54; background: #f1faf3; }
     .cd.open:hover { background: #e6f6ea; }
+    .cd.mine { border-left-color: #2a63c0; background: #eef4ff; }
+    .cd.mine-open { border-left-color: #2e9e54; background: #e3f7ea; box-shadow: 0 0 0 2px #b6e6c4 inset; }
+    .cd.mine-open:hover { background: #d6f2e0; }
+    .myview { display: inline-flex; align-items: center; gap: 5px; font-size: .85rem; color: #444;
+              border: 1px solid #cdddfb; border-radius: 999px; padding: 5px 12px; cursor: pointer; }
+    .myview input { margin: 0; }
     .cd-staff { display: block; color: #1e7a3d; margin-top: 3px; }
     .cd-room { display: block; color: #444; margin-top: 1px; }
     .cd-more { float: right; color: #9aa3ad; font-size: .82rem; }
@@ -48,6 +54,8 @@
     .st { display: inline-block; font-size: .82rem; padding: 1px 8px; border-radius: 999px; margin-top: 4px; }
     .st-normal { background: #e7f6ec; color: #1e7a3d; }
     .st-open { background: #d8f1e0; color: #1e7a3d; font-weight: 600; }
+    .st-myopen { background: #2e9e54; color: #fff; font-weight: 600; }
+    .st-mine { background: #e7f0fd; color: #2a63c0; font-weight: 600; }
     .st-vacant { background: #fdecea; color: #c0392b; }
     .st-filled { background: #e7f0fd; color: #2a63c0; }
     .st-other  { background: #f0f0f0; color: #555; }
@@ -134,6 +142,10 @@
         <option value="介助">介助</option>
       </select>
       <button class="reset" onclick="resetFilters()" type="button">クリア</button>
+      <label class="myview" id="myviewLabel" style="display:none">
+        <input type="checkbox" id="fMine" onchange="applyFilters()">
+        マイビュー（自分の担当＋入れる募集中）
+      </label>
       <span class="legend">■テイク（2名）　■介助（1名）</span>
     </div>
     <div id="count" class="count"></div>
@@ -151,7 +163,20 @@
     var DATA = null;          // サーバーから来た全データ
     var VIEW = null;          // 絞り込み後の { courses, days, periods }
     var curDay = null;
+    var MYVIEW = false;       // マイビュー（自分の担当＋入れる募集中）モードか
     var ME = '<?= user.name ?>';  // ログイン中スタッフの氏名（自分絞り込み用）
+
+    // 自分が担当しているコマか
+    function isMine(c) { return c.staffA === ME || c.staffB === ME; }
+
+    // 自分が「入れる」募集中の空き枠か（テイク1名・スキル一致・その時限が自分の空き）
+    function isMyOpen(c) {
+      if (!(c.support_type === 'テイク' && !c.staffB && (!c.status || c.status === '通常'))) return false;
+      if (isMine(c)) return false;
+      var me = (DATA && DATA.me) || { skills: [], slots: [] };
+      if (me.skills.length && me.skills.indexOf(c.support_type) === -1) return false; // スキル不適合
+      return me.slots.indexOf(c.day + c.period) !== -1;                                // その時限が空き
+    }
 
     function escapeHtml(s) {
       return String(s == null ? '' : s)
@@ -163,7 +188,12 @@
       var isTake = c.support_type === 'テイク';
       var cls = isTake ? 'take' : 'help';
       var isOpen = isTake && !c.staffB && (!c.status || c.status === '通常');
-      if (isOpen) cls += ' open';
+      // マイビュー時は「自分の担当」「自分が入れる募集中」を強調表示
+      var myOpen = MYVIEW && isMyOpen(c);
+      var mine = MYVIEW && isMine(c);
+      if (myOpen) cls += ' mine-open';
+      else if (mine) cls += ' mine';
+      else if (isOpen) cls += ' open';
       var staff = escapeHtml(c.staffA || '—') + (c.staffB ? ' ・ ' + escapeHtml(c.staffB) : '');
       var html = '<button type="button" class="cd ' + cls + '" onclick="openDetail(\'' +
         escapeAttr(c.course_id) + '\')">' +
@@ -171,7 +201,10 @@
         '<span class="tag ' + cls + '">' + escapeHtml(c.support_type || 'コマ') + '</span>' +
         '<span class="cd-staff">' + staff + '</span>';
       if (c.room) html += '<span class="cd-room">教室: ' + escapeHtml(c.room) + '</span>';
-      html += statusBadge(c) + '</button>';
+      if (myOpen) html += '<span class="st st-myopen">✅ あなたが入れます</span>';
+      else if (mine) html += '<span class="st st-mine">自分の担当</span>';
+      else html += statusBadge(c);
+      html += '</button>';
       return html;
     }
 
@@ -324,20 +357,37 @@
 
     // 絞り込みを適用して再描画
     function applyFilters() {
-      var u = val('fUser'), s = val('fStaff'), t = val('fType');
-      var courses = DATA.courses.filter(function (c) {
-        if (u !== '__all__' && c.user_student !== u) return false;
-        if (t !== '__all__' && c.support_type !== t) return false;
-        if (s === '__me__') { if (c.staffA !== ME && c.staffB !== ME) return false; }
-        else if (s !== '__all__') { if (c.staffA !== s && c.staffB !== s) return false; }
-        return true;
-      });
+      MYVIEW = document.getElementById('fMine').checked;
+      var courses;
+      if (MYVIEW) {
+        // 自分の担当コマ ＋ 自分が入れる募集中だけに絞る
+        courses = DATA.courses.filter(function (c) { return isMine(c) || isMyOpen(c); });
+        setFiltersDisabled(true);
+      } else {
+        setFiltersDisabled(false);
+        var u = val('fUser'), s = val('fStaff'), t = val('fType');
+        courses = DATA.courses.filter(function (c) {
+          if (u !== '__all__' && c.user_student !== u) return false;
+          if (t !== '__all__' && c.support_type !== t) return false;
+          if (s === '__me__') { if (c.staffA !== ME && c.staffB !== ME) return false; }
+          else if (s !== '__all__') { if (c.staffA !== s && c.staffB !== s) return false; }
+          return true;
+        });
+      }
       VIEW = buildView(courses);
       render();
     }
 
+    // マイビュー中は利用者/スタッフ/内容の絞り込みを無効化（意味が重複するため）
+    function setFiltersDisabled(disabled) {
+      ['fUser', 'fStaff', 'fType'].forEach(function (id) {
+        document.getElementById(id).disabled = disabled;
+      });
+    }
+
     function resetFilters() {
       ['fUser', 'fStaff', 'fType'].forEach(function (id) { document.getElementById(id).value = '__all__'; });
+      document.getElementById('fMine').checked = false;
       applyFilters();
     }
 
@@ -352,10 +402,18 @@
         content.textContent = '表示できるコマがありません。（このクォーターの時間割が未登録の可能性があります）';
         return;
       }
-      countEl.textContent = '表示中: ' + VIEW.courses.length + ' / ' + DATA.courses.length + ' コマ';
+      if (MYVIEW) {
+        var mineN = VIEW.courses.filter(isMine).length;
+        var openN = VIEW.courses.filter(isMyOpen).length;
+        countEl.textContent = 'あなたの担当 ' + mineN + ' コマ ／ 入れる募集中 ' + openN + ' 枠';
+      } else {
+        countEl.textContent = '表示中: ' + VIEW.courses.length + ' / ' + DATA.courses.length + ' コマ';
+      }
       if (VIEW.courses.length === 0) {
         content.className = 'state';
-        content.textContent = '条件に合うコマがありません。「クリア」で絞り込みを解除できます。';
+        content.textContent = MYVIEW
+          ? '担当コマも、いま入れる募集中もありません。'
+          : '条件に合うコマがありません。「クリア」で絞り込みを解除できます。';
         return;
       }
       // スマホ初期表示曜日：今日の曜日があればそれ、なければ先頭
@@ -391,6 +449,10 @@
       if (ME && staffNames.indexOf(ME) !== -1) staffOpts.push({ v: '__me__', t: '自分（' + ME + '）' });
       staffOpts = staffOpts.concat(staffNames.map(function (n) { return { v: n, t: n }; }));
       setOptions('fStaff', staffOpts);
+
+      // マイビューは「シフトに入る学生スタッフ」向け。職員には出さない。
+      var showMine = DATA.me && DATA.me.role === '学生';
+      document.getElementById('myviewLabel').style.display = showMine ? '' : 'none';
     }
 
     function setOptions(id, opts) {
