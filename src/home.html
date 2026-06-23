@@ -165,7 +165,7 @@
         '<span class="cd-more">詳細 ›</span>' +
         '<span class="tag ' + cls + '">' + escapeHtml(c.support_type || 'コマ') + '</span>' +
         '<span class="cd-staff">' + staff + '</span>';
-      if (c.room) html += '<span class="cd-room">📍 ' + escapeHtml(c.room) + '</span>';
+      if (c.room) html += '<span class="cd-room">教室: ' + escapeHtml(c.room) + '</span>';
       html += statusBadge(c) + '</button>';
       return html;
     }
