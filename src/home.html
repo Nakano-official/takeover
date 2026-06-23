@@ -27,25 +27,46 @@
     .legend { font-size: .76rem; color: #777; margin-left: auto; }
     .count { font-size: .8rem; color: #666; margin-bottom: 8px; }
 
-    /* コマのカード（PC/スマホ共通） */
-    .cd { border-radius: 7px; padding: 7px 8px; margin: 4px 0; font-size: .8rem; line-height: 1.45;
-          border-left: 4px solid #bbb; background: #fafbfc; }
+    /* コマのカード（ボタン式・PC/スマホ共通） */
+    .cd { display: block; width: 100%; text-align: left; font-family: inherit; cursor: pointer;
+          border: 1px solid #e3e6ea; border-left: 4px solid #bbb; border-radius: 7px;
+          padding: 7px 8px; margin: 4px 0; font-size: .8rem; line-height: 1.5;
+          background: #fafbfc; color: #222; }
+    .cd:hover { background: #eef4ff; }
+    .cd:active { background: #e3edfc; }
     .cd.take { border-left-color: #2a63c0; }
     .cd.help { border-left-color: #d98a00; }
-    .cd b { font-size: .85rem; }
-    .cd .sub { color: #555; }
-    .cd .stf { color: #1e7a3d; margin-top: 2px; }
-    .cd .note { color: #999; font-size: .72rem; }
+    .cd-staff { color: #1e7a3d; }
+    .cd-more { float: right; color: #9aa3ad; font-size: .72rem; }
     .tag { display: inline-block; font-size: .68rem; padding: 0 6px; border-radius: 999px;
            color: #fff; margin-right: 4px; vertical-align: 1px; }
     .tag.take { background: #2a63c0; }
     .tag.help { background: #d98a00; }
-    .st { display: inline-block; font-size: .7rem; padding: 0 7px; border-radius: 999px; margin-top: 3px; }
+    .st { display: inline-block; font-size: .7rem; padding: 0 7px; border-radius: 999px; margin-left: 4px; }
     .st-normal { background: #e7f6ec; color: #1e7a3d; }
     .st-vacant { background: #fdecea; color: #c0392b; }
     .st-filled { background: #e7f0fd; color: #2a63c0; }
     .st-other  { background: #f0f0f0; color: #555; }
     .sub-name { color: #2a63c0; }
+
+    /* ===== 詳細モーダル ===== */
+    .modal { display: none; position: fixed; inset: 0; z-index: 50; padding: 16px;
+             background: rgba(0,0,0,.42); align-items: center; justify-content: center; }
+    .modal.show { display: flex; }
+    .sheet { position: relative; background: #fff; border-radius: 12px; width: 100%; max-width: 420px;
+             max-height: 90vh; overflow: auto; padding: 18px 18px 22px;
+             box-shadow: 0 8px 30px rgba(0,0,0,.25); }
+    .sheet .x { position: absolute; top: 6px; right: 10px; border: none; background: none;
+                font-size: 1.5rem; line-height: 1; color: #999; cursor: pointer; }
+    .m-title { margin: 0 0 14px; font-size: 1.05rem; }
+    .m-dl { display: grid; grid-template-columns: 86px 1fr; gap: 7px 10px; margin: 0; font-size: .9rem; }
+    .m-dl dt { color: #888; }
+    .m-dl dd { margin: 0; }
+    .m-status { margin-top: 14px; font-size: .88rem; color: #555; }
+    @media (max-width: 760px) {
+      .modal { align-items: flex-end; padding: 0; }
+      .sheet { max-width: none; border-radius: 14px 14px 0 0; max-height: 85vh; }
+    }
 
     /* ===== PC：時間割グリッド ===== */
     .pc table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px;
@@ -115,6 +136,13 @@
     <div id="content" class="state">読み込み中…</div>
   </main>
 
+  <div id="modal" class="modal" onclick="closeDetail(event)">
+    <div class="sheet" onclick="event.stopPropagation()">
+      <button class="x" type="button" onclick="closeDetail()" aria-label="閉じる">×</button>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
   <script>
     var DATA = null;          // サーバーから来た全データ
     var VIEW = null;          // 絞り込み後の { courses, days, periods }
@@ -126,31 +154,89 @@
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
-    // コマ1件のカードHTML
+    // コマ1件のカードHTML（ボタン式。顔は最小限、詳細はタップで表示）
     function card(c) {
       var isTake = c.support_type === 'テイク';
       var cls = isTake ? 'take' : 'help';
-      var staff = escapeHtml(c.staffA) + (c.staffB ? ' ・ ' + escapeHtml(c.staffB) : '');
-      var html = '<div class="cd ' + cls + '">' +
+      var staff = escapeHtml(c.staffA || '—') + (c.staffB ? ' ・ ' + escapeHtml(c.staffB) : '');
+      return '<button type="button" class="cd ' + cls + '" onclick="openDetail(\'' +
+        escapeAttr(c.course_id) + '\')">' +
+        '<span class="cd-more">詳細 ›</span>' +
         '<span class="tag ' + cls + '">' + escapeHtml(c.support_type || 'コマ') + '</span>' +
-        '<b>' + escapeHtml(c.user_student) + '</b>' +
-        '<div class="sub">' + escapeHtml(c.subject) + (c.room ? ' / ' + escapeHtml(c.room) : '') + '</div>' +
-        '<div class="stf">担当: ' + (staff || '—') + '</div>';
-      if (c.note) html += '<div class="note">' + escapeHtml(c.note) + '</div>';
-      html += statusBadge(c) + '</div>';
-      return html;
+        '<span class="cd-staff">' + staff + '</span>' +
+        statusBadge(c) +
+        '</button>';
     }
 
     function statusBadge(c) {
-      if (c.status === '通常') return '';
+      if (!c.status || c.status === '通常') return '';
       var cls = c.status === '欠員対応中' ? 'st-vacant'
               : c.status === '補充済' ? 'st-filled' : 'st-other';
       var txt = escapeHtml(c.status);
       if (c.status === '補充済' && c.substitute) {
         txt = '補充済 → <span class="sub-name">' + escapeHtml(c.substitute) + '</span>';
       }
-      return '<div><span class="st ' + cls + '">' + txt + '</span></div>';
+      return '<span class="st ' + cls + '">' + txt + '</span>';
     }
+
+    function escapeAttr(s) {
+      return escapeHtml(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+    }
+
+    // ===== 詳細モーダル =====
+    function courseById(id) {
+      if (!DATA) return null;
+      for (var i = 0; i < DATA.courses.length; i++) {
+        if (DATA.courses[i].course_id === id) return DATA.courses[i];
+      }
+      return null;
+    }
+
+    function periodTime(period) {
+      if (!DATA || !DATA.periods) return '';
+      for (var i = 0; i < DATA.periods.length; i++) {
+        if (DATA.periods[i].period === period) return DATA.periods[i].time || '';
+      }
+      return '';
+    }
+
+    function openDetail(courseId) {
+      var c = courseById(courseId);
+      if (!c) return;
+      var pt = periodTime(c.period);
+      var rows = [
+        ['内容', escapeHtml(c.support_type || '—')],
+        ['日時', escapeHtml(c.day) + '曜 ' + escapeHtml(c.period) + '限' +
+          (pt ? '（' + escapeHtml(pt) + '）' : '')],
+        ['利用者', escapeHtml(c.user_student || '—')],
+        ['科目', escapeHtml(c.subject || '—')],
+        ['担当教員', escapeHtml(c.instructor || '—')],
+        ['教室', escapeHtml(c.room || '—')],
+        ['担当スタッフ', escapeHtml(c.staffA || '—') + (c.staffB ? ' ・ ' + escapeHtml(c.staffB) : '')],
+      ];
+      if (c.note) rows.push(['備考', escapeHtml(c.note)]);
+
+      var tagCls = c.support_type === 'テイク' ? 'take' : 'help';
+      var body = '<h3 class="m-title"><span class="tag ' + tagCls + '">' +
+        escapeHtml(c.support_type || 'コマ') + '</span>' + escapeHtml(c.user_student || '') + '</h3>';
+      body += '<dl class="m-dl">' + rows.map(function (r) {
+        return '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>';
+      }).join('') + '</dl>';
+      var sb = statusBadge(c);
+      if (sb) body += '<div class="m-status">状態 ' + sb + '</div>';
+
+      document.getElementById('modalBody').innerHTML = body;
+      document.getElementById('modal').classList.add('show');
+    }
+
+    function closeDetail(e) {
+      if (e && e.type === 'click' && e.target.id !== 'modal') return;
+      document.getElementById('modal').classList.remove('show');
+    }
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeDetail();
+    });
 
     // 指定 day+period のコマ配列（絞り込み後の VIEW から）
     function cellCourses(day, period) {
