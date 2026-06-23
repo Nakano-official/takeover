@@ -140,45 +140,101 @@
         return '<option value="' + escapeHtml(p.period) + '">' + escapeHtml(p.period) + '限'
           + (p.time ? '（' + escapeHtml(p.time) + '）' : '') + '</option>';
       }).join('');
-      var staffOpts = DATA.staff.map(function (s) {
-        var label = s.name + (s.skills ? '（' + s.skills + '）' : '');
-        return '<option value="' + escapeHtml(s.staff_id) + '">' + escapeHtml(label) + '</option>';
-      }).join('');
-      var userList = DATA.users.map(function (u) {
-        return '<option value="' + escapeHtml(u) + '">';
-      }).join('');
 
       document.getElementById('form').className = '';
       document.getElementById('form').innerHTML =
         '<div class="grid">' +
-          '<div><label>曜日<span class="req">*</span></label><select id="day">' + dayOpts + '</select></div>' +
-          '<div><label>時限<span class="req">*</span></label><select id="period">' + perOpts + '</select></div>' +
+          '<div><label>曜日<span class="req">*</span></label>' +
+            '<select id="day" onchange="rebuildStaff()">' + dayOpts + '</select></div>' +
+          '<div><label>時限<span class="req">*</span></label>' +
+            '<select id="period" onchange="rebuildStaff()">' + perOpts + '</select></div>' +
           '<div><label>内容<span class="req">*</span></label>' +
             '<select id="support_type" onchange="onTypeChange()">' +
             '<option value="テイク">テイク（原則2名）</option>' +
             '<option value="介助">介助（1名）</option></select></div>' +
           '<div><label>利用者（被支援者）<span class="req">*</span></label>' +
-            '<input id="user_student" list="userlist" placeholder="例：利用者A">' +
-            '<datalist id="userlist">' + userList + '</datalist></div>' +
+            '<select id="user_sel" onchange="onUserSel()"></select>' +
+            '<input id="user_new" style="display:none;margin-top:6px" placeholder="新しい利用者名"></div>' +
           '<div><label>科目名</label><input id="subject" placeholder="例：基礎数学"></div>' +
           '<div><label>担当教員</label><input id="instructor" placeholder="例：（仮）教員A"></div>' +
           '<div><label>教室</label><input id="room" placeholder="例：1-101"></div>' +
           '<div></div>' +
+          '<div class="full"><label style="font-weight:600;cursor:pointer">' +
+            '<input type="checkbox" id="eligOnly" checked onchange="rebuildStaff()" style="width:auto">' +
+            ' このコマに空きがあり、スキルも合う人だけ表示</label></div>' +
           '<div><label>担当スタッフA<span class="req">*</span></label>' +
-            '<select id="staff_a_id">' + staffOpts + '</select></div>' +
-          '<div><label>担当スタッフB</label>' +
-            '<select id="staff_b_id"><option value="">（なし・1名）</option>' + staffOpts + '</select></div>' +
+            '<select id="staff_a_id"></select></div>' +
+          '<div><label>担当スタッフB</label><select id="staff_b_id"></select></div>' +
           '<div class="full"><label>備考</label><textarea id="note" placeholder="任意"></textarea></div>' +
         '</div>' +
         '<button class="btn" id="add" onclick="addCourse()">このコマを追加</button>' +
-        '<p class="hint">＊は必須。テイクはB欄に2人目を選びます（未定なら「なし」のままでも登録可）。</p>';
+        '<p class="hint">＊は必須。テイクはB欄に2人目を選びます（未定なら「なし」のままでも登録可）。' +
+        '担当欄は選んだ曜日・時限に空きがあり内容に対応できる人だけを表示します。</p>';
+
+      fillUserOptions();
+      rebuildStaff();
     }
 
-    // 介助のときはB欄を無効化（1名）
+    // 利用者プルダウン（既存名＋「新規追加」）
+    function fillUserOptions() {
+      var sel = document.getElementById('user_sel');
+      if (!sel) return;
+      var opts = '<option value="">（選択してください）</option>' +
+        DATA.users.map(function (u) {
+          return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>';
+        }).join('') +
+        '<option value="__new__">＋ 新しい利用者を追加…</option>';
+      sel.innerHTML = opts;
+    }
+
+    function onUserSel() {
+      var box = document.getElementById('user_new');
+      if (val('user_sel') === '__new__') { box.style.display = ''; box.focus(); }
+      else { box.style.display = 'none'; }
+    }
+
+    // 入力された利用者名（既存選択 or 新規入力）
+    function userValue() {
+      return val('user_sel') === '__new__'
+        ? document.getElementById('user_new').value.trim()
+        : val('user_sel');
+    }
+
+    // 介助のときはB欄を無効化（1名）。内容が変わると候補も組み直す。
     function onTypeChange() {
+      rebuildStaff();
       var b = document.getElementById('staff_b_id');
       if (val('support_type') === '介助') { b.value = ''; b.disabled = true; }
       else { b.disabled = false; }
+    }
+
+    // 担当A/Bの候補を「空き＋スキル」で組み直す（選択中の値は可能なら維持）
+    function staffEligible(s) {
+      var slotKey = val('day') + val('period');
+      var type = val('support_type');
+      var skillOk = !s.skills ||
+        s.skills.split(',').map(function (x) { return x.trim(); }).indexOf(type) !== -1;
+      return skillOk && s.slots.indexOf(slotKey) !== -1;
+    }
+
+    function rebuildStaff() {
+      var eligOnly = document.getElementById('eligOnly').checked;
+      var list = eligOnly ? DATA.staff.filter(staffEligible) : DATA.staff.slice();
+      var opt = function (s) {
+        var label = s.name + (s.skills ? '（' + s.skills + '）' : '');
+        return '<option value="' + escapeHtml(s.staff_id) + '">' + escapeHtml(label) + '</option>';
+      };
+      var body = list.map(opt).join('');
+
+      var a = document.getElementById('staff_a_id');
+      var b = document.getElementById('staff_b_id');
+      var prevA = a.value, prevB = b.value;
+      a.innerHTML = body ||
+        '<option value="">該当者なし（絞り込みを外してください）</option>';
+      b.innerHTML = '<option value="">（なし・1名）</option>' + body;
+      // 直前の選択が候補に残っていれば維持
+      if (list.some(function (s) { return s.staff_id === prevA; })) a.value = prevA;
+      if (prevB && list.some(function (s) { return s.staff_id === prevB; })) b.value = prevB;
     }
 
     function addCourse() {
@@ -186,7 +242,7 @@
         quarter: val('quarter').trim(),
         day: val('day'), period: val('period'),
         support_type: val('support_type'),
-        user_student: val('user_student').trim(),
+        user_student: userValue(),
         subject: val('subject').trim(),
         instructor: val('instructor').trim(),
         room: val('room').trim(),
@@ -203,10 +259,10 @@
         .withSuccessHandler(function (res) {
           showToast('追加しました（' + res.course_id + '）。', true);
           // 入力しやすいよう、コマ固有の項目だけクリア（曜日・時限・内容・担当は維持）
-          ['user_student', 'subject', 'instructor', 'room', 'note'].forEach(function (id) {
+          ['subject', 'instructor', 'room', 'note', 'user_new'].forEach(function (id) {
             document.getElementById(id).value = '';
           });
-          document.getElementById('user_student').focus();
+          document.getElementById('user_new').style.display = 'none';
           btn.disabled = false; btn.textContent = 'このコマを追加';
           refreshList(payload.quarter); // フォームは保ったまま一覧だけ更新
         })
@@ -224,10 +280,9 @@
           DATA = data;
           document.getElementById('qlist').innerHTML =
             data.quarters.map(function (q) { return '<option value="' + escapeHtml(q) + '">'; }).join('');
-          var ul = document.getElementById('userlist');
-          if (ul) {
-            ul.innerHTML = data.users.map(function (u) { return '<option value="' + escapeHtml(u) + '">'; }).join('');
-          }
+          // 新しい利用者が増えている場合に備えてプルダウンを更新（選択はリセット）
+          fillUserOptions();
+          rebuildStaff();
           renderList();
         })
         .withFailureHandler(function (err) { showToast(err.message, false); })

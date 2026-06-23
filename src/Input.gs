@@ -23,7 +23,13 @@ function getInputData(quarter) {
     const id = String(s.staff_id).trim();
     nameById[id] = s.name;
     if (String(s.role).trim() === '学生') {
-      students.push({ staff_id: id, name: s.name, skills: String(s.skills || '').trim() });
+      students.push({
+        staff_id: id,
+        name: s.name,
+        skills: String(s.skills || '').trim(),
+        slots: String(s.available_slots || '').split(',')
+          .map(function (x) { return x.trim(); }).filter(Boolean),
+      });
     }
   });
 
