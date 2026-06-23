@@ -305,7 +305,8 @@ function notifySubstituteReleased(vacancyId, substituteStaffId) {
     name + ' さん\n' +
     'さきほど確定していた代行は解除されました（再調整中です）。\n' +
     '日付: ' + dateText + '\n' +
-    'コマ: ' + slot + (timeText ? '（' + timeText + '）' : '');
+    'コマ: ' + slot + (timeText ? '（' + timeText + '）' : '') + '\n' +
+    '欠員ID: ' + vacancyId;
   try {
     postToWebhook_(url, msg);
     return { sent: true, reason: '' };
