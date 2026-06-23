@@ -167,10 +167,20 @@ npx clasp push --force
 
 ---
 
+## 📸 スクリーンショット
+
+> 準備中（すべて**ダミーデータ**で撮影予定）。掲載予定：シフト確認（PC／スマホ）・マイビュー・
+> コマ詳細・欠勤連絡の候補抽出・Chat 代行依頼・回答画面・シフト入力。
+> 撮影が必要な画面の一覧は [`docs/operations.md`](docs/operations.md#用意するスクリーンショット一覧) にまとめてある。
+
+---
+
 ## 📚 ドキュメント
 
 | ファイル | 内容 |
 |---|---|
 | [`CLAUDE.md`](CLAUDE.md) | プロジェクト全体像・ドメイン知識・データ設計・プロパティ一覧 |
+| [`docs/operations.md`](docs/operations.md) | **運用手順書**（セットアップ・Webhook・フォーム・クォーター更新・FAQ） |
+| [`docs/architecture.md`](docs/architecture.md) | アーキテクチャ・データフロー・ER図・権限設計 |
 | [`docs/decisions.md`](docs/decisions.md) | 相談で決まった仕様・経緯（決定ログ） |
 | [`docs/backlog.md`](docs/backlog.md) | 未対応の改善点 |
