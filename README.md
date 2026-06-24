@@ -109,6 +109,16 @@ flowchart TB
 </details>
 
 <details>
+<summary><b>フォーム連携</b> — 空きコマ／連絡先の自動取り込み</summary>
+
+- 学生が回答する**1つのフォーム**（①空きコマ・スキル ②電話・Webhook URL）を、送信トリガーで自動反映
+- **メールをキーに名簿（contacts）と照合**し、登録済みスタッフの行だけ更新（学外・無関係ユーザーの混入防止）
+- 振り分け：空きコマ・スキル → `staffs`、電話・Webhook → `contacts`（職員のみ）
+- 上書きは**クォーター再収集で「フォームが正」**。ただし skills は空送信で上書きせず（未回答＝全対応の誤判定を防止）、
+  Webhook は Google Chat の URL 形式のときだけ反映
+</details>
+
+<details>
 <summary><b>スタッフのスキル区分・物理アラート端末</b></summary>
 
 - **スキル区分（D9）**：`staffs.skills`（`テイク`/`介助`/`テイク,介助`）で対応可能な内容を管理し、
@@ -122,7 +132,6 @@ flowchart TB
 ## 🚧 開発中・未着手
 
 - **整合性チェック（機能B）** — カレンダーの勤務予定 ↔ 勤怠データの自動照合（`Calendar.gs` に基盤あり）
-- **フォーム連携** — 空きコマ／連絡先フォームを `staffs`・`contacts` にメールをキーで自動取り込み
 - **代行確定の Google カレンダー自動反映**（機能Aの完結）
 - **Phase 3** — 月末リマインダー・教務課向けレポート・クォーター更新フロー
 
@@ -136,6 +145,7 @@ src/                GAS スクリプト（.gs）と画面（.html）
   Vacancy.gs        欠員起票・候補スクリーニング・先着自動確定
   Input.gs          シフト入力（courses 追加・削除・候補絞り込み）
   Notify.gs         Google Chat 通知
+  Forms.gs          フォーム連携（空きコマ・連絡先をメールキーで自動反映）
   Sheets.gs         Spreadsheet 操作の共通処理
   Calendar.gs       カレンダー連携（機能Bの基盤）
   Device.gs         M5Stack 用エンドポイント
