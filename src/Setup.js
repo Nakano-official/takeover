@@ -171,13 +171,16 @@ function buildDummyData_() {
   // available_slots = 担当が入っていない（空いている）全スロット
   const allSlots = [];
   for (var s = 0; s < SLOTS; s++) { const inf = slotInfo(s); allSlots.push(inf.day + inf.period); }
+  // personal_code = 勤怠CSVの「個人ｺｰﾄﾞ」を模した架空の安定ID（D2 例 'Y2xxxxx' に合わせる）。
+  // 職員は学生スタッフではない＝勤怠CSVに出ないため空にする。
   const staffs = staff.map(function (st) {
-    return { staff_id: st.id, name: st.name, role: '職員', skills: '', available_slots: '' };
-  }).concat(students.map(function (st) {
+    return { staff_id: st.id, name: st.name, role: '職員', skills: '', available_slots: '', personal_code: '' };
+  }).concat(students.map(function (st, i) {
     const free = allSlots.filter(function (sk) { return !busy[st.id][sk]; });
     return {
       staff_id: st.id, name: st.name, role: '学生',
       skills: skillById[st.id], available_slots: free.join(','),
+      personal_code: 'Y2' + ('00000' + (i + 1)).slice(-5),
     };
   }));
 
@@ -258,12 +261,44 @@ function migrateStaffsColumns() {
   Logger.log('   空欄は当面「全対応」として候補に出ます（運用前に入力推奨）。');
 }
 
+/**
+ * 既存の staffs シートに personal_code 列を追加する（D2/D14・機能Bの勤怠CSV突合キー）。
+ * 勤怠CSVの「個人ｺｰﾄﾞ」と突き合わせる安定ID。無ければ末尾に1列足す（冪等）。
+ * 追加した列はテキスト書式にして先頭ゼロ・英字接頭辞の数値化を防ぐ。GASエディタから1回実行。
+ */
+function migrateStaffsPersonalCode() {
+  const ss = openMainDb_();
+  const sheet = ss.getSheetByName('staffs');
+  if (!sheet) { Logger.log('❌ staffs シートが見つかりません。'); return; }
+
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
+    return String(h).trim();
+  });
+  if (headers.indexOf('personal_code') !== -1) {
+    Logger.log('✅ staffs には既に personal_code 列があります（追加なし）。');
+    return;
+  }
+
+  const col = lastCol + 1;
+  sheet.getRange(1, col, 1, 1).setValues([['personal_code']]);
+  // 既存データ行＋余白をテキスト固定（個人ｺｰﾄﾞの数値化・先頭ゼロ欠落を防ぐ）
+  sheet.getRange(2, col, Math.max(sheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+  Logger.log('✅ staffs に personal_code 列を追加しました。');
+  Logger.log('   各学生スタッフに勤怠CSVの「個人ｺｰﾄﾞ」（例 Y2xxxxx）を入力してください。');
+  Logger.log('   未入力の学生は機能Bの照合で「要確認（personal_code 未登録）」になります。');
+}
+
 // ─── メインDB ────────────────────────────────────────────────
 
 function setupMainDb_(ss, data) {
   const staffsSheet = ss.getActiveSheet();
   staffsSheet.setName('staffs');
-  writeTable_(staffsSheet, ['staff_id', 'name', 'role', 'skills', 'available_slots'], data.staffs);
+  // personal_code（学籍番号系の安定ID）は機能Bの勤怠CSV突合キー（decisions.md D2/D14）。
+  // 先頭ゼロ・英字接頭辞の数値化を防ぐためテキスト固定する（F列）。
+  staffsSheet.getRange(2, 6, Math.max(data.staffs.length, 1), 1).setNumberFormat('@');
+  writeTable_(staffsSheet,
+    ['staff_id', 'name', 'role', 'skills', 'available_slots', 'personal_code'], data.staffs);
 
   // courses は「利用者中心の時間割」を表す（decisions.md D8）。
   // 1行＝1コマ（利用者×曜日×時限）。同じ曜日・時限に複数の利用者が並ぶ。
