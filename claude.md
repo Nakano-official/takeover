@@ -3,8 +3,8 @@
 このファイルはClaude Codeがプロジェクトを理解するためのコンテキストです。
 作業を始める前に必ずこのファイルを読んでください。
 
-> **あわせて参照**：相談で決まった仕様・経緯は `docs/decisions.md`（決定ログ）、
-> 未対応の改善点は `docs/backlog.md` にある。仕様の判断はこの2つも確認すること。
+> **あわせて参照**：相談で決まった仕様・経緯は `docs/spec/decisions.md`（決定ログ）、
+> 未対応の改善点は `docs/spec/backlog.md` にある。仕様の判断はこの2つも確認すること。
 
 ---
 
@@ -61,7 +61,7 @@
 - 回答を集約してダッシュボードに表示
 - **最初に「承諾」した候補者へ先着順で自動確定**（職員は通常介在しない）。
   誰も承諾しない等の例外時のみ、職員が「1人テイク／職員対応」で決着させる。
-  ※ 同時承諾の競合に備え、確定処理は LockService 内で原子的に行う（docs/decisions.md D1）
+  ※ 同時承諾の競合に備え、確定処理は LockService 内で原子的に行う（docs/spec/decisions.md D1）
 - 代行記録をGoogleカレンダーに自動反映
 
 ### 機能B：勤怠整合性チェックの自動化
@@ -123,7 +123,7 @@
 
 ## Sheetsデータ設計
 
-スプレッドシートは2つに分離する（詳細は docs/requirements.md・docs/architecture.md）。
+スプレッドシートは2つに分離する（詳細は docs/spec/requirements.md・docs/spec/architecture.md）。
 
 - **メインDB**：以下のシート群。アクセスは職員 + GAS
 - **連絡先DB**：contacts シート（staff_id・氏名・メール・電話番号・webhook_url）。**職員のみアクセス可**
@@ -210,7 +210,7 @@ ryukoku-support-shift/
 │   ├── check.html              # 整合性チェック（職員・CSVアップロード→照合）
 │   └── appsscript.json         # GASマニフェスト
 ├── device/                     # M5Stack スケッチと手順
-├── docs/                       # 設計・運用ドキュメント
+├── docs/                       # ドキュメント（spec=仕様・設計 / guides=手順書 / history=変更履歴・レビュー）
 ├── .clasp.json                 # clasp設定（GitIgnore対象）
 └── CLAUDE.md                   # このファイル
 ```

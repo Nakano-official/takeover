@@ -15,7 +15,7 @@ function setupSpreadsheets() {
 /**
  * 【本番用】空（ヘッダーのみ）でセットアップする。
  * staffs / courses / contacts は空。periods（時限マスタ）だけ入る。
- * 実データはフォーム取り込み・シフト入力画面・手入力で投入する（docs/operations.md）。
+ * 実データはフォーム取り込み・シフト入力画面・手入力で投入する（docs/guides/operations.md）。
  */
 function setupSpreadsheetsEmpty() {
   runSetup_(emptyData_(), true);
@@ -55,7 +55,7 @@ function runSetup_(data, isEmpty) {
     Logger.log('★ まずログインできるよう、最初の職員を1行ずつ追加してください：');
     Logger.log('  - staffs   : staff_id / name / role=職員 /（skills・available_slots は空でOK）');
     Logger.log('  - contacts : 同じ staff_id / name / email=自分の大学アドレス');
-    Logger.log('  その後、フォーム取り込みやシフト入力画面で学生・コマを投入します（docs/operations.md）。');
+    Logger.log('  その後、フォーム取り込みやシフト入力画面で学生・コマを投入します（docs/guides/operations.md）。');
   } else {
     Logger.log('★ テストで自分が職員としてログインするには、連絡先DB contacts の S001 の email を');
     Logger.log('  自分のアドレスに書き換えてください（それで「職員」として全画面が見えます）。');

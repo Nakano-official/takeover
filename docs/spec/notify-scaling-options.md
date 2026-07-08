@@ -2,7 +2,7 @@
 
 スタッフへの個別通知（現状：Google Chat Incoming Webhook）は、**1人1本ずつ Webhook を手作業で用意する**運用になっており、スタッフが増えると破綻する。その簡略化の候補をここに記録する。
 
-> 関連：`CLAUDE.md`（通知方式の確定）、`docs/decisions.md` D3（連絡先DBは職員のみ）、`docs/backlog.md`（運用前提）。
+> 関連：`CLAUDE.md`（通知方式の確定）、`docs/spec/decisions.md` D3（連絡先DBは職員のみ）、`docs/spec/backlog.md`（運用前提）。
 > 作成：2026-06-16（検討中。まだ採用していない＝候補案）。
 
 ---

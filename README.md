@@ -58,7 +58,7 @@ flowchart TB
   Chat -->|通知| T
 ```
 
-> 📐 画面ごとのデータフロー・通知シーケンス・権限設計など**詳細は [`docs/architecture.md`](docs/architecture.md)** を参照。
+> 📐 画面ごとのデータフロー・通知シーケンス・権限設計など**詳細は [`docs/spec/architecture.md`](docs/spec/architecture.md)** を参照。
 
 ---
 
@@ -154,7 +154,7 @@ src/                GAS スクリプト（.gs）と画面（.html）
   Setup.js          DB初期化・ダミーデータ生成・マイグレーション
   *.html            home / absence / input / respond / manage 各画面
 device/             物理アラート端末（M5Stack）のスケッチと手順
-docs/               設計ドキュメント・決定ログ
+docs/               ドキュメント（spec=仕様・設計 / guides=手順書 / history=変更履歴・レビュー）
 ```
 
 ---
@@ -184,7 +184,7 @@ npx clasp push --force
 
 > 準備中（すべて**ダミーデータ**で撮影予定）。掲載予定：シフト確認（PC／スマホ）・マイビュー・
 > コマ詳細・欠勤連絡の候補抽出・Chat 代行依頼・回答画面・シフト入力。
-> 撮影が必要な画面の一覧は [`docs/operations.md`](docs/operations.md#用意するスクリーンショット一覧) にまとめてある。
+> 撮影が必要な画面の一覧は [`docs/guides/operations.md`](docs/guides/operations.md#用意するスクリーンショット一覧) にまとめてある。
 
 ---
 
@@ -193,9 +193,28 @@ npx clasp push --force
 | ファイル | 内容 |
 |---|---|
 | [`CLAUDE.md`](CLAUDE.md) | プロジェクト全体像・ドメイン知識・データ設計・プロパティ一覧 |
-| [`docs/operations.md`](docs/operations.md) | **職員向け利用マニュアル**（URL受領後の使い方・GAS不要） |
-| [`docs/setup.md`](docs/setup.md) | **構築・引き継ぎ手順**（管理者が一度だけ行うセットアップ） |
-| [`docs/architecture.md`](docs/architecture.md) | アーキテクチャ・データフロー・ER図・権限設計 |
-| [`docs/decisions.md`](docs/decisions.md) | 相談で決まった仕様・経緯（決定ログ） |
-| [`docs/changelog.md`](docs/changelog.md) | 開発の経緯（日付ごとの変更履歴） |
-| [`docs/backlog.md`](docs/backlog.md) | 未対応の改善点 |
+
+**`docs/spec/`** — 仕様・設計（現在の状態。更新され続ける）
+
+| ファイル | 内容 |
+|---|---|
+| [`docs/spec/requirements.md`](docs/spec/requirements.md) | 要件定義 |
+| [`docs/spec/decisions.md`](docs/spec/decisions.md) | 相談で決まった仕様・経緯（決定ログ） |
+| [`docs/spec/backlog.md`](docs/spec/backlog.md) | 未対応の改善点 |
+| [`docs/spec/architecture.md`](docs/spec/architecture.md) | アーキテクチャ・データフロー・ER図・権限設計 |
+| [`docs/spec/notify-scaling-options.md`](docs/spec/notify-scaling-options.md) | 通知スケール課題の検討案（未採用） |
+
+**`docs/guides/`** — 手順書（人が実行する）
+
+| ファイル | 内容 |
+|---|---|
+| [`docs/guides/operations.md`](docs/guides/operations.md) | **職員向け利用マニュアル**（URL受領後の使い方・GAS不要） |
+| [`docs/guides/setup.md`](docs/guides/setup.md) | **構築・引き継ぎ手順**（管理者が一度だけ行うセットアップ） |
+
+**`docs/history/`** — 記録（追記のみ・過去の一時点のスナップショット）
+
+| ファイル | 内容 |
+|---|---|
+| [`docs/history/changelog.md`](docs/history/changelog.md) | 開発の経緯（日付ごとの変更履歴） |
+| [`docs/history/review-2026-06-23.md`](docs/history/review-2026-06-23.md) | コードレビュー記録（2026-06-23） |
+| [`docs/history/review-2026-07-09.md`](docs/history/review-2026-07-09.md) | コードレビュー記録（2026-07-09） |
