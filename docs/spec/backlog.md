@@ -52,7 +52,7 @@ Phase 1 MVP（機能A：欠員補充の自動化）は最低要件クリア・�
 ## 7. 人物呼称の用語統一（コード/UI）　⚪（issue #7-3）
 
 - 呼称を「職員 / 学生スタッフ（ノートテイカー・移動/介助スタッフ）/ 利用学生」に統一する方針
-  （CLAUDE.md・README は対応済み）。
+  （CLAUDE.md・README・requirements.md・architecture.md は対応済み・2026-07-09）。
 - コード/UI には「利用者」表記が約17ファイル70箇所残る（`home.html`・`input.html`・`Input.gs` 等）。
   `user_student` 列名や D8 の用語「利用者中心の時間割」も含むため、一括置換は回帰リスクあり。
 - **対応時の注意**：UIラベル・コメントのみ統一し、列名やキー（`user_student` 等）は変更しない。
