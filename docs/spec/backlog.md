@@ -119,19 +119,20 @@ D14で `Attendance.gs`＋`check.html` を実装した後のコードレビュー
 
 ### 🔴 本番運用の前提（正確性）
 
-- 🔴 **10-1. 職員側の確定処理が非アトミック（D1違反・二重確定）** — `Vacancy.gs` `confirmSubstitute` / `setVacancyResult`
+- ✅ **10-1. 職員側の確定処理が非アトミック（D1違反・二重確定）** — `Vacancy.gs` `confirmSubstitute` / `setVacancyResult`（2026-07-09 対応）
   - 現状は「findRow で result 空を確認 → updateRow で上書き」の2段階で、間に候補者の
     `respondToVacancy`（`claimIfEmpty`）が割り込むと**先着確定を黙って上書き**する。
     候補Yに「決まりました」通知が出た直後に、シート上は職員が選んだXになる（両者出勤 or 無人）。
-  - **手順**：
-    1. `confirmSubstitute` / `setVacancyResult` の「事前チェック＋updateRow」を、
-       `respondToVacancy` と同じ **`claimIfEmpty`（result が空のときだけ書く CAS）** に置き換える。
-       `substitute_staff_id` 等の同時更新は claimIfEmpty の追加更新引数で渡す。
-    2. 失敗（＝既に決着済み）時は「先着確定などで既に決着しています。再読み込みしてください」を throw し、
-       manage.html 側で一覧を再取得する。
-    3. `reopenVacancy`（result を空に戻す側）も同様に、`withLock_` 内で「期待した旧値のときだけ書く」
-       compare-and-set にする（Sheets.gs に汎用 `updateIfEquals_` を足すか、claimIfEmpty を一般化）。
-  - **確認**：GASエディタで2実行を模擬（confirm 直前に別実行で claim 済みにする）→ 上書きされず throw すること。
+  - **対応済み**：
+    1. `confirmSubstitute` / `setVacancyResult` を **`claimIfEmpty`（result が空のときだけ書く CAS）** に置換。
+       決着済みなら「既に決着済みです（先着確定など）。画面を更新して…」を throw する。
+    2. manage.html は既に全操作で `withFailureHandler` → `alert` + `reload()` を持つため、
+       throw 時にエラー表示と一覧再取得が自動で走る（クライアント変更なし）。
+    3. `reopenVacancy` は Sheets.gs に汎用CAS **`updateRowIfGuard_`**（mode='empty'/'notEmpty'）を新設し、
+       「result が非空のときだけ戻す」形に統一。旧確定者の控えとクリアを同一ロック内で行う
+       （`claimIfEmpty` も `updateRowIfGuard_` の薄いラッパーへ整理）。
+  - **検証**：CASの競合分岐を合成データでシミュレーション（19ケース・confirm↔respond 競合、
+    reopen の notEmpty ガード、二重reopen、対象なし等）全通過。実GASでの e2e 確認は残（backlog 9-5 と同枠）。
 
 - 🔴 **10-2. ID採番が999で重複する** — `Sheets.gs` `nextId_`
   - `('000' + (max + 1)).slice(-3)` のため 1000 以降が `'000'` に折り返し、以後**全追加行が同一ID**

@@ -367,15 +367,16 @@ function confirmSubstitute(vacancyId, substituteStaffId) {
   requireStaff_();
   if (!substituteStaffId) throw new Error('代行者が指定されていません。');
 
-  const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
-  if (!vacancy) throw new Error('対象の欠員が見つかりません。');
-  if (String(vacancy.result).trim()) throw new Error('この欠員は既に確定済みです。');
-
-  const ok = updateRow(SHEET.VACANCIES, 'vacancy_id', vacancyId, {
-    result: '補充済',
-    substitute_staff_id: substituteStaffId,
-  });
-  if (!ok) throw new Error('欠員の更新に失敗しました。');
+  // result が空のときだけ atomically 確定する（compare-and-set）。
+  // 職員の確定中に候補者が respondToVacancy で先着確定するケースを防ぐ（D1違反の是正・backlog 10-1）。
+  const claim = claimIfEmpty(
+    SHEET.VACANCIES, 'vacancy_id', vacancyId, 'result',
+    { result: '補充済', substitute_staff_id: substituteStaffId }
+  );
+  if (!claim.ok) throw new Error('対象の欠員が見つかりません。');
+  if (!claim.claimed) {
+    throw new Error('この欠員は既に決着済みです（先着確定など）。画面を更新して最新の状態をご確認ください。');
+  }
 
   // 確定を関係者へ通知（先着確定と挙動を揃える・review #8）
   var notify;
@@ -395,14 +396,17 @@ function setVacancyResult(vacancyId, result) {
   if (VACANCY_RESULTS.indexOf(result) === -1 || result === '補充済') {
     throw new Error('指定できる結果は「1人テイク」または「職員対応」です。');
   }
-  const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
-  if (!vacancy) throw new Error('対象の欠員が見つかりません。');
-  if (String(vacancy.result).trim()) throw new Error('この欠員は既に確定済みです。');
 
-  updateRow(SHEET.VACANCIES, 'vacancy_id', vacancyId, {
-    result: result,
-    substitute_staff_id: '',
-  });
+  // result が空のときだけ atomically 決着する（compare-and-set）。
+  // 職員の決着中に候補者が先着確定するケースを防ぐ（D1違反の是正・backlog 10-1）。
+  const claim = claimIfEmpty(
+    SHEET.VACANCIES, 'vacancy_id', vacancyId, 'result',
+    { result: result, substitute_staff_id: '' }
+  );
+  if (!claim.ok) throw new Error('対象の欠員が見つかりません。');
+  if (!claim.claimed) {
+    throw new Error('この欠員は既に決着済みです（先着確定など）。画面を更新して最新の状態をご確認ください。');
+  }
 
   // 募集終了を候補者へ通知（先着確定と挙動を揃える・review #8）
   var notify;
@@ -421,21 +425,21 @@ function setVacancyResult(vacancyId, result) {
  */
 function reopenVacancy(vacancyId) {
   requireStaff_();
-  const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
-  if (!vacancy) throw new Error('対象の欠員が見つかりません。');
-  if (!String(vacancy.result).trim()) throw new Error('この欠員はまだ未確定です（再オープン不要）。');
 
-  // クリア前に「補充済で確定していた代行者」を控える（解除通知のため）
-  const prevSub = String(vacancy.result).trim() === '補充済'
-    ? String(vacancy.substitute_staff_id || '').trim()
+  // result が非空（決着済み）のときだけ atomically 開き直す（compare-and-set）。
+  // 「旧確定者の控え」と「クリア」を同一ロックで行い、確定処理との競合で
+  // 解除通知の宛先がずれるのを防ぐ（backlog 10-1）。旧値は current（書き込み前）から読む。
+  const res = updateRowIfGuard_(
+    SHEET.VACANCIES, 'vacancy_id', vacancyId, 'result', 'notEmpty',
+    { result: '', substitute_staff_id: '', notify_status: NOTIFY_STATUS_PENDING }
+  );
+  if (!res.ok) throw new Error('対象の欠員が見つかりません。');
+  if (!res.applied) throw new Error('この欠員はまだ未確定です（再オープン不要）。');
+
+  // 書き込み前スナップショットから「補充済で確定していた代行者」を控える（解除通知のため）
+  const prevSub = String(res.current.result).trim() === '補充済'
+    ? String(res.current.substitute_staff_id || '').trim()
     : '';
-
-  const ok = updateRow(SHEET.VACANCIES, 'vacancy_id', vacancyId, {
-    result: '',
-    substitute_staff_id: '',
-    notify_status: NOTIFY_STATUS_PENDING,
-  });
-  if (!ok) throw new Error('欠員の更新に失敗しました。');
 
   // 元の確定者へ解除を通知（review 3次レビュー・#8 の対称性に揃える）
   var notify = null;

@@ -138,17 +138,19 @@ function updateRow(sheetName, keyColumn, keyValue, updates) {
 }
 
 /**
- * 先着確保（compare-and-set）。
- * keyColumn=keyValue の行について、guardColumn が「空」のときだけ updates を書き込む。
- * 判定（guardが空か）と書き込みを同一ロック内で行うため、複数人が同時に承諾しても
- * 先に入った1人だけが確保でき、残りは「確保失敗（先約あり）」になる（decisions.md D1）。
+ * 条件付き更新（compare-and-set）の共通実装。
+ * keyColumn=keyValue の行について、guardColumn の現在値が mode を満たすときだけ updates を書き込む。
+ *   mode='empty'    : guardColumn が空のときだけ書く（先着確保）
+ *   mode='notEmpty' : guardColumn が非空のときだけ書く（確定の取り消し＝再オープン等）
+ * 判定と書き込みを同一ロック内で atomically 行うため、複数の書き手が競合しても
+ * 条件を満たした最初の1回だけが適用され、残りは applied=false になる（decisions.md D1）。
  *
- * @return {{ok:boolean, claimed:boolean, current:(Object|null)}}
- *   ok=false           : 対象行が見つからない
- *   ok=true, claimed=true : 確保成功（先着でこの呼び出しが書き込んだ）
- *   ok=true, claimed=false: 既に guardColumn が埋まっていた（current に確保前の行内容）
+ * @return {{ok:boolean, applied:boolean, current:(Object|null)}}
+ *   ok=false            : 対象行が見つからない
+ *   applied=true        : 条件を満たし updates を書き込んだ（current は書き込み前スナップショット）
+ *   applied=false       : 条件を満たさず未書き込み（current に現在の行内容）
  */
-function claimIfEmpty(sheetName, keyColumn, keyValue, guardColumn, updates) {
+function updateRowIfGuard_(sheetName, keyColumn, keyValue, guardColumn, mode, updates) {
   return withLock_(function () {
     const sheet = getSheet_(sheetName);
     const values = sheet.getDataRange().getValues();
@@ -161,25 +163,42 @@ function claimIfEmpty(sheetName, keyColumn, keyValue, guardColumn, updates) {
     for (var r = 1; r < values.length; r++) {
       if (String(values[r][keyIdx]).trim() !== String(keyValue).trim()) continue;
 
-      // 確保前の行内容（誰が先約か等を呼び出し側へ返すため）
+      // 書き込み前の行内容（誰が先約か・旧値は何か等を呼び出し側へ返すため）
       const current = {};
       for (var c = 0; c < headers.length; c++) current[headers[c]] = values[r][c];
 
-      // 既に埋まっていれば確保失敗
-      if (String(values[r][guardIdx]).trim()) {
-        return { ok: true, claimed: false, current: current };
+      // guard 条件を満たさなければ未書き込みで返す
+      const guardFilled = !!String(values[r][guardIdx]).trim();
+      const satisfies = (mode === 'empty') ? !guardFilled : guardFilled;
+      if (!satisfies) {
+        return { ok: true, applied: false, current: current };
       }
 
-      // 空なので updates を書き込む（先着で確保）
+      // 条件を満たすので updates を書き込む
       for (var c2 = 0; c2 < headers.length; c2++) {
         if (updates[headers[c2]] !== undefined) {
           sheet.getRange(r + 1, c2 + 1).setValue(updates[headers[c2]]);
         }
       }
-      return { ok: true, claimed: true, current: current };
+      return { ok: true, applied: true, current: current };
     }
-    return { ok: false, claimed: false, current: null };
+    return { ok: false, applied: false, current: null };
   });
+}
+
+/**
+ * 先着確保（compare-and-set）。guardColumn が「空」のときだけ updates を書き込む。
+ * 複数人が同時に承諾しても先に入った1人だけが確保でき、残りは claimed=false（先約あり）になる。
+ * 実体は updateRowIfGuard_（mode='empty'）。従来の戻り値（claimed）を保つラッパー。
+ *
+ * @return {{ok:boolean, claimed:boolean, current:(Object|null)}}
+ *   ok=false              : 対象行が見つからない
+ *   ok=true, claimed=true : 確保成功（先着でこの呼び出しが書き込んだ）
+ *   ok=true, claimed=false: 既に guardColumn が埋まっていた（current に確保前の行内容）
+ */
+function claimIfEmpty(sheetName, keyColumn, keyValue, guardColumn, updates) {
+  const res = updateRowIfGuard_(sheetName, keyColumn, keyValue, guardColumn, 'empty', updates);
+  return { ok: res.ok, claimed: res.applied, current: res.current };
 }
 
 // ─── ID採番 ──────────────────────────────────────────────────
