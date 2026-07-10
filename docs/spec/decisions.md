@@ -5,6 +5,43 @@
 
 ---
 
+## 2026-07-10 欠員ライフサイクルの状態機械化・ステータス定数の一元化
+
+### D15. 欠員の状態遷移を1経路（settle / reopen）に集約し、result 文字列を定数化する
+- **背景**: backlog §11-2・§11-4。「未解決 → 補充済／1人テイク／職員対応 → 再オープン」の遷移が
+  `respondToVacancy`・`confirmSubstitute`・`setVacancyResult`・`reopenVacancy`・自動決着に
+  **ばらばらに実装**され、CAS（先着確定との競合検査）や前提条件が遷移ごとに抜けていた。
+  レビュー §10 の 10-1（非アトミック確定）・10-4（再オープンで再通知されない）・
+  10-9（過去日に承諾できる）は、いずれも**同じ構造が原因**（同じ穴の別の出口）。
+- **決定（状態機械・11-2）**: `result` 列を「決着マーカー」とした compare-and-set を2関数に集約する。
+  - `tryTransitionVacancy_(vacancyId, direction, updates)`：throwしない低レベル版。
+    `direction='settle'`（空→決着＝先着確保）/ `'reopen'`（決着→空）。先着で負けても例外化しないため
+    `respondToVacancy` が「埋まりました」を穏当に返せる。
+  - `transitionVacancyOrThrow_(...)`：前提不成立（既に決着済み／まだ未決着／対象なし）を
+    職員向けメッセージで throw する。confirm/setResult/reopen 用。
+  - 全ての `result` 書き込みをこの2関数だけに通す。実体は既存の `claimIfEmpty`／`updateRowIfGuard_`
+    （Sheets.gs のロック内CAS・D1）で、遷移の入口を1箇所にまとめたもの。
+- **同時に解消したバグ（§10）**:
+  - **10-4**：`reopenVacancy` の末尾で `notifyNewVacancy(vacancyId, true)` を呼び、候補者へ
+    「（再募集）」を再送する。従来は notify_status を戻すだけで再送経路が無く無人化の恐れがあった。
+  - **10-9**：`respondToVacancy` に `assertVacancyNotPast_`（対象日が過去なら throw）を追加。
+    作成側 `submitAbsence` にしか無かった過去日拒否の非対称を是正。職員の手動確定（confirm/setResult）は
+    後追い記録のため過去日でも許容する（候補者の古いリンク経由のみを弾く）。
+- **決定（定数一元化・11-4）**: ステータス文字列を `Constants.gs` に集約する。
+  `VACANCY_RESULT`（FILLED/SOLO/STAFF）・`VACANCY_RESULT_VALUES`・`COURSE_VACANCY_STATUS`（NORMAL/OPEN）・
+  `ANSWER`（ACCEPT/DECLINE）・`MSG_VACANCY_SETTLED`。**値は従来と完全に同一＝挙動不変**の内部整理で、
+  サーバー（Vacancy.gs・code.js・Notify.gs）の判定・分岐はこの定数を参照する。
+  「休講」等の4つ目の決着区分を足す日に、多数ファイル同時修正ではなく Constants.gs 中心の追加で済む。
+- **スコープ外（今回は据え置き）**: HTML（manage/home/respond）はサーバーが返す同じ文字列値を
+  表示・比較しており、値不変のため未変更。テンプレート経由で画面へ定数を渡す案は将来の課題。
+- **検証**: 実コード（Constants.gs＋Vacancy.gs の遷移関数）を stub 環境で駆動する合成シミュレーション
+  16ケース（settle/reopen の成否・対象なし・未知遷移・過去日ガード・先着競合の縮図）全通過。
+  実GASでの e2e 確認は backlog 9-5 と同枠で残。
+- **ステータス**: 実装済（`Constants.gs` 新設・`Vacancy.gs`／`code.js`／`Notify.gs`／`manage.html` 改修）。
+  未着手の設計提案 11-1（機能Bの予定側DB由来化）・11-3（学期マスタ）は別途。
+
+---
+
 ## 2026-06-30 勤怠整合性チェック（機能B）の照合設計
 
 ### D14. カレンダー（実態反映済み）を「予定の正」とし、CSVアップロードでメモリ内照合する

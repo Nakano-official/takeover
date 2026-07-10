@@ -186,11 +186,11 @@ function getDashboardData() {
     const related = vacancies.filter(function (v) {
       return String(v.course_id).trim() === courseId;
     });
-    var status = '通常';
+    var status = COURSE_VACANCY_STATUS.NORMAL;
     var substitute = '';
     const open = related.filter(function (v) { return !String(v.result).trim(); });
     if (open.length > 0) {
-      status = '欠員対応中';
+      status = COURSE_VACANCY_STATUS.OPEN;
     } else if (related.length > 0) {
       const latest = related[related.length - 1];
       status = String(latest.result).trim(); // 補充済 / 1人テイク / 職員対応
@@ -270,11 +270,11 @@ function getTimetable(quarter) {
       const related = vacancies.filter(function (v) {
         return String(v.course_id).trim() === courseId;
       });
-      var status = '通常';
+      var status = COURSE_VACANCY_STATUS.NORMAL;
       var substitute = '';
       const open = related.filter(function (v) { return !String(v.result).trim(); });
       if (open.length > 0) {
-        status = '欠員対応中';
+        status = COURSE_VACANCY_STATUS.OPEN;
       } else if (related.length > 0) {
         const latest = related[related.length - 1];
         status = String(latest.result).trim(); // 補充済 / 1人テイク / 職員対応

@@ -152,7 +152,9 @@ D14で `Attendance.gs`＋`check.html` を実装した後のコードレビュー
     3. check.html のサマリ・一覧に「照合対象外」の区分を追加。
   - **確認**：`testReconcile` に「personal_code 無し学生」「職員」のケースを追加して分類を検証。
 
-- 🔴 **10-4. 再オープン後に代行依頼が誰にも再送されない** — `Vacancy.gs` `reopenVacancy`
+- ✅ **10-4. 再オープン後に代行依頼が誰にも再送されない** — `Vacancy.gs` `reopenVacancy`（2026-07-10 対応・D15）
+  - 対応済み：`reopenVacancy` 末尾で `notifyNewVacancy(vacancyId, true)` を呼び「（再募集）」を候補へ再送。
+    11-2（状態機械化）と同時に実施。以下は当時の記述。
   - 再オープンは notify_status を「未通知」に戻すだけ。`notifyNewVacancy` の呼び出し元は
     `submitAbsence` のみで、**再募集の通知経路が存在しない**（旧確定者への解除通知だけ飛ぶ）。
     全候補は「募集終了」を受信済みのため、放置すると無人で当日を迎える。
@@ -192,7 +194,9 @@ D14で `Attendance.gs`＋`check.html` を実装した後のコードレビュー
     以降「user.staff_id は正規化済み」を前提にしてよい。比較箇所の総点検は不要になる。
   - **確認**：contacts の staff_id を数値セルにして欠勤登録→自動決着の分類が正しいこと。
 
-- 🔴 **10-9. 過去日の欠員に古いリンクから承諾できてしまう** — `Vacancy.gs` `respondToVacancy`
+- ✅ **10-9. 過去日の欠員に古いリンクから承諾できてしまう** — `Vacancy.gs` `respondToVacancy`（2026-07-10 対応・D15）
+  - 対応済み：`respondToVacancy` 冒頭に `assertVacancyNotPast_`（対象日が過去なら throw）を追加。
+    11-2（状態機械化）と同時に実施。以下は当時の記述。
   - 回答経路に日付の検査がなく、未決着のまま過ぎた欠員へ後日「承諾」すると遡って
     「補充済」が確定し、関係者に確定通知まで飛ぶ（作成側 `submitAbsence` にしか過去日拒否がない）。
   - **手順**：`respondToVacancy` の冒頭検査に「`vacancy.date` が今日（JST）より前なら
@@ -253,7 +257,12 @@ D14で `Attendance.gs`＋`check.html` を実装した後のコードレビュー
 - **移行の現実解**：実カレンダーは手書き資産なので、当面は氏名パースを**フォールバック**として残し、
   「説明欄に staff_id があればID突合・なければ氏名突合」の二段構えで段階移行する。
 
-### 11-2. 欠員（vacancy）のライフサイクルを「状態機械」として一箇所に定義する ⚪
+### 11-2. 欠員（vacancy）のライフサイクルを「状態機械」として一箇所に定義する ✅（D15で対応・2026-07-10）
+
+> `tryTransitionVacancy_`／`transitionVacancyOrThrow_`（settle/reopen）に全 result 書き込みを集約。
+> 同時に 10-4（再オープンの再募集）・10-9（過去日承諾の拒否）を構造的に解消。合成シミュレーション16ケース通過。
+
+（以下は当時の提案メモ）
 
 - **現状**：「未解決 → 補充済／1人テイク／職員対応 → 再オープン」という状態遷移が、
   `respondToVacancy`・`confirmSubstitute`・`setVacancyResult`・`reopenVacancy`・自動決着に
@@ -277,7 +286,14 @@ D14で `Attendance.gs`＋`check.html` を実装した後のコードレビュー
 - **効果**：セメスターとクォーターの混在に自然に対応。スタッフ空きコマの再収集サイクル
   （Phase 3・学部ごとに異なる）の基盤にもなる。
 
-### 11-4. ステータス文字列の定数一元化 ⚪
+### 11-4. ステータス文字列の定数一元化 ✅（D15で対応・2026-07-10・サーバー側）
+
+> `Constants.gs` に `VACANCY_RESULT`／`VACANCY_RESULT_VALUES`／`COURSE_VACANCY_STATUS`／`ANSWER` を集約。
+> 値は不変（挙動不変）。サーバー（Vacancy.gs・code.js・Notify.gs）は定数を参照。
+> **残**：HTML（manage/home/respond）はサーバーが返す同じ文字列値を表示・比較しており未変更。
+> テンプレート経由で画面へ定数を渡す案は将来の課題（4つ目の区分追加時はCSSクラスも要追加のため）。
+
+（以下は当時の提案メモ）
 
 - **現状**：`補充済`・`1人テイク`・`職員対応`・`承諾`・`辞退`・`欠員対応中` が
   サーバー5ファイル＋HTML3ファイルにリテラルで散在。

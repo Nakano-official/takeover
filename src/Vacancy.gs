@@ -126,8 +126,10 @@ function submitAbsence(courseId, date) {
       .map(function (x) { return String(x).trim(); })
       .filter(Boolean)
       .filter(function (id) { return id !== user.staff_id && !absentSameSlot[id]; });
-    const autoResult = remaining.length > 0 ? '1人テイク' : '職員対応';
-    updateRow(SHEET.VACANCIES, 'vacancy_id', vacancyId, { result: autoResult });
+    const autoResult = remaining.length > 0 ? VACANCY_RESULT.SOLO : VACANCY_RESULT.STAFF;
+    // 決着書き込みは状態機械（settle 遷移）に通す。作成直後で競合は無いが、
+    // 全ての result 書き込みを1経路に揃える（backlog 11-2）。
+    transitionVacancyOrThrow_(vacancyId, 'settle', { result: autoResult });
 
     var autoNotify;
     try {
@@ -220,10 +222,14 @@ function getVacancyForRespond(vacancyId) {
 function respondToVacancy(vacancyId, answer) {
   const user = getCurrentUser_();
   if (!user) throw new Error('利用登録がありません。');
-  if (answer !== '承諾' && answer !== '辞退') throw new Error('回答内容が不正です。');
+  if (answer !== ANSWER.ACCEPT && answer !== ANSWER.DECLINE) throw new Error('回答内容が不正です。');
 
   const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
   if (!vacancy) throw new Error('対象の欠員が見つかりません。');
+
+  // 対象日を過ぎた募集には回答不可（古いリンクからの後日承諾を弾く・backlog 10-9）。
+  // 作成側 submitAbsence にしか過去日拒否が無かった非対称を是正する。
+  assertVacancyNotPast_(vacancy.date);
 
   const course = findRow(SHEET.COURSES, 'course_id', vacancy.course_id);
   if (!course) throw new Error('対象のコマが見つかりません。');
@@ -246,19 +252,20 @@ function respondToVacancy(vacancyId, answer) {
   );
 
   // 辞退は確定処理を動かさない
-  if (answer === '辞退') {
+  if (answer === ANSWER.DECLINE) {
     return { ok: true, answer: answer, confirmed: false };
   }
 
-  // 承諾 → 先着確保（result が空のときだけ自分を代行に確定）
-  const claim = claimIfEmpty(
-    SHEET.VACANCIES, 'vacancy_id', vacancyId, 'result',
-    { result: '補充済', substitute_staff_id: user.staff_id }
+  // 承諾 → 先着確保（result が空のときだけ自分を代行に確定・settle 遷移）。
+  // throwしない低レベル版を使い、負けたら「埋まりました」を穏当に返す。
+  const claim = tryTransitionVacancy_(
+    vacancyId, 'settle',
+    { result: VACANCY_RESULT.FILLED, substitute_staff_id: user.staff_id }
   );
   if (!claim.ok) throw new Error('対象の欠員が見つかりません。');
 
   // 一瞬差で他の人に確定された → 受付終了
-  if (!claim.claimed) {
+  if (!claim.applied) {
     return { ok: false, filled: true, closed: true };
   }
 
@@ -273,9 +280,68 @@ function respondToVacancy(vacancyId, answer) {
   return { ok: true, answer: answer, confirmed: true, notify: notify };
 }
 
-// ─── 欠員補充管理（manage画面用・職員限定）─────────────────
+// ─── 欠員ライフサイクルの状態遷移（状態機械・backlog 11-2）──────
+//
+// 「未解決 → 補充済／1人テイク／職員対応 → 再オープン」という遷移を、
+// 従来は respondToVacancy・confirmSubstitute・setVacancyResult・reopenVacancy・
+// 自動決着に個別実装しており、CAS（先着確定との競合検査）や前提条件が
+// 遷移ごとに抜けていた（10-1・10-4・10-9 はすべてこの構造が同じ原因）。
+// result 列を「決着マーカー」とした compare-and-set を1箇所に集約し、
+// 全ての result 書き込みをこの2関数だけに通す。
+//
+//   direction='settle' : 未決着(result空) → 決着（updates を書き込む・先着確保）
+//   direction='reopen' : 決着済(result非空) → 未決着（result等をクリア）
 
-const VACANCY_RESULTS = ['補充済', '1人テイク', '職員対応'];
+/**
+ * 遷移をCASで試みる（throwしない低レベル版）。先着で負けても例外にしないため、
+ * respondToVacancy が「埋まりました」を穏当に返せる。
+ * @return {{ok:boolean, applied:boolean, current:(Object|null)}}
+ *   ok=false     : 対象の欠員が存在しない
+ *   applied=true : 前提を満たし書き込んだ（current は書き込み前スナップショット）
+ *   applied=false: 前提不成立で未書き込み（settle=既に決着 / reopen=まだ未決着）
+ */
+function tryTransitionVacancy_(vacancyId, direction, updates) {
+  if (direction === 'settle') {
+    const claim = claimIfEmpty(SHEET.VACANCIES, 'vacancy_id', vacancyId, 'result', updates);
+    return { ok: claim.ok, applied: claim.claimed, current: claim.current };
+  }
+  if (direction === 'reopen') {
+    const res = updateRowIfGuard_(
+      SHEET.VACANCIES, 'vacancy_id', vacancyId, 'result', 'notEmpty', updates
+    );
+    return { ok: res.ok, applied: res.applied, current: res.current };
+  }
+  throw new Error('未知の遷移です：' + direction);
+}
+
+/**
+ * 遷移を実行し、前提不成立を職員向けメッセージで throw する（confirm/setResult/reopen 用）。
+ * @return {{ok, applied, current}} applied は必ず true（失敗時は throw 済み）
+ */
+function transitionVacancyOrThrow_(vacancyId, direction, updates) {
+  const res = tryTransitionVacancy_(vacancyId, direction, updates);
+  if (!res.ok) throw new Error('対象の欠員が見つかりません。');
+  if (!res.applied) {
+    throw new Error(direction === 'reopen'
+      ? 'この欠員はまだ未確定です（再オープン不要）。'
+      : MSG_VACANCY_SETTLED);
+  }
+  return res;
+}
+
+/**
+ * 欠員の対象日が過去でないことを確認する（過ぎた募集への操作を弾く・backlog 10-9）。
+ * 古いChat通知リンクから、日付が過ぎた欠員に後日「承諾」されるのを防ぐ。
+ */
+function assertVacancyNotPast_(dateValue) {
+  const dateStr = dateToStr_(dateValue);
+  const today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+  if (dateStr && dateStr < today) {
+    throw new Error('この募集は対象日を過ぎています。');
+  }
+}
+
+// ─── 欠員補充管理（manage画面用・職員限定）─────────────────
 
 /**
  * 欠員一覧を回答状況つきで返す（職員のダッシュボード用）。
@@ -367,16 +433,10 @@ function confirmSubstitute(vacancyId, substituteStaffId) {
   requireStaff_();
   if (!substituteStaffId) throw new Error('代行者が指定されていません。');
 
-  // result が空のときだけ atomically 確定する（compare-and-set）。
+  // result が空のときだけ atomically 確定する（settle 遷移）。
   // 職員の確定中に候補者が respondToVacancy で先着確定するケースを防ぐ（D1違反の是正・backlog 10-1）。
-  const claim = claimIfEmpty(
-    SHEET.VACANCIES, 'vacancy_id', vacancyId, 'result',
-    { result: '補充済', substitute_staff_id: substituteStaffId }
-  );
-  if (!claim.ok) throw new Error('対象の欠員が見つかりません。');
-  if (!claim.claimed) {
-    throw new Error('この欠員は既に決着済みです（先着確定など）。画面を更新して最新の状態をご確認ください。');
-  }
+  transitionVacancyOrThrow_(vacancyId, 'settle',
+    { result: VACANCY_RESULT.FILLED, substitute_staff_id: substituteStaffId });
 
   // 確定を関係者へ通知（先着確定と挙動を揃える・review #8）
   var notify;
@@ -393,20 +453,13 @@ function confirmSubstitute(vacancyId, substituteStaffId) {
  */
 function setVacancyResult(vacancyId, result) {
   requireStaff_();
-  if (VACANCY_RESULTS.indexOf(result) === -1 || result === '補充済') {
-    throw new Error('指定できる結果は「1人テイク」または「職員対応」です。');
+  if (VACANCY_RESULT_VALUES.indexOf(result) === -1 || result === VACANCY_RESULT.FILLED) {
+    throw new Error('指定できる結果は「' + VACANCY_RESULT.SOLO + '」または「' + VACANCY_RESULT.STAFF + '」です。');
   }
 
-  // result が空のときだけ atomically 決着する（compare-and-set）。
+  // result が空のときだけ atomically 決着する（settle 遷移）。
   // 職員の決着中に候補者が先着確定するケースを防ぐ（D1違反の是正・backlog 10-1）。
-  const claim = claimIfEmpty(
-    SHEET.VACANCIES, 'vacancy_id', vacancyId, 'result',
-    { result: result, substitute_staff_id: '' }
-  );
-  if (!claim.ok) throw new Error('対象の欠員が見つかりません。');
-  if (!claim.claimed) {
-    throw new Error('この欠員は既に決着済みです（先着確定など）。画面を更新して最新の状態をご確認ください。');
-  }
+  transitionVacancyOrThrow_(vacancyId, 'settle', { result: result, substitute_staff_id: '' });
 
   // 募集終了を候補者へ通知（先着確定と挙動を揃える・review #8）
   var notify;
@@ -426,31 +479,37 @@ function setVacancyResult(vacancyId, result) {
 function reopenVacancy(vacancyId) {
   requireStaff_();
 
-  // result が非空（決着済み）のときだけ atomically 開き直す（compare-and-set）。
+  // result が非空（決着済み）のときだけ atomically 開き直す（reopen 遷移）。
   // 「旧確定者の控え」と「クリア」を同一ロックで行い、確定処理との競合で
   // 解除通知の宛先がずれるのを防ぐ（backlog 10-1）。旧値は current（書き込み前）から読む。
-  const res = updateRowIfGuard_(
-    SHEET.VACANCIES, 'vacancy_id', vacancyId, 'result', 'notEmpty',
-    { result: '', substitute_staff_id: '', notify_status: NOTIFY_STATUS_PENDING }
-  );
-  if (!res.ok) throw new Error('対象の欠員が見つかりません。');
-  if (!res.applied) throw new Error('この欠員はまだ未確定です（再オープン不要）。');
+  const res = transitionVacancyOrThrow_(vacancyId, 'reopen',
+    { result: '', substitute_staff_id: '', notify_status: NOTIFY_STATUS_PENDING });
 
   // 書き込み前スナップショットから「補充済で確定していた代行者」を控える（解除通知のため）
-  const prevSub = String(res.current.result).trim() === '補充済'
+  const prevSub = String(res.current.result).trim() === VACANCY_RESULT.FILLED
     ? String(res.current.substitute_staff_id || '').trim()
     : '';
 
   // 元の確定者へ解除を通知（review 3次レビュー・#8 の対称性に揃える）
-  var notify = null;
+  var released = null;
   if (prevSub) {
     try {
-      notify = notifySubstituteReleased(vacancyId, prevSub);
+      released = notifySubstituteReleased(vacancyId, prevSub);
     } catch (e) {
-      notify = { error: e.message };
+      released = { error: e.message };
     }
   }
-  return { ok: true, notify: notify };
+
+  // 候補者へ再募集を送る（backlog 10-4）。
+  // 従来は notify_status を戻すだけで再送経路が無く、全候補が「募集終了」を受信済みのまま
+  // 誰にも再依頼が届かず無人で当日を迎える恐れがあった。notifyNewVacancy を再利用する。
+  var reNotify;
+  try {
+    reNotify = notifyNewVacancy(vacancyId, true);
+  } catch (e) {
+    reNotify = { error: e.message };
+  }
+  return { ok: true, notify: { released: released, reopened: reNotify } };
 }
 
 // ─── 候補スクリーニング ──────────────────────────────────────

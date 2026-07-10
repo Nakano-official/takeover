@@ -159,7 +159,7 @@
     }
 
     function reopen(vacancyId, btn) {
-      if (!confirm('この欠員を未確定に戻します。代行者の充て直しや結果の変更ができます。よろしいですか？')) return;
+      if (!confirm('この欠員を未確定に戻し、候補者へ代行を再募集します。代行者の充て直しや結果の変更ができます。よろしいですか？')) return;
       disableAll(btn);
       google.script.run
         .withSuccessHandler(reload)
