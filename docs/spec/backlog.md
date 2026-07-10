@@ -275,7 +275,14 @@ D14で `Attendance.gs`＋`check.html` を実装した後のコードレビュー
 - **効果**：遷移の抜け漏れがクラスごと消える。将来「全員辞退で自動降格」（#5・requirements §8）や
   「休講」区分を足すときも、この一点に足すだけになる。
 
-### 11-3. 「最新クォーター」を文字列ソートではなく学期マスタで解決する ⚪
+### 11-3. 「最新クォーター」を文字列ソートではなく学期マスタで解決する ✅（D16で対応・2026-07-10）
+
+> `terms` シート（term_id/system/start_date/end_date）＋ `Terms.gs`（currentTermIds_/resolveTermSelection_）を新設し、
+> 3ファイルの `quarters.sort()` 末尾ロジックを集約。**クォーター制（先端理工・学籍番号Y）とセメスター制（他学部）の
+> 2体系が同時に走る**ことを日付でモデル化（home は「現在＝和集合」表示）。terms 未整備は従来動作へフォールバック。
+> `findCandidates_` の cross-system 二重起用（暦の重なり判定）は別パス。合成シミュレーション18ケース通過。
+
+（以下は当時の提案メモ）
 
 - **現状**：`quarters.sort()` の末尾を「現在」とみなすロジックが3ファイルに複製されている
   （`code.js` getTimetable / `Input.gs` getInputData / `Vacancy.gs` getMyCourses）。

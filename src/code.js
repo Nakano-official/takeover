@@ -252,19 +252,20 @@ function getTimetable(quarter) {
   const vacancies = readRows(SHEET.VACANCIES);
   const allCourses = readRows(SHEET.COURSES);
 
-  // クォーター一覧と既定（最新）
-  const quarters = [];
+  // 学期の選択を term マスタで解決する（11-3/D16）。
+  // home は閲覧用なので既定は「現在（開講中）」＝今日を含む学期すべての和集合
+  // （先端理工のクォーターと他学部のセメスターが同時に並ぶ）。
+  const courseTermIds = [];
   allCourses.forEach(function (c) {
     const q = String(c.quarter).trim();
-    if (q && quarters.indexOf(q) === -1) quarters.push(q);
+    if (q && courseTermIds.indexOf(q) === -1) courseTermIds.push(q);
   });
-  quarters.sort();
-  const selected = (quarter && quarters.indexOf(quarter) !== -1)
-    ? quarter
-    : (quarters.length ? quarters[quarters.length - 1] : '');
+  const sel = resolveTermSelection_(quarter, courseTermIds, true);
+  const filterSet = {};
+  sel.filterIds.forEach(function (id) { filterSet[id] = true; });
 
   const courses = allCourses
-    .filter(function (c) { return String(c.quarter).trim() === selected; })
+    .filter(function (c) { return filterSet[String(c.quarter).trim()]; })
     .map(function (c) {
       const courseId = String(c.course_id).trim();
       const related = vacancies.filter(function (v) {
@@ -317,7 +318,7 @@ function getTimetable(quarter) {
     .map(function (p) { return { period: p, time: periodTime[p] || '' }; });
 
   return {
-    quarters: quarters, quarter: selected,
+    quarters: sel.options, quarter: sel.selected,
     days: days, periods: periods, courses: courses, me: me,
   };
 }

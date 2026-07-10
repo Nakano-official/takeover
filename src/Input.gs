@@ -44,22 +44,25 @@ function getInputData(quarter) {
   periods.forEach(function (p, i) { periodIndex[p.period] = i; });
 
   const allCourses = readRows(SHEET.COURSES);
-  const quarters = [];
+  const courseTermIds = [];
   const users = [];
   allCourses.forEach(function (c) {
     const q = String(c.quarter).trim();
-    if (q && quarters.indexOf(q) === -1) quarters.push(q);
+    if (q && courseTermIds.indexOf(q) === -1) courseTermIds.push(q);
     const u = String(c.user_student || '').trim();
     if (u && users.indexOf(u) === -1) users.push(u);
   });
-  quarters.sort();
   users.sort();
-  const selected = (quarter && quarters.indexOf(quarter) !== -1)
-    ? quarter
-    : (quarters.length ? quarters[quarters.length - 1] : '');
+
+  // 学期の選択を term マスタで解決する（11-3/D16）。input は編集用なので単一学期
+  // （新規コマの割り当て先は1学期に定まるため、和集合ではなく単一で解決する）。
+  const sel = resolveTermSelection_(quarter, courseTermIds, false);
+  const selected = sel.selected;
+  const filterSet = {};
+  sel.filterIds.forEach(function (id) { filterSet[id] = true; });
 
   const courses = allCourses
-    .filter(function (c) { return String(c.quarter).trim() === selected; })
+    .filter(function (c) { return filterSet[String(c.quarter).trim()]; })
     .map(function (c) {
       return {
         course_id: String(c.course_id).trim(),
@@ -85,7 +88,7 @@ function getInputData(quarter) {
     });
 
   return {
-    quarters: quarters,
+    quarters: sel.options.map(function (o) { return o.value; }), // datalist 用（term_id の候補）
     quarter: selected,
     days: INPUT_DAYS,
     periods: periods,

@@ -17,6 +17,7 @@ const SHEET = {
   VACANCIES: 'vacancies',
   RESPONSES: 'responses',
   PERIODS: 'periods',
+  TERMS: 'terms',
   CONTACTS: 'contacts',
 };
 

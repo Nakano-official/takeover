@@ -23,20 +23,22 @@ function getMyCourses() {
   const nameById = buildNameMap_();
   const periodById = buildPeriodMap_();
 
-  // 最新クォーターに限定する（過去学期の古いコマは選択肢に出さない・review #3）。
-  // 「過去分は削除しない」方針のため、courses には旧クォーターが累積している。
+  // 現在の学期に限定する（過去学期の古いコマは選択肢に出さない・review #3）。
+  // 「過去分は削除しない」方針のため courses には旧学期が累積している。
+  // 学期は term マスタで解決する（今日を含む学期の集合・11-3/D16）。
+  // 先端理工のクォーターと他学部のセメスターが同時に走るため「現在」は集合になりうる。
   const allCourses = readRows(SHEET.COURSES);
-  const quarters = [];
+  const courseTermIds = [];
   allCourses.forEach(function (c) {
     const q = String(c.quarter).trim();
-    if (q && quarters.indexOf(q) === -1) quarters.push(q);
+    if (q && courseTermIds.indexOf(q) === -1) courseTermIds.push(q);
   });
-  quarters.sort();
-  const latest = quarters.length ? quarters[quarters.length - 1] : '';
+  const activeSet = {};
+  activeTermIds_(courseTermIds).forEach(function (id) { activeSet[id] = true; });
 
   return allCourses
     .filter(function (c) {
-      return String(c.quarter).trim() === latest && isAssigned_(c, user.staff_id);
+      return activeSet[String(c.quarter).trim()] && isAssigned_(c, user.staff_id);
     })
     .map(function (c) {
       const partnerId = String(c.staff_a_id).trim() === user.staff_id ? c.staff_b_id : c.staff_a_id;

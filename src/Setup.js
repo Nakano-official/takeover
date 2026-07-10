@@ -23,7 +23,7 @@ function setupSpreadsheetsEmpty() {
 
 // ヘッダーのみ（データ行なし）のセットアップ用データ
 function emptyData_() {
-  return { students: [], staff: [], users: [], staffs: [], courses: [], contacts: [] };
+  return { students: [], staff: [], users: [], staffs: [], courses: [], contacts: [], terms: [] };
 }
 
 // セットアップ本体（ダミー/空 共通）
@@ -72,7 +72,25 @@ function runSetup_(data, isEmpty) {
  * @return {{students:Array, staff:Array, users:Array, staffs:Array, courses:Array, contacts:Array}}
  */
 function buildDummyData_() {
-  const QUARTER = '2026-Q3';
+  // 学期マスタ（terms）。日付は「セットアップ実行時点」を基準に相対生成するため、
+  // いつ実行しても「現在（開講中）」に該当する学期ができる（デモが空にならない）。
+  // 龍谷大の2体系（先端理工=クォーター制／他学部=セメスター制）を同時に表現する（D16）。
+  const now = new Date();
+  const yr = now.getFullYear();
+  const shiftDate_ = function (days) {
+    const t = new Date(now.getTime());
+    t.setDate(t.getDate() + days);
+    return Utilities.formatDate(t, 'Asia/Tokyo', 'yyyy-MM-dd');
+  };
+  const SEM_CURRENT = yr + '-前期';       // 他学部の大半（セメスター制）
+  const QTR_CURRENT = yr + '-Q（実行期）'; // 先端理工（クォーター制）
+  const terms = [
+    { term_id: SEM_CURRENT,   system: 'semester', start_date: shiftDate_(-120), end_date: shiftDate_(60) },
+    { term_id: yr + '-後期',  system: 'semester', start_date: shiftDate_(61),   end_date: shiftDate_(240) },
+    { term_id: QTR_CURRENT,   system: 'quarter',  start_date: shiftDate_(-30),  end_date: shiftDate_(30) },
+    { term_id: yr + '-Q（次期）', system: 'quarter', start_date: shiftDate_(31), end_date: shiftDate_(90) },
+  ];
+
   const DAYS = ['月', '火', '水', '木', '金'];
   const PERIODS = ['1', '2', '3', '4'];
   const SLOTS = DAYS.length * PERIODS.length; // 20
@@ -88,6 +106,11 @@ function buildDummyData_() {
   ];
   const staff = [{ id: 'S001', name: '山田 花子' }]; // 職員
   const users = ['利用者A', '利用者B', '利用者C', '利用者D', '利用者E', '利用者F', '利用者G', '利用者H'];
+
+  // 利用者を2つの学期体系に振り分ける（デモで「現在」に両体系が並ぶことを示す）。
+  // 先頭6名＝セメスター制（前期）、末尾2名＝先端理工のクォーター制（実行期）。
+  const userTerm = {};
+  users.forEach(function (u, i) { userTerm[u] = (i < users.length - 2) ? SEM_CURRENT : QTR_CURRENT; });
 
   const SUBJECTS = ['基礎数学', '英語コミュニケーション', '情報リテラシー', '心理学概論',
     '物理学基礎', '経済学入門', '線形代数', '化学基礎', '統計学', '社会学概論',
@@ -155,7 +178,7 @@ function buildDummyData_() {
     const assigned = pickStaff(se.slotKey, need, se.support_type);
     return {
       course_id: 'C' + ('00' + (i + 1)).slice(-3),
-      quarter: QUARTER,
+      quarter: userTerm[se.user], // term_id（セメスター or クォーター・D16）
       day: se.day, period: se.period,
       support_type: se.support_type,
       user_student: se.user,
@@ -194,7 +217,7 @@ function buildDummyData_() {
     };
   });
 
-  return { students: students, staff: staff, users: users, staffs: staffs, courses: courses, contacts: contacts };
+  return { students: students, staff: staff, users: users, staffs: staffs, courses: courses, contacts: contacts, terms: terms };
 }
 
 // ヘッダー＋オブジェクト配列をシートに書き込む（列順はヘッダーに従う）
@@ -289,6 +312,38 @@ function migrateStaffsPersonalCode() {
   Logger.log('   未入力の学生は機能Bの照合で「要確認（personal_code 未登録）」になります。');
 }
 
+/**
+ * 既存のメインDBに terms（学期マスタ）シートを追加する（D16・11-3）。
+ * 無ければヘッダー付きで新規作成し、当年度のセメスター/クォーターの雛形行を入れる（冪等）。
+ * GASエディタから1回実行。日付列はテキスト固定。実際の開始/終了日は学事暦に合わせて職員が調整する。
+ * ※ terms が空/未作成でも画面は従来どおり courses 由来の学期で動く（後方互換）。
+ */
+function migrateAddTermsSheet() {
+  const ss = openMainDb_();
+  if (ss.getSheetByName('terms')) {
+    Logger.log('✅ terms シートは既に存在します（作成なし）。');
+    return;
+  }
+  const sheet = ss.insertSheet('terms');
+  const HEADERS = ['term_id', 'system', 'start_date', 'end_date'];
+  const yr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy');
+  const template = [
+    [yr + '-前期', 'semester', yr + '-04-01', yr + '-09-20'],
+    [yr + '-後期', 'semester', yr + '-09-21', (Number(yr) + 1) + '-03-31'],
+    [yr + '-Q1', 'quarter', yr + '-04-01', yr + '-06-05'],
+    [yr + '-Q2', 'quarter', yr + '-06-06', yr + '-08-05'],
+    [yr + '-Q3', 'quarter', yr + '-09-21', yr + '-11-25'],
+    [yr + '-Q4', 'quarter', yr + '-11-26', (Number(yr) + 1) + '-02-10'],
+  ];
+  sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
+  sheet.getRange(2, 3, template.length, 2).setNumberFormat('@'); // 日付列はテキスト固定
+  sheet.getRange(2, 1, template.length, HEADERS.length).setValues(template);
+  applyHeaderStyle_([sheet], '#4a86e8');
+  Logger.log('✅ terms シートを作成し、' + yr + '年度の雛形（前期/後期＋Q1〜Q4）を入れました。');
+  Logger.log('   先端理工=クォーター制／他学部=セメスター制。実際の開始/終了日は学事暦に合わせて調整してください。');
+  Logger.log('   courses.quarter には該当する term_id（例 ' + yr + '-前期 / ' + yr + '-Q2）を入れます。');
+}
+
 // ─── メインDB ────────────────────────────────────────────────
 
 function setupMainDb_(ss, data) {
@@ -328,6 +383,14 @@ function setupMainDb_(ss, data) {
     ['vacancy_id', 'staff_id', 'answer', 'answered_at'],
   ]);
 
+  // terms（学期マスタ）。term_id・system（quarter/semester）・開始/終了日で「現在の学期」を解決する（D16）。
+  // 先端理工=クォーター制／他学部=セメスター制の2体系が同時に走るための真実の源。
+  const termsSheet = ss.insertSheet('terms');
+  const TERM_HEADERS = ['term_id', 'system', 'start_date', 'end_date'];
+  // start_date/end_date（C・D列）は日付の型ゆれを避け 'yyyy-MM-dd' 文字列で扱うためテキスト固定
+  termsSheet.getRange(2, 3, Math.max((data.terms || []).length, 1), 2).setNumberFormat('@');
+  writeTable_(termsSheet, TERM_HEADERS, data.terms || []);
+
   const periodsSheet = ss.insertSheet('periods');
   periodsSheet.getRange(1, 1, 1, 3).setValues([['period', 'start_time', 'end_time']]);
   // period（数値型化を防ぐ）・start_time/end_time（時刻型化を防ぐ）を全てテキスト固定
@@ -343,7 +406,7 @@ function setupMainDb_(ss, data) {
   ]);
 
   applyHeaderStyle_(
-    [staffsSheet, coursesSheet, vacanciesSheet, responsesSheet, periodsSheet],
+    [staffsSheet, coursesSheet, vacanciesSheet, responsesSheet, termsSheet, periodsSheet],
     '#4a86e8'
   );
 }
