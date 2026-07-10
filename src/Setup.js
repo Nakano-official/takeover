@@ -82,13 +82,18 @@ function buildDummyData_() {
     t.setDate(t.getDate() + days);
     return Utilities.formatDate(t, 'Asia/Tokyo', 'yyyy-MM-dd');
   };
-  const SEM_CURRENT = yr + '-前期';       // 他学部の大半（セメスター制）
-  const QTR_CURRENT = yr + '-Q（実行期）'; // 先端理工（クォーター制）
+  // 前期（セメスター）が Q1・Q2 を暦で内包する入れ子（前期⊇Q1+Q2）。
+  // 実行時点を基準に：前期=現在／Q1=前期の前半（終了済み）／Q2=前期の後半（現在）とする。
+  // → home で「2Q」を選んでも前期のセメスター科目が残り、「前期」を選ぶと Q1+Q2 もまとまって出る。
+  const SEM_SPRING = yr + '-前期';  // 他学部の大半（セメスター制・現在）
+  const Q1 = yr + '-Q1';            // 先端理工 1Q（前期前半・終了済み）
+  const Q2 = yr + '-Q2';            // 先端理工 2Q（前期後半・現在）
   const terms = [
-    { term_id: SEM_CURRENT,   system: 'semester', start_date: shiftDate_(-120), end_date: shiftDate_(60) },
-    { term_id: yr + '-後期',  system: 'semester', start_date: shiftDate_(61),   end_date: shiftDate_(240) },
-    { term_id: QTR_CURRENT,   system: 'quarter',  start_date: shiftDate_(-30),  end_date: shiftDate_(30) },
-    { term_id: yr + '-Q（次期）', system: 'quarter', start_date: shiftDate_(31), end_date: shiftDate_(90) },
+    { term_id: SEM_SPRING,   system: 'semester', start_date: shiftDate_(-120), end_date: shiftDate_(60) },
+    { term_id: yr + '-後期', system: 'semester', start_date: shiftDate_(61),   end_date: shiftDate_(240) },
+    { term_id: Q1,           system: 'quarter',  start_date: shiftDate_(-120), end_date: shiftDate_(-31) },
+    { term_id: Q2,           system: 'quarter',  start_date: shiftDate_(-30),  end_date: shiftDate_(59) },
+    { term_id: yr + '-Q3',   system: 'quarter',  start_date: shiftDate_(61),   end_date: shiftDate_(150) },
   ];
 
   const DAYS = ['月', '火', '水', '木', '金'];
@@ -107,10 +112,13 @@ function buildDummyData_() {
   const staff = [{ id: 'S001', name: '山田 花子' }]; // 職員
   const users = ['利用者A', '利用者B', '利用者C', '利用者D', '利用者E', '利用者F', '利用者G', '利用者H'];
 
-  // 利用者を2つの学期体系に振り分ける（デモで「現在」に両体系が並ぶことを示す）。
-  // 先頭6名＝セメスター制（前期）、末尾2名＝先端理工のクォーター制（実行期）。
+  // 利用者を学期体系に振り分ける（デモで両体系＋クォーター切替が見えるように）。
+  // 先頭6名＝セメスター制（前期）、末尾2名＝先端理工のクォーター制（1名 1Q・1名 2Q）。
   const userTerm = {};
-  users.forEach(function (u, i) { userTerm[u] = (i < users.length - 2) ? SEM_CURRENT : QTR_CURRENT; });
+  users.forEach(function (u, i) {
+    userTerm[u] = (i < users.length - 2) ? SEM_SPRING
+      : (i === users.length - 2 ? Q1 : Q2);
+  });
 
   const SUBJECTS = ['基礎数学', '英語コミュニケーション', '情報リテラシー', '心理学概論',
     '物理学基礎', '経済学入門', '線形代数', '化学基礎', '統計学', '社会学概論',

@@ -77,21 +77,42 @@ function activeTermIds_(courseTermIds) {
 }
 
 /**
- * 画面の学期セレクタを解決する。
- * @param {string}  requested      選択された term_id（falsy=既定）
- * @param {Array}   courseTermIds  courses に実在する term の配列（terms 未整備時の fallback 用）
- * @param {boolean} union          true=「現在（開講中）」の和集合を既定にする（home の閲覧用）。
- *                                 false=単一学期（input の編集用。和集合は割り当て先として不適）。
- * @return {{options:Array<{value,label}>, selected:string, filterIds:Array<string>}}
- *   options   : ドロップダウン用（union 時は先頭に {value:'', label:'現在（開講中）'}）
- *   selected  : 既定の選択値（union の現在は '' の番兵）
- *   filterIds : courses を絞り込む term_id 集合
+ * 指定 term と期間が重なる term_id をすべて返す（D16）。
+ * 例：Q2 を渡すと、Q2 を暦で内包する「前期」も返る（＝前期のセメスター科目が消えない）。
+ * 前期 を渡すと、内包する Q1・Q2 も返る（春の全体）。日付が欠けている term は自分のみ。
  */
-function resolveTermSelection_(requested, courseTermIds, union) {
+function overlappingTermIds_(termId, terms) {
+  terms = terms || readTerms_();
+  var target = null;
+  for (var i = 0; i < terms.length; i++) {
+    if (terms[i].term_id === termId) { target = terms[i]; break; }
+  }
+  if (!target || !target.start_date || !target.end_date) return [termId];
+  return terms
+    .filter(function (t) {
+      if (!t.start_date || !t.end_date) return t.term_id === termId;
+      // 期間が重なる： t.start <= target.end && target.start <= t.end
+      return t.start_date <= target.end_date && target.start_date <= t.end_date;
+    })
+    .map(function (t) { return t.term_id; });
+}
+
+/**
+ * 画面の学期セレクタを解決する。
+ * @param {string} requested      選択された term_id（falsy=既定）
+ * @param {Array}  courseTermIds  courses に実在する term の配列（terms 未整備時の fallback 用）
+ * @param {string} mode           'view'（home 閲覧）／'edit'（input 編集）
+ *   - view : 既定＝「現在（開講中）」。特定学期を選ぶと**期間が重なる学期も含める**
+ *            （2Q を選んでも並行する前期のセメスター科目が残る・ユーザー要望）。先頭に番兵 '' を置く。
+ *   - edit : 単一学期・完全一致（新規コマの割り当て先／編集対象を混ぜないため）。
+ * @return {{options:Array<{value,label}>, selected:string, filterIds:Array<string>}}
+ */
+function resolveTermSelection_(requested, courseTermIds, mode) {
+  const view = (mode === 'view');
   const terms = readTerms_();
   requested = String(requested || '').trim();
 
-  // 後方互換：terms 未整備なら courses 由来・辞書順末尾を現在とみなす（従来動作）。
+  // 後方互換：terms 未整備なら courses 由来・辞書順末尾を現在とみなす（従来動作・完全一致）。
   if (terms.length === 0) {
     const ids = (courseTermIds || []).slice().sort();
     const latest = ids.length ? ids[ids.length - 1] : '';
@@ -106,20 +127,22 @@ function resolveTermSelection_(requested, courseTermIds, union) {
   const allIdsDesc = termIdsByRecency_(terms);
   const valid = {};
   allIdsDesc.forEach(function (id) { valid[id] = true; });
-  var options = allIdsDesc.map(function (id) { return { value: id, label: id }; });
   var selected, filterIds;
 
   if (requested && valid[requested]) {
     selected = requested;
-    filterIds = [requested];
-  } else if (union) {
-    // 「現在（開講中）」= 今日を含む学期すべて。無ければ最新1つ（空表示回避）。
+    // view：選んだ学期と期間が重なる学期も含める（セメスター科目を残す）。edit：その学期のみ。
+    filterIds = view ? overlappingTermIds_(requested, terms) : [requested];
+  } else if (view) {
+    // 既定＝「現在（開講中）」＝今日を含む学期すべて（前期＋現在Qが並ぶ）。
+    // 無ければ最新1つ＋その重なり（空表示回避＆セメスター保持）。
     const cur = currentTermIds_(terms);
     selected = '';
-    filterIds = cur.length ? cur : (allIdsDesc.length ? [allIdsDesc[0]] : []);
-    options = [{ value: '', label: '現在（開講中）' }].concat(options);
+    filterIds = cur.length
+      ? cur
+      : (allIdsDesc.length ? overlappingTermIds_(allIdsDesc[0], terms) : []);
   } else {
-    // 単一（input）：現在のうち最も新しく始まったもの、無ければ最新。
+    // edit 既定：現在のうち最も新しく始まったもの、無ければ最新（完全一致）。
     const cur = currentTermIds_(terms);
     if (cur.length) {
       selected = allIdsDesc.filter(function (id) { return cur.indexOf(id) !== -1; })[0] || cur[0];
@@ -129,5 +152,7 @@ function resolveTermSelection_(requested, courseTermIds, union) {
     filterIds = selected ? [selected] : [];
   }
 
+  var options = allIdsDesc.map(function (id) { return { value: id, label: id }; });
+  if (view) options = [{ value: '', label: '現在（開講中）' }].concat(options);
   return { options: options, selected: selected, filterIds: filterIds };
 }

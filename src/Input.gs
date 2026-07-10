@@ -56,7 +56,7 @@ function getInputData(quarter) {
 
   // 学期の選択を term マスタで解決する（11-3/D16）。input は編集用なので単一学期
   // （新規コマの割り当て先は1学期に定まるため、和集合ではなく単一で解決する）。
-  const sel = resolveTermSelection_(quarter, courseTermIds, false);
+  const sel = resolveTermSelection_(quarter, courseTermIds, 'edit');
   const selected = sel.selected;
   const filterSet = {};
   sel.filterIds.forEach(function (id) { filterSet[id] = true; });

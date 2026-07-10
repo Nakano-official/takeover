@@ -260,7 +260,7 @@ function getTimetable(quarter) {
     const q = String(c.quarter).trim();
     if (q && courseTermIds.indexOf(q) === -1) courseTermIds.push(q);
   });
-  const sel = resolveTermSelection_(quarter, courseTermIds, true);
+  const sel = resolveTermSelection_(quarter, courseTermIds, 'view');
   const filterSet = {};
   sel.filterIds.forEach(function (id) { filterSet[id] = true; });
 
