@@ -369,6 +369,49 @@ function migrateAddTermsSheet() {
   Logger.log('   courses.quarter には該当する term_id（例 前期 / 2Q）を入れます。');
 }
 
+/**
+ * 既存データの学期IDを新表記（1Q〜4Q）に一括リネームする（D16・表記統一）。
+ * 旧ダミーの「Q（実行期）/Q（次期）」や旧「Q1〜Q4」形式を「1Q〜4Q」に揃える。
+ * terms シートの term_id 列と courses の quarter 列を**同時に**書き換えるので参照は壊れない。
+ * 冪等（新表記は再変換されない）。GASエディタから1回実行する。
+ */
+function migrateTermNotation() {
+  const ss = openMainDb_();
+
+  // 1つの term_id を新表記へ。旧ダミー固有ラベル → 現在/次クォーター、Q数字 → 数字Q。
+  const renameId_ = function (id) {
+    var s = String(id == null ? '' : id);
+    s = s.split('Q（実行期）').join('2Q'); // 旧ダミーの現在クォーター
+    s = s.split('Q（次期）').join('3Q');   // 旧ダミーの次クォーター
+    s = s.replace(/Q([1-4])/g, '$1Q');     // 2026-Q1 → 2026-1Q など（新表記は不変＝冪等）
+    return s;
+  };
+
+  const fixColumn_ = function (sheetName, colName) {
+    const sheet = ss.getSheetByName(sheetName);
+    if (!sheet) return 0;
+    const values = sheet.getDataRange().getValues();
+    if (values.length < 2) return 0;
+    const headers = values[0].map(function (h) { return String(h).trim(); });
+    const ci = headers.indexOf(colName);
+    if (ci === -1) return 0;
+    var n = 0;
+    for (var r = 1; r < values.length; r++) {
+      const cur = String(values[r][ci]);
+      if (!cur) continue;
+      const nv = renameId_(cur);
+      if (nv !== cur) { sheet.getRange(r + 1, ci + 1).setValue(nv); n++; }
+    }
+    return n;
+  };
+
+  const a = fixColumn_('terms', 'term_id');
+  const b = fixColumn_('courses', 'quarter');
+  Logger.log('✅ 学期表記を統一しました：terms.term_id ' + a + ' 件 / courses.quarter ' + b + ' 件を変更。');
+  Logger.log('   例：2026-Q（実行期）→ 2026-2Q ／ 2026-Q1 → 2026-1Q（前期/後期はそのまま）。');
+  if (a + b === 0) Logger.log('   変更対象はありませんでした（既に新表記です）。');
+}
+
 // ─── メインDB ────────────────────────────────────────────────
 
 function setupMainDb_(ss, data) {
