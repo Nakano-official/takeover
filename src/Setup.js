@@ -61,7 +61,7 @@ function runSetup_(data, isEmpty) {
     Logger.log('  - staffs   : staff_id / name / role=職員 /（skills・available_slots は空でOK）');
     Logger.log('  - contacts : 同じ staff_id / name / email=自分の大学アドレス');
     Logger.log('  その後、フォーム取り込みやシフト入力画面で学生・コマを投入します（docs/guides/operations.md）。');
-    Logger.log('  ★ terms（学期マスタ）に当年度の雛形（前期/後期＋Q1〜Q4）を入れました。');
+    Logger.log('  ★ terms（学期マスタ）に当年度の雛形（前期/後期＋1Q〜4Q）を入れました。');
     Logger.log('    開始/終了日を実際の学事暦に合わせて調整してください（体系判定・現在学期の解決に使います）。');
   } else {
     Logger.log('★ テストで自分が職員としてログインするには、連絡先DB contacts の S001 の email を');
@@ -89,18 +89,18 @@ function buildDummyData_() {
     t.setDate(t.getDate() + days);
     return Utilities.formatDate(t, 'Asia/Tokyo', 'yyyy-MM-dd');
   };
-  // 前期（セメスター）が Q1・Q2 を暦で内包する入れ子（前期⊇Q1+Q2）。
-  // 実行時点を基準に：前期=現在／Q1=前期の前半（終了済み）／Q2=前期の後半（現在）とする。
-  // → home で「2Q」を選んでも前期のセメスター科目が残り、「前期」を選ぶと Q1+Q2 もまとまって出る。
+  // 前期（セメスター）が 1Q・2Q を暦で内包する入れ子（前期⊇1Q+2Q）。
+  // 実行時点を基準に：前期=現在／1Q=前期の前半（終了済み）／2Q=前期の後半（現在）とする。
+  // → home で「2Q」を選んでも前期のセメスター科目が残り、「前期」を選ぶと 1Q+2Q もまとまって出る。
   const SEM_SPRING = yr + '-前期';  // 他学部の大半（セメスター制・現在）
-  const Q1 = yr + '-Q1';            // 先端理工 1Q（前期前半・終了済み）
-  const Q2 = yr + '-Q2';            // 先端理工 2Q（前期後半・現在）
+  const Q1 = yr + '-1Q';            // 先端理工 1Q（前期前半・終了済み）
+  const Q2 = yr + '-2Q';            // 先端理工 2Q（前期後半・現在）
   const terms = [
     { term_id: SEM_SPRING,   system: 'semester', start_date: shiftDate_(-120), end_date: shiftDate_(60) },
     { term_id: yr + '-後期', system: 'semester', start_date: shiftDate_(61),   end_date: shiftDate_(240) },
     { term_id: Q1,           system: 'quarter',  start_date: shiftDate_(-120), end_date: shiftDate_(-31) },
     { term_id: Q2,           system: 'quarter',  start_date: shiftDate_(-30),  end_date: shiftDate_(59) },
-    { term_id: yr + '-Q3',   system: 'quarter',  start_date: shiftDate_(61),   end_date: shiftDate_(150) },
+    { term_id: yr + '-3Q',   system: 'quarter',  start_date: shiftDate_(61),   end_date: shiftDate_(150) },
   ];
 
   const DAYS = ['月', '火', '水', '木', '金'];
@@ -328,7 +328,7 @@ function migrateStaffsPersonalCode() {
 }
 
 /**
- * 当年度の学期マスタ雛形（前期/後期＋Q1〜Q4）を返す（D16）。
+ * 当年度の学期マスタ雛形（前期/後期＋1Q〜4Q）を返す（D16）。
  * 本番の空セットアップ・マイグレーションで共用。日付は学事暦に合わせて職員が調整する前提の目安値。
  * @return {Array<{term_id,system,start_date,end_date}>}
  */
@@ -338,10 +338,10 @@ function currentYearTermsTemplate_() {
   return [
     { term_id: yr + '-前期', system: 'semester', start_date: yr + '-04-01', end_date: yr + '-09-20' },
     { term_id: yr + '-後期', system: 'semester', start_date: yr + '-09-21', end_date: ny + '-03-31' },
-    { term_id: yr + '-Q1', system: 'quarter', start_date: yr + '-04-01', end_date: yr + '-06-05' },
-    { term_id: yr + '-Q2', system: 'quarter', start_date: yr + '-06-06', end_date: yr + '-08-05' },
-    { term_id: yr + '-Q3', system: 'quarter', start_date: yr + '-09-21', end_date: yr + '-11-25' },
-    { term_id: yr + '-Q4', system: 'quarter', start_date: yr + '-11-26', end_date: ny + '-02-10' },
+    { term_id: yr + '-1Q', system: 'quarter', start_date: yr + '-04-01', end_date: yr + '-06-05' },
+    { term_id: yr + '-2Q', system: 'quarter', start_date: yr + '-06-06', end_date: yr + '-08-05' },
+    { term_id: yr + '-3Q', system: 'quarter', start_date: yr + '-09-21', end_date: yr + '-11-25' },
+    { term_id: yr + '-4Q', system: 'quarter', start_date: yr + '-11-26', end_date: ny + '-02-10' },
   ];
 }
 
@@ -364,9 +364,9 @@ function migrateAddTermsSheet() {
   sheet.getRange(2, 3, template.length, 2).setNumberFormat('@'); // 日付列はテキスト固定
   writeTable_(sheet, HEADERS, template);
   applyHeaderStyle_([sheet], '#4a86e8');
-  Logger.log('✅ terms シートを作成し、当年度の雛形（前期/後期＋Q1〜Q4）を入れました。');
+  Logger.log('✅ terms シートを作成し、当年度の雛形（前期/後期＋1Q〜4Q）を入れました。');
   Logger.log('   先端理工=クォーター制／他学部=セメスター制。実際の開始/終了日は学事暦に合わせて調整してください。');
-  Logger.log('   courses.quarter には該当する term_id（例 前期 / Q2）を入れます。');
+  Logger.log('   courses.quarter には該当する term_id（例 前期 / 2Q）を入れます。');
 }
 
 // ─── メインDB ────────────────────────────────────────────────

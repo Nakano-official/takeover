@@ -286,7 +286,7 @@ function getTimetable(quarter) {
       const term = String(c.quarter).trim();
       return {
         course_id: courseId,
-        term: term,                          // 学期ID（例：2026-Q2 / 2026-前期）
+        term: term,                          // 学期ID（例：2026-2Q / 2026-前期）
         system: sysMap[term] || '',          // quarter / semester（詳細表示用）
         day: String(c.day).trim(),
         period: String(c.period).trim(),
