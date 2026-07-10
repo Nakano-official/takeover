@@ -39,6 +39,20 @@ function todayJst_() {
   return Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
 }
 
+// term_id → system（'quarter'/'semester'）のマップ
+function termSystemMap_(terms) {
+  terms = terms || readTerms_();
+  const m = {};
+  terms.forEach(function (t) { m[t.term_id] = t.system; });
+  return m;
+}
+
+// system コードの日本語ラベル（画面表示用）。未知は空文字。
+function systemLabel_(system) {
+  return system === 'quarter' ? 'クォーター'
+    : system === 'semester' ? 'セメスター' : '';
+}
+
 // 今日を含む学期の term_id 配列（通常はセメスター1つ＋クォーター1つの集合）。
 function currentTermIds_(terms) {
   terms = terms || readTerms_();

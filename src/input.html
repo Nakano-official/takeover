@@ -83,10 +83,9 @@
   <main>
     <div class="card">
       <div class="qbar">
-        <label for="quarter">クォーター</label>
-        <input id="quarter" list="qlist" style="max-width:200px" onchange="onQuarterChange()">
-        <datalist id="qlist"></datalist>
-        <span class="hint" style="margin:0">このクォーターのコマを編集します（新規も可）</span>
+        <label for="quarter">学期</label>
+        <select id="quarter" style="max-width:280px" onchange="onQuarterChange()"></select>
+        <span class="hint" style="margin:0">クォーター／セメスターを選んでこの学期のコマを編集します（新規も可）</span>
       </div>
     </div>
 
@@ -124,12 +123,25 @@
         .getInputData(quarter || null);
     }
 
+    // 学期セレクタを DATA.terms（体系ラベル付き）で埋め、選択値を合わせる。
+    function fillTermSelect() {
+      var sel = document.getElementById('quarter');
+      var terms = DATA.terms || [];
+      if (!terms.length) {
+        sel.innerHTML = '<option value="">（学期マスタ未設定）</option>';
+        return;
+      }
+      sel.innerHTML = terms.map(function (t) {
+        return '<option value="' + escapeHtml(t.value) + '">' + escapeHtml(t.label) + '</option>';
+      }).join('');
+      // 現在値（無ければ先頭）を選択
+      var want = DATA.quarter || terms[0].value;
+      sel.value = terms.some(function (t) { return t.value === want; }) ? want : terms[0].value;
+    }
+
     function onData(data) {
       DATA = data;
-      // クォーター候補
-      document.getElementById('qlist').innerHTML =
-        data.quarters.map(function (q) { return '<option value="' + escapeHtml(q) + '">'; }).join('');
-      document.getElementById('quarter').value = data.quarter || '';
+      fillTermSelect();
       buildForm();
       renderList();
     }
@@ -261,7 +273,7 @@
         staff_b_id: document.getElementById('staff_b_id').disabled ? '' : val('staff_b_id'),
         note: val('note').trim(),
       };
-      if (!payload.quarter) { showToast('クォーターを入力してください。', false); return; }
+      if (!payload.quarter) { showToast('学期を選択してください。', false); return; }
       if (!payload.user_student) { showToast('利用者を入力してください。', false); return; }
 
       if (EDIT_ID) { runUpdate(payload); } else { runAdd(payload); }
@@ -373,8 +385,7 @@
       google.script.run
         .withSuccessHandler(function (data) {
           DATA = data;
-          document.getElementById('qlist').innerHTML =
-            data.quarters.map(function (q) { return '<option value="' + escapeHtml(q) + '">'; }).join('');
+          fillTermSelect();
           // 新しい利用者が増えている場合に備えてプルダウンを更新（選択はリセット）
           fillUserOptions();
           rebuildStaff();
@@ -399,7 +410,7 @@
       var host = document.getElementById('list');
       var countEl = document.getElementById('count');
       var courses = DATA.courses;
-      countEl.textContent = 'このクォーターのコマ: ' + courses.length + ' 件';
+      countEl.textContent = 'この学期のコマ: ' + courses.length + ' 件';
       if (courses.length === 0) {
         host.className = 'state';
         host.textContent = 'まだコマがありません。上のフォームから追加してください。';

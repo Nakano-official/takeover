@@ -263,6 +263,7 @@ function getTimetable(quarter) {
   const sel = resolveTermSelection_(quarter, courseTermIds, 'view');
   const filterSet = {};
   sel.filterIds.forEach(function (id) { filterSet[id] = true; });
+  const sysMap = termSystemMap_(); // term_id → system（詳細表示で体系を出すため）
 
   const courses = allCourses
     .filter(function (c) { return filterSet[String(c.quarter).trim()]; })
@@ -282,8 +283,11 @@ function getTimetable(quarter) {
         const subId = String(latest.substitute_staff_id || '').trim();
         if (subId) substitute = nameById[subId] || subId;
       }
+      const term = String(c.quarter).trim();
       return {
         course_id: courseId,
+        term: term,                          // 学期ID（例：2026-Q2 / 2026-前期）
+        system: sysMap[term] || '',          // quarter / semester（詳細表示用）
         day: String(c.day).trim(),
         period: String(c.period).trim(),
         support_type: String(c.support_type || '').trim(),

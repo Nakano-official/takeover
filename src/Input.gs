@@ -61,6 +61,18 @@ function getInputData(quarter) {
   const filterSet = {};
   sel.filterIds.forEach(function (id) { filterSet[id] = true; });
 
+  // 学期セレクタ用に「体系（クォーター/セメスター）」ラベル付きの選択肢を作る。
+  // これで職員はコマ登録時に「クォーター授業／セメスター授業」を選べる（term_id が体系を担う・D16）。
+  const sysMap = termSystemMap_();
+  const termOptions = sel.options.map(function (o) {
+    const sysLabel = systemLabel_(sysMap[o.value] || '');
+    return {
+      value: o.value,
+      label: o.value + (sysLabel ? '（' + sysLabel + '）' : ''),
+      system: sysMap[o.value] || '',
+    };
+  });
+
   const courses = allCourses
     .filter(function (c) { return filterSet[String(c.quarter).trim()]; })
     .map(function (c) {
@@ -88,7 +100,7 @@ function getInputData(quarter) {
     });
 
   return {
-    quarters: sel.options.map(function (o) { return o.value; }), // datalist 用（term_id の候補）
+    terms: termOptions,       // 学期セレクタ用（体系ラベル付き・{value,label,system}）
     quarter: selected,
     days: INPUT_DAYS,
     periods: periods,

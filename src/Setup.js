@@ -23,7 +23,12 @@ function setupSpreadsheetsEmpty() {
 
 // ヘッダーのみ（データ行なし）のセットアップ用データ
 function emptyData_() {
-  return { students: [], staff: [], users: [], staffs: [], courses: [], contacts: [], terms: [] };
+  // terms（学期マスタ）は periods と同じく運用の土台なので、本番の空セットアップでも
+  // 当年度の雛形を入れる（職員が学事暦に合わせて日付調整）。これで入力画面の学期選択が即使える（D16）。
+  return {
+    students: [], staff: [], users: [], staffs: [], courses: [], contacts: [],
+    terms: currentYearTermsTemplate_(),
+  };
 }
 
 // セットアップ本体（ダミー/空 共通）
@@ -56,6 +61,8 @@ function runSetup_(data, isEmpty) {
     Logger.log('  - staffs   : staff_id / name / role=職員 /（skills・available_slots は空でOK）');
     Logger.log('  - contacts : 同じ staff_id / name / email=自分の大学アドレス');
     Logger.log('  その後、フォーム取り込みやシフト入力画面で学生・コマを投入します（docs/guides/operations.md）。');
+    Logger.log('  ★ terms（学期マスタ）に当年度の雛形（前期/後期＋Q1〜Q4）を入れました。');
+    Logger.log('    開始/終了日を実際の学事暦に合わせて調整してください（体系判定・現在学期の解決に使います）。');
   } else {
     Logger.log('★ テストで自分が職員としてログインするには、連絡先DB contacts の S001 の email を');
     Logger.log('  自分のアドレスに書き換えてください（それで「職員」として全画面が見えます）。');
@@ -321,6 +328,24 @@ function migrateStaffsPersonalCode() {
 }
 
 /**
+ * 当年度の学期マスタ雛形（前期/後期＋Q1〜Q4）を返す（D16）。
+ * 本番の空セットアップ・マイグレーションで共用。日付は学事暦に合わせて職員が調整する前提の目安値。
+ * @return {Array<{term_id,system,start_date,end_date}>}
+ */
+function currentYearTermsTemplate_() {
+  const yr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy');
+  const ny = String(Number(yr) + 1);
+  return [
+    { term_id: yr + '-前期', system: 'semester', start_date: yr + '-04-01', end_date: yr + '-09-20' },
+    { term_id: yr + '-後期', system: 'semester', start_date: yr + '-09-21', end_date: ny + '-03-31' },
+    { term_id: yr + '-Q1', system: 'quarter', start_date: yr + '-04-01', end_date: yr + '-06-05' },
+    { term_id: yr + '-Q2', system: 'quarter', start_date: yr + '-06-06', end_date: yr + '-08-05' },
+    { term_id: yr + '-Q3', system: 'quarter', start_date: yr + '-09-21', end_date: yr + '-11-25' },
+    { term_id: yr + '-Q4', system: 'quarter', start_date: yr + '-11-26', end_date: ny + '-02-10' },
+  ];
+}
+
+/**
  * 既存のメインDBに terms（学期マスタ）シートを追加する（D16・11-3）。
  * 無ければヘッダー付きで新規作成し、当年度のセメスター/クォーターの雛形行を入れる（冪等）。
  * GASエディタから1回実行。日付列はテキスト固定。実際の開始/終了日は学事暦に合わせて職員が調整する。
@@ -334,22 +359,14 @@ function migrateAddTermsSheet() {
   }
   const sheet = ss.insertSheet('terms');
   const HEADERS = ['term_id', 'system', 'start_date', 'end_date'];
-  const yr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy');
-  const template = [
-    [yr + '-前期', 'semester', yr + '-04-01', yr + '-09-20'],
-    [yr + '-後期', 'semester', yr + '-09-21', (Number(yr) + 1) + '-03-31'],
-    [yr + '-Q1', 'quarter', yr + '-04-01', yr + '-06-05'],
-    [yr + '-Q2', 'quarter', yr + '-06-06', yr + '-08-05'],
-    [yr + '-Q3', 'quarter', yr + '-09-21', yr + '-11-25'],
-    [yr + '-Q4', 'quarter', yr + '-11-26', (Number(yr) + 1) + '-02-10'],
-  ];
+  const template = currentYearTermsTemplate_();
   sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
   sheet.getRange(2, 3, template.length, 2).setNumberFormat('@'); // 日付列はテキスト固定
-  sheet.getRange(2, 1, template.length, HEADERS.length).setValues(template);
+  writeTable_(sheet, HEADERS, template);
   applyHeaderStyle_([sheet], '#4a86e8');
-  Logger.log('✅ terms シートを作成し、' + yr + '年度の雛形（前期/後期＋Q1〜Q4）を入れました。');
+  Logger.log('✅ terms シートを作成し、当年度の雛形（前期/後期＋Q1〜Q4）を入れました。');
   Logger.log('   先端理工=クォーター制／他学部=セメスター制。実際の開始/終了日は学事暦に合わせて調整してください。');
-  Logger.log('   courses.quarter には該当する term_id（例 ' + yr + '-前期 / ' + yr + '-Q2）を入れます。');
+  Logger.log('   courses.quarter には該当する term_id（例 前期 / Q2）を入れます。');
 }
 
 // ─── メインDB ────────────────────────────────────────────────
