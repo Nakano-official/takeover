@@ -63,10 +63,11 @@ function getStaffWebhook_(staffId) {
  * 候補者には回答画面（respond）への個別リンクを添える。
  * 送信後 vacancies.notify_status を更新する。
  *
- * @param  {string} vacancyId
+ * @param  {string}  vacancyId
+ * @param  {boolean} [reopened]  再オープンによる再募集なら true（文言に「再募集」を付す・backlog 10-4）
  * @return {{staff:boolean, candidates:Array, errors:Array, notify_status:string}}
  */
-function notifyNewVacancy(vacancyId) {
+function notifyNewVacancy(vacancyId, reopened) {
   const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
   if (!vacancy) throw new Error('対象の欠員が見つかりません。');
   const course = findRow(SHEET.COURSES, 'course_id', vacancy.course_id);
@@ -82,10 +83,11 @@ function notifyNewVacancy(vacancyId) {
   const respondUrl = getAppUrl_() + '?page=respond&vacancy=' + encodeURIComponent(vacancyId);
 
   const result = { staff: false, candidates: [], errors: [] };
+  const tag = reopened ? '（再募集）' : '';
 
   // 1) 職員スペースへ通知
   const staffMsg =
-    '🚨 *欠員が発生しました*\n' +
+    '🚨 *欠員が発生しました' + tag + '*\n' +
     '日付: ' + dateText + '\n' +
     'コマ: ' + slot + (timeText ? '（' + timeText + '）' : '') + '\n' +
     '欠勤: ' + absentName + '\n' +
@@ -110,7 +112,7 @@ function notifyNewVacancy(vacancyId) {
     }
     const msg =
       cand.name + ' さん\n' +
-      '代行のお願いです。下記コマで欠員が出ました。\n' +
+      '代行のお願いです' + tag + '。下記コマで欠員が出ました。\n' +
       '日付: ' + dateText + '\n' +
       'コマ: ' + slot + (timeText ? '（' + timeText + '）' : '') + '\n' +
       '対応可能か、こちらから回答してください:\n' + respondUrl;

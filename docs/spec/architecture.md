@@ -117,7 +117,7 @@ flowchart LR
 
 ### データ構造（ER図）
 
-`courses` を中心に、利用者中心の時間割（D8）と欠員補充（vacancies/responses）が
+`courses` を中心に、利用学生中心の時間割（D8）と欠員補充（vacancies/responses）が
 `staff_id` / `course_id` / `vacancy_id` で結びつく。`contacts` のみ別ブック（連絡先DB）。
 
 ```mermaid
@@ -143,7 +143,7 @@ erDiagram
         string day
         string period FK
         string support_type "テイク / 介助"
-        string user_student "利用者(被支援者)"
+        string user_student "利用学生(被支援者)"
         string subject
         string instructor
         string room

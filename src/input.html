@@ -54,9 +54,15 @@
     .row .tag.help { background: #d98a00; }
     .row .sub { color: #555; }
     .row .stf { color: #1e7a3d; }
-    .del { flex: 0 0 auto; border: 1px solid #e3b4ae; background: #fff; color: #c0392b;
+    .ops { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; }
+    .ed { border: 1px solid #b9c9ea; background: #fff; color: #2a63c0;
+          border-radius: 6px; padding: 6px 12px; font-size: .82rem; cursor: pointer; }
+    .ed:hover { background: #eef4ff; }
+    .del { border: 1px solid #e3b4ae; background: #fff; color: #c0392b;
            border-radius: 6px; padding: 6px 12px; font-size: .82rem; cursor: pointer; }
     .del:hover { background: #fdf1f0; }
+    .btn.cancel { background: #888; margin-top: 8px; }
+    .row.editing { background: #fff8e6; border-radius: 6px; }
     .state { padding: 18px; text-align: center; color: #888; }
   </style>
 </head>
@@ -72,20 +78,20 @@
     <a href="<?= appUrl ?>?page=input">シフト入力</a>
     <a href="<?= appUrl ?>?page=manage">欠員補充管理</a>
     <a href="<?= appUrl ?>?page=check">整合性チェック</a>
+    <a href="<?= appUrl ?>?page=terms">学期設定</a>
   </nav>
 
   <main>
     <div class="card">
       <div class="qbar">
-        <label for="quarter">クォーター</label>
-        <input id="quarter" list="qlist" style="max-width:200px" onchange="onQuarterChange()">
-        <datalist id="qlist"></datalist>
-        <span class="hint" style="margin:0">このクォーターのコマを編集します（新規も可）</span>
+        <label for="quarter">学期</label>
+        <select id="quarter" style="max-width:280px" onchange="onQuarterChange()"></select>
+        <span class="hint" style="margin:0">クォーター／セメスターを選んでこの学期のコマを編集します（新規も可）</span>
       </div>
     </div>
 
     <div class="card">
-      <h2>コマを追加</h2>
+      <h2 id="formTitle">コマを追加</h2>
       <div id="form" class="state">読み込み中…</div>
       <div id="toast" class="toast"></div>
     </div>
@@ -99,6 +105,7 @@
 
   <script>
     var DATA = null;
+    var EDIT_ID = null;  // 編集中のコマID（null＝新規追加モード）
 
     function escapeHtml(s) {
       return String(s == null ? '' : s)
@@ -117,12 +124,25 @@
         .getInputData(quarter || null);
     }
 
+    // 学期セレクタを DATA.terms（体系ラベル付き）で埋め、選択値を合わせる。
+    function fillTermSelect() {
+      var sel = document.getElementById('quarter');
+      var terms = DATA.terms || [];
+      if (!terms.length) {
+        sel.innerHTML = '<option value="">（学期マスタ未設定）</option>';
+        return;
+      }
+      sel.innerHTML = terms.map(function (t) {
+        return '<option value="' + escapeHtml(t.value) + '">' + escapeHtml(t.label) + '</option>';
+      }).join('');
+      // 現在値（無ければ先頭）を選択
+      var want = DATA.quarter || terms[0].value;
+      sel.value = terms.some(function (t) { return t.value === want; }) ? want : terms[0].value;
+    }
+
     function onData(data) {
       DATA = data;
-      // クォーター候補
-      document.getElementById('qlist').innerHTML =
-        data.quarters.map(function (q) { return '<option value="' + escapeHtml(q) + '">'; }).join('');
-      document.getElementById('quarter').value = data.quarter || '';
+      fillTermSelect();
       buildForm();
       renderList();
     }
@@ -133,6 +153,7 @@
     }
 
     function buildForm() {
+      EDIT_ID = null;  // フォーム再構築時は新規追加モードに戻す
       var dayOpts = DATA.days.map(function (d) {
         return '<option value="' + escapeHtml(d) + '">' + escapeHtml(d) + '</option>';
       }).join('');
@@ -167,9 +188,11 @@
           '<div><label>担当スタッフB</label><select id="staff_b_id"></select></div>' +
           '<div class="full"><label>備考</label><textarea id="note" placeholder="任意"></textarea></div>' +
         '</div>' +
-        '<button class="btn" id="add" onclick="addCourse()">このコマを追加</button>' +
+        '<button class="btn" id="submit" onclick="submitCourse()">このコマを追加</button>' +
+        '<button class="btn cancel" id="cancelEdit" onclick="cancelEdit()" style="display:none">編集をやめる</button>' +
         '<p class="hint">＊は必須。テイクはB欄に2人目を選びます（未定なら「なし」のままでも登録可）。' +
-        '担当欄は選んだ曜日・時限に空きがあり内容に対応できる人だけを表示します。</p>';
+        '担当欄は選んだ曜日・時限に空きがあり内容に対応できる人だけを表示します。' +
+        '登録済みのコマは下の一覧の「編集」から修正できます（教室が後から決まった場合など）。</p>';
 
       fillUserOptions();
       rebuildStaff();
@@ -237,7 +260,8 @@
       if (prevB && list.some(function (s) { return s.staff_id === prevB; })) b.value = prevB;
     }
 
-    function addCourse() {
+    // 追加 or 更新（EDIT_ID の有無で分岐）
+    function submitCourse() {
       var payload = {
         quarter: val('quarter').trim(),
         day: val('day'), period: val('period'),
@@ -250,10 +274,14 @@
         staff_b_id: document.getElementById('staff_b_id').disabled ? '' : val('staff_b_id'),
         note: val('note').trim(),
       };
-      if (!payload.quarter) { showToast('クォーターを入力してください。', false); return; }
+      if (!payload.quarter) { showToast('学期を選択してください。', false); return; }
       if (!payload.user_student) { showToast('利用者を入力してください。', false); return; }
 
-      var btn = document.getElementById('add');
+      if (EDIT_ID) { runUpdate(payload); } else { runAdd(payload); }
+    }
+
+    function runAdd(payload) {
+      var btn = document.getElementById('submit');
       btn.disabled = true; btn.textContent = '追加中…';
       google.script.run
         .withSuccessHandler(function (res) {
@@ -273,13 +301,92 @@
         .addCourse(payload);
     }
 
+    function runUpdate(payload) {
+      payload.course_id = EDIT_ID;
+      var btn = document.getElementById('submit');
+      btn.disabled = true; btn.textContent = '更新中…';
+      google.script.run
+        .withSuccessHandler(function (res) {
+          showToast('更新しました（' + res.course_id + '）。', true);
+          load(payload.quarter); // フォームごと再構築 → 新規追加モードに戻る
+        })
+        .withFailureHandler(function (err) {
+          showToast(err.message, false);
+          btn.disabled = false; btn.textContent = 'このコマを更新';
+        })
+        .updateCourse(payload);
+    }
+
+    // 一覧の「編集」→ 上のフォームに値を流し込み、更新モードに切り替える
+    function editCourse(id) {
+      var c = null;
+      for (var i = 0; i < DATA.courses.length; i++) {
+        if (DATA.courses[i].course_id === id) { c = DATA.courses[i]; break; }
+      }
+      if (!c) { showToast('対象のコマが見つかりません。一覧を更新してください。', false); return; }
+
+      EDIT_ID = id;
+      // 担当に現在の人が必ず出るよう、まず絞り込みを外して全員表示にする
+      document.getElementById('eligOnly').checked = false;
+      document.getElementById('day').value = c.day;
+      document.getElementById('period').value = c.period;
+      document.getElementById('support_type').value = c.support_type;
+      onTypeChange(); // 候補を組み直し（介助ならB無効化）
+
+      // 利用者（既存名なら選択、無ければ新規入力欄へ）
+      var sel = document.getElementById('user_sel');
+      var inList = false;
+      for (var j = 0; j < sel.options.length; j++) {
+        if (sel.options[j].value === c.user_student) { inList = true; break; }
+      }
+      if (inList) {
+        sel.value = c.user_student;
+        document.getElementById('user_new').style.display = 'none';
+      } else {
+        sel.value = '__new__';
+        onUserSel();
+        document.getElementById('user_new').value = c.user_student;
+      }
+
+      document.getElementById('subject').value = c.subject || '';
+      document.getElementById('instructor').value = c.instructor || '';
+      document.getElementById('room').value = c.room || '';
+      document.getElementById('note').value = c.note || '';
+      document.getElementById('staff_a_id').value = c.staff_a_id || '';
+      var b = document.getElementById('staff_b_id');
+      if (!b.disabled) b.value = c.staff_b_id || '';
+
+      document.getElementById('formTitle').textContent = 'コマを編集（' + id + '）';
+      var btn = document.getElementById('submit');
+      btn.disabled = false; btn.textContent = 'このコマを更新';
+      document.getElementById('cancelEdit').style.display = '';
+      renderList(); // 編集中の行をハイライト
+      document.getElementById('formTitle').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // 編集をやめて新規追加モードへ戻す
+    function cancelEdit() {
+      EDIT_ID = null;
+      document.getElementById('formTitle').textContent = 'コマを追加';
+      var btn = document.getElementById('submit');
+      btn.disabled = false; btn.textContent = 'このコマを追加';
+      document.getElementById('cancelEdit').style.display = 'none';
+      document.getElementById('eligOnly').checked = true;
+      ['subject', 'instructor', 'room', 'note', 'user_new'].forEach(function (id) {
+        document.getElementById(id).value = '';
+      });
+      document.getElementById('user_new').style.display = 'none';
+      document.getElementById('user_sel').value = '';
+      rebuildStaff();
+      renderList();
+    }
+
     // フォームを再構築せず、一覧と候補リストだけ更新する
     function refreshList(quarter) {
       google.script.run
         .withSuccessHandler(function (data) {
           DATA = data;
-          document.getElementById('qlist').innerHTML =
-            data.quarters.map(function (q) { return '<option value="' + escapeHtml(q) + '">'; }).join('');
+          fillTermSelect();
           // 新しい利用者が増えている場合に備えてプルダウンを更新（選択はリセット）
           fillUserOptions();
           rebuildStaff();
@@ -304,7 +411,7 @@
       var host = document.getElementById('list');
       var countEl = document.getElementById('count');
       var courses = DATA.courses;
-      countEl.textContent = 'このクォーターのコマ: ' + courses.length + ' 件';
+      countEl.textContent = 'この学期のコマ: ' + courses.length + ' 件';
       if (courses.length === 0) {
         host.className = 'state';
         host.textContent = 'まだコマがありません。上のフォームから追加してください。';
@@ -325,9 +432,14 @@
             + (c.instructor ? ' / ' + escapeHtml(c.instructor) : '') + '</div>' +
           '<div class="stf">担当: ' + staff + '</div>' +
           (c.note ? '<div class="sub">備考: ' + escapeHtml(c.note) + '</div>' : '');
-        return '<div class="row"><div class="info">' + info + '</div>' +
-          '<button class="del" onclick="delCourse(\'' + escapeHtml(c.course_id) + '\',\''
-            + escapeHtml(label).replace(/'/g, '') + '\')">削除</button></div>';
+        var cid = escapeHtml(c.course_id);
+        var editing = (c.course_id === EDIT_ID) ? ' editing' : '';
+        return '<div class="row' + editing + '"><div class="info">' + info + '</div>' +
+          '<div class="ops">' +
+            '<button class="ed" onclick="editCourse(\'' + cid + '\')">編集</button>' +
+            '<button class="del" onclick="delCourse(\'' + cid + '\',\''
+              + escapeHtml(label).replace(/'/g, '') + '\')">削除</button>' +
+          '</div></div>';
       }).join('');
     }
 

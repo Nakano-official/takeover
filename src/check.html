@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: "Helvetica Neue", Arial, "Hiragino Sans", "Yu Gothic", sans-serif;
+           margin: 0; background: #f5f6f8; color: #222; }
+    header { background: #4a86e8; color: #fff; padding: 14px 16px; }
+    header h1 { font-size: 1.1rem; margin: 0; }
+    header .user { font-size: .8rem; opacity: .9; margin-top: 2px; }
+    nav { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; background: #fff;
+          border-bottom: 1px solid #e3e6ea; }
+    nav a { font-size: .85rem; text-decoration: none; color: #4a86e8;
+            border: 1px solid #cdddfb; border-radius: 999px; padding: 5px 12px; }
+    nav a:hover { background: #eef4ff; }
+    main { padding: 16px; max-width: 880px; margin: 0 auto; }
+    .card { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 14px;
+            box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .card h2 { font-size: 1rem; margin: 0 0 12px; }
+    .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field label { font-size: .78rem; color: #666; }
+    .field input { padding: 7px 9px; border: 1px solid #cdd3da; border-radius: 6px; font-size: .9rem; }
+    .run { background: #4a86e8; color: #fff; border: none; border-radius: 6px;
+           padding: 9px 20px; font-size: .9rem; font-weight: 600; cursor: pointer; }
+    .run:disabled { opacity: .5; cursor: default; }
+    .hint { font-size: .78rem; color: #888; margin-top: 8px; line-height: 1.6; }
+    .summary { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 4px; }
+    .chip { border-radius: 999px; padding: 6px 14px; font-size: .85rem; font-weight: 600; }
+    .c-miss { background: #fdecea; color: #c0392b; }
+    .c-extra { background: #fff3e0; color: #b06f00; }
+    .c-time { background: #fdf0d5; color: #9a6a00; }
+    .c-ok { background: #e7f6ec; color: #1e7a3d; }
+    table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eef0f3; vertical-align: top; }
+    th { font-size: .78rem; color: #666; background: #fafbfc; }
+    tr.t-miss { background: #fff7f6; }
+    tr.t-time { background: #fffaf0; }
+    tr.t-extra { background: #fffdf7; }
+    .tag { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: .76rem; font-weight: 600; white-space: nowrap; }
+    .tag-miss { background: #fdecea; color: #c0392b; }
+    .tag-extra { background: #fff3e0; color: #b06f00; }
+    .tag-time { background: #fdf0d5; color: #9a6a00; }
+    .warn { border-left: 4px solid #e0a800; background: #fffdf3; padding: 10px 14px; border-radius: 4px;
+            font-size: .84rem; margin-bottom: 10px; }
+    .warn b { color: #9a6a00; }
+    .warn ul { margin: 6px 0 0; padding-left: 18px; }
+    .diag { font-size: .76rem; color: #999; margin-top: 10px; }
+    .state { padding: 24px; text-align: center; color: #888; }
+    .muted { color: #aaa; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>整合性チェック</h1>
+    <div class="user"><?= user.name ?> さん（<?= user.role ?>）</div>
+  </header>
+
+  <nav>
+    <a href="<?= appUrl ?>?page=home">シフト確認</a>
+    <a href="<?= appUrl ?>?page=absence">欠勤連絡</a>
+    <a href="<?= appUrl ?>?page=manage">欠員補充管理</a>
+    <a href="<?= appUrl ?>?page=check">整合性チェック</a>
+    <a href="<?= appUrl ?>?page=terms">学期設定</a>
+  </nav>
+
+  <main>
+    <div class="card">
+      <h2>勤怠CSV ↔ カレンダー 照合</h2>
+      <div class="row">
+        <div class="field">
+          <label>勤怠CSV（労務管理システムの出力・Shift_JIS）</label>
+          <input type="file" id="csv" accept=".csv,text/csv">
+        </div>
+        <div class="field">
+          <label>照合期間（開始）</label>
+          <input type="date" id="from">
+        </div>
+        <div class="field">
+          <label>照合期間（終了）</label>
+          <input type="date" id="to">
+        </div>
+        <button class="run" id="run" onclick="runCheck()">照合する</button>
+      </div>
+      <div class="hint">
+        カレンダー（職員が修正済みの勤務予定）を「正」として、学生が登録した勤怠CSVとのズレを検出します。<br>
+        ファイルはサーバー上で照合するだけで保存しません。対象外（他キャンパス等）の行は破棄されます。
+      </div>
+    </div>
+
+    <div id="result"></div>
+  </main>
+
+  <script>
+    // 既定の照合期間＝当月1日〜末日
+    (function initDates() {
+      var now = new Date();
+      var first = new Date(now.getFullYear(), now.getMonth(), 1);
+      var last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      document.getElementById('from').value = fmt(first);
+      document.getElementById('to').value = fmt(last);
+      function fmt(d) {
+        return d.getFullYear() + '-' +
+          ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+      }
+    })();
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function runCheck() {
+      var fileInput = document.getElementById('csv');
+      var from = document.getElementById('from').value;
+      var to = document.getElementById('to').value;
+      if (!fileInput.files || fileInput.files.length === 0) {
+        alert('勤怠CSVファイルを選択してください。');
+        return;
+      }
+      if (!from || !to) { alert('照合期間を指定してください。'); return; }
+
+      var resultEl = document.getElementById('result');
+      setRunning(true);
+      resultEl.innerHTML = '<div class="state">照合中…</div>';
+
+      var reader = new FileReader();
+      reader.onload = function () {
+        google.script.run
+          .withSuccessHandler(function (res) { setRunning(false); render(res); })
+          .withFailureHandler(function (err) {
+            setRunning(false);
+            resultEl.innerHTML = '<div class="card state">エラー: ' + escapeHtml(err.message) + '</div>';
+          })
+          .runAttendanceCheck({ csvBase64: reader.result, dateFrom: from, dateTo: to });
+      };
+      reader.onerror = function () {
+        setRunning(false);
+        resultEl.innerHTML = '<div class="card state">ファイルの読み込みに失敗しました。</div>';
+      };
+      reader.readAsDataURL(fileInput.files[0]); // data:...;base64,XXXX（サーバーで接頭辞を除去）
+    }
+
+    function setRunning(on) {
+      var btn = document.getElementById('run');
+      btn.disabled = on;
+      btn.textContent = on ? '照合中…' : '照合する';
+    }
+
+    function render(res) {
+      var el = document.getElementById('result');
+      var s = res.summary || {};
+      var html = '';
+
+      // サマリ
+      html += '<div class="card">';
+      html += '<h2>結果（' + escapeHtml(res.range.from) + ' 〜 ' + escapeHtml(res.range.to) + '）</h2>';
+      html += '<div class="summary">' +
+        chip('c-miss', '🔴 登録漏れ ' + (s['登録漏れ'] || 0)) +
+        chip('c-time', '🟠 時間不一致 ' + (s['時間不一致'] || 0)) +
+        chip('c-extra', '🟡 予定外勤務 ' + (s['予定外勤務'] || 0)) +
+        chip('c-ok', '✅ 一致 ' + (res.matchedCount || 0)) +
+        '</div>';
+      html += diag(res.counts);
+      html += '</div>';
+
+      // 要確認（突合できなかったもの）
+      html += renderWarnings(res.warnings);
+
+      // 差分一覧
+      html += '<div class="card">';
+      if (!res.diffs || res.diffs.length === 0) {
+        html += '<div class="state">差分はありませんでした（一致のみ）。</div>';
+      } else {
+        html += '<table><thead><tr>' +
+          '<th>種別</th><th>日付</th><th>氏名</th><th>カレンダー予定</th><th>勤怠CSV</th><th>内容</th>' +
+          '</tr></thead><tbody>';
+        html += res.diffs.map(renderRow).join('');
+        html += '</tbody></table>';
+      }
+      html += '</div>';
+
+      el.innerHTML = html;
+    }
+
+    function renderRow(d) {
+      var meta = typeMeta(d.type);
+      var cal = d.calendar ? escapeHtml(d.calendar.start + '〜' + d.calendar.end) : '<span class="muted">―</span>';
+      var csv = d.csv ? escapeHtml(d.csv.start + '〜' + d.csv.end) : '<span class="muted">―</span>';
+      var label = d.calendar && d.calendar.label ? escapeHtml(d.calendar.label) : '<span class="muted">―</span>';
+      return '<tr class="' + meta.tr + '">' +
+        '<td><span class="tag ' + meta.tag + '">' + escapeHtml(d.type) + '</span></td>' +
+        '<td>' + escapeHtml(d.date) + '</td>' +
+        '<td>' + escapeHtml(d.name) + '</td>' +
+        '<td>' + cal + '</td>' +
+        '<td>' + csv + '</td>' +
+        '<td>' + label + '</td>' +
+        '</tr>';
+    }
+
+    function typeMeta(type) {
+      if (type === '登録漏れ') return { tr: 't-miss', tag: 'tag-miss' };
+      if (type === '時間不一致') return { tr: 't-time', tag: 'tag-time' };
+      return { tr: 't-extra', tag: 'tag-extra' }; // 予定外勤務
+    }
+
+    function renderWarnings(w) {
+      if (!w) return '';
+      var html = '';
+      if (w.unknownNames && w.unknownNames.length) {
+        html += '<div class="warn"><b>要確認：カレンダーの氏名が名簿（staffs）に一致しません</b>' +
+          '（表記ゆれの可能性。突合できていません）<ul>' +
+          w.unknownNames.map(function (u) {
+            return '<li>' + escapeHtml(u.name) + '（' + escapeHtml(u.date) + '）' +
+              (u.label ? ' ' + escapeHtml(u.label) : '') + '</li>';
+          }).join('') + '</ul></div>';
+      }
+      if (w.unregistered && w.unregistered.length) {
+        html += '<div class="warn"><b>要確認：個人ｺｰﾄﾞ未登録の学生</b>' +
+          '（CSVと突合できないため、この学生の照合は不完全です）<ul>' +
+          w.unregistered.map(function (u) {
+            return '<li>' + escapeHtml(u.name) + '（' + escapeHtml(u.staff_id) + '）</li>';
+          }).join('') + '</ul></div>';
+      }
+      return html;
+    }
+
+    function chip(cls, text) {
+      return '<span class="chip ' + cls + '">' + escapeHtml(text) + '</span>';
+    }
+
+    function diag(c) {
+      if (!c) return '';
+      return '<div class="diag">カレンダーイベント ' + c.calendarEvents +
+        ' 件 → 予定シフト ' + c.predictedShifts + ' 件／CSV ' + c.csvRows +
+        ' 行 → 対象 ' + c.csvMatched + ' 件</div>';
+    }
+  </script>
+</body>
+</html>

@@ -17,6 +17,7 @@ const PAGES = {
   respond: { file: 'respond', title: '代行依頼への回答',   staffOnly: false },
   manage:  { file: 'manage',  title: '欠員補充管理',       staffOnly: true  },
   check:   { file: 'check',   title: '整合性チェック',     staffOnly: true  },
+  terms:   { file: 'terms',   title: '学期設定',           staffOnly: true  },
 };
 
 const DEFAULT_PAGE = 'home';
@@ -34,13 +35,11 @@ function doGet(e) {
     return handleDevicePoll_(params);
   }
 
-  const pageKey = params.page || DEFAULT_PAGE;
+  // 未知の page は既定画面へフォールバックするが、必ず以降の共通ガード
+  // （null ユーザー拒否 → staffOnly 判定）を通す。ここで renderPage_ を直接呼ぶと
+  // 未登録ユーザーが ?page=xxx で利用登録ゲートを素通りできてしまう（旧実装のバグ）。
+  const pageKey = PAGES[params.page] ? params.page : DEFAULT_PAGE;
   const config = PAGES[pageKey];
-
-  // 未知の page は既定画面へフォールバック
-  if (!config) {
-    return renderPage_(PAGES[DEFAULT_PAGE], DEFAULT_PAGE, getCurrentUser_(), {});
-  }
 
   const user = getCurrentUser_();
 
@@ -80,7 +79,9 @@ function getCurrentUser_() {
   const staff = findRow(SHEET.STAFFS, 'staff_id', contact.staff_id);
   return {
     email: email,
-    staff_id: contact.staff_id,
+    // staff_id は正規化して返す（Vacancy.gs 等が String().trim() 済みIDと === で比較するため、
+    // contacts のセルが数値や前後空白付きだと自己除外・重複欠勤チェック・相方表示が不成立になる）。
+    staff_id: String(contact.staff_id).trim(),
     name: staff ? staff.name : contact.name,
     role: staff ? String(staff.role).trim() : '',
   };
@@ -186,11 +187,11 @@ function getDashboardData() {
     const related = vacancies.filter(function (v) {
       return String(v.course_id).trim() === courseId;
     });
-    var status = '通常';
+    var status = COURSE_VACANCY_STATUS.NORMAL;
     var substitute = '';
     const open = related.filter(function (v) { return !String(v.result).trim(); });
     if (open.length > 0) {
-      status = '欠員対応中';
+      status = COURSE_VACANCY_STATUS.OPEN;
     } else if (related.length > 0) {
       const latest = related[related.length - 1];
       status = String(latest.result).trim(); // 補充済 / 1人テイク / 職員対応
@@ -252,37 +253,42 @@ function getTimetable(quarter) {
   const vacancies = readRows(SHEET.VACANCIES);
   const allCourses = readRows(SHEET.COURSES);
 
-  // クォーター一覧と既定（最新）
-  const quarters = [];
+  // 学期の選択を term マスタで解決する（11-3/D16）。
+  // home は閲覧用なので既定は「現在（開講中）」＝今日を含む学期すべての和集合
+  // （先端理工のクォーターと他学部のセメスターが同時に並ぶ）。
+  const courseTermIds = [];
   allCourses.forEach(function (c) {
     const q = String(c.quarter).trim();
-    if (q && quarters.indexOf(q) === -1) quarters.push(q);
+    if (q && courseTermIds.indexOf(q) === -1) courseTermIds.push(q);
   });
-  quarters.sort();
-  const selected = (quarter && quarters.indexOf(quarter) !== -1)
-    ? quarter
-    : (quarters.length ? quarters[quarters.length - 1] : '');
+  const sel = resolveTermSelection_(quarter, courseTermIds, 'view');
+  const filterSet = {};
+  sel.filterIds.forEach(function (id) { filterSet[id] = true; });
+  const sysMap = termSystemMap_(); // term_id → system（詳細表示で体系を出すため）
 
   const courses = allCourses
-    .filter(function (c) { return String(c.quarter).trim() === selected; })
+    .filter(function (c) { return filterSet[String(c.quarter).trim()]; })
     .map(function (c) {
       const courseId = String(c.course_id).trim();
       const related = vacancies.filter(function (v) {
         return String(v.course_id).trim() === courseId;
       });
-      var status = '通常';
+      var status = COURSE_VACANCY_STATUS.NORMAL;
       var substitute = '';
       const open = related.filter(function (v) { return !String(v.result).trim(); });
       if (open.length > 0) {
-        status = '欠員対応中';
+        status = COURSE_VACANCY_STATUS.OPEN;
       } else if (related.length > 0) {
         const latest = related[related.length - 1];
         status = String(latest.result).trim(); // 補充済 / 1人テイク / 職員対応
         const subId = String(latest.substitute_staff_id || '').trim();
         if (subId) substitute = nameById[subId] || subId;
       }
+      const term = String(c.quarter).trim();
       return {
         course_id: courseId,
+        term: term,                          // 学期ID（例：2026-2Q / 2026-前期）
+        system: sysMap[term] || '',          // quarter / semester（詳細表示用）
         day: String(c.day).trim(),
         period: String(c.period).trim(),
         support_type: String(c.support_type || '').trim(),
@@ -317,7 +323,7 @@ function getTimetable(quarter) {
     .map(function (p) { return { period: p, time: periodTime[p] || '' }; });
 
   return {
-    quarters: quarters, quarter: selected,
+    quarters: sel.options, quarter: sel.selected,
     days: days, periods: periods, courses: courses, me: me,
   };
 }

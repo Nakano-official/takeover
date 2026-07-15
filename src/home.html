@@ -245,12 +245,21 @@
       return '';
     }
 
+    // 学期の表示ラベル（例：2026-2Q（クォーター）／2026-前期（セメスター））
+    function termLabel(c) {
+      var t = c.term || '';
+      if (!t) return '—';
+      var s = { quarter: 'クォーター', semester: 'セメスター' }[c.system] || '';
+      return escapeHtml(t) + (s ? '（' + s + '）' : '');
+    }
+
     function openDetail(courseId) {
       var c = courseById(courseId);
       if (!c) return;
       var pt = periodTime(c.period);
       var rows = [
         ['内容', escapeHtml(c.support_type || '—')],
+        ['学期', termLabel(c)],
         ['日時', escapeHtml(c.day) + '曜 ' + escapeHtml(c.period) + '限' +
           (pt ? '（' + escapeHtml(pt) + '）' : '')],
         ['利用者', escapeHtml(c.user_student || '—')],
@@ -419,9 +428,10 @@
 
     function fillQuarters() {
       var sel = document.getElementById('q');
-      sel.innerHTML = DATA.quarters.map(function (q) {
-        return '<option value="' + escapeHtml(q) + '"' +
-          (q === DATA.quarter ? ' selected' : '') + '>' + escapeHtml(q) + '</option>';
+      // DATA.quarters は {value,label} の配列（value='' は「現在（開講中）」の和集合）
+      sel.innerHTML = DATA.quarters.map(function (o) {
+        return '<option value="' + escapeHtml(o.value) + '"' +
+          (o.value === DATA.quarter ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>';
       }).join('');
       sel.style.display = DATA.quarters.length > 1 ? '' : 'none';
     }

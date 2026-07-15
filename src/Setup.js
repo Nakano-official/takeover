@@ -15,7 +15,7 @@ function setupSpreadsheets() {
 /**
  * 【本番用】空（ヘッダーのみ）でセットアップする。
  * staffs / courses / contacts は空。periods（時限マスタ）だけ入る。
- * 実データはフォーム取り込み・シフト入力画面・手入力で投入する（docs/operations.md）。
+ * 実データはフォーム取り込み・シフト入力画面・手入力で投入する（docs/guides/operations.md）。
  */
 function setupSpreadsheetsEmpty() {
   runSetup_(emptyData_(), true);
@@ -23,7 +23,12 @@ function setupSpreadsheetsEmpty() {
 
 // ヘッダーのみ（データ行なし）のセットアップ用データ
 function emptyData_() {
-  return { students: [], staff: [], users: [], staffs: [], courses: [], contacts: [] };
+  // terms（学期マスタ）は periods と同じく運用の土台なので、本番の空セットアップでも
+  // 当年度の雛形を入れる（職員が学事暦に合わせて日付調整）。これで入力画面の学期選択が即使える（D16）。
+  return {
+    students: [], staff: [], users: [], staffs: [], courses: [], contacts: [],
+    terms: currentYearTermsTemplate_(),
+  };
 }
 
 // セットアップ本体（ダミー/空 共通）
@@ -55,7 +60,9 @@ function runSetup_(data, isEmpty) {
     Logger.log('★ まずログインできるよう、最初の職員を1行ずつ追加してください：');
     Logger.log('  - staffs   : staff_id / name / role=職員 /（skills・available_slots は空でOK）');
     Logger.log('  - contacts : 同じ staff_id / name / email=自分の大学アドレス');
-    Logger.log('  その後、フォーム取り込みやシフト入力画面で学生・コマを投入します（docs/operations.md）。');
+    Logger.log('  その後、フォーム取り込みやシフト入力画面で学生・コマを投入します（docs/guides/operations.md）。');
+    Logger.log('  ★ terms（学期マスタ）に当年度の雛形（前期/後期＋1Q〜4Q）を入れました。');
+    Logger.log('    開始/終了日を実際の学事暦に合わせて調整してください（体系判定・現在学期の解決に使います）。');
   } else {
     Logger.log('★ テストで自分が職員としてログインするには、連絡先DB contacts の S001 の email を');
     Logger.log('  自分のアドレスに書き換えてください（それで「職員」として全画面が見えます）。');
@@ -72,7 +79,30 @@ function runSetup_(data, isEmpty) {
  * @return {{students:Array, staff:Array, users:Array, staffs:Array, courses:Array, contacts:Array}}
  */
 function buildDummyData_() {
-  const QUARTER = '2026-Q3';
+  // 学期マスタ（terms）。日付は「セットアップ実行時点」を基準に相対生成するため、
+  // いつ実行しても「現在（開講中）」に該当する学期ができる（デモが空にならない）。
+  // 龍谷大の2体系（先端理工=クォーター制／他学部=セメスター制）を同時に表現する（D16）。
+  const now = new Date();
+  const yr = now.getFullYear();
+  const shiftDate_ = function (days) {
+    const t = new Date(now.getTime());
+    t.setDate(t.getDate() + days);
+    return Utilities.formatDate(t, 'Asia/Tokyo', 'yyyy-MM-dd');
+  };
+  // 前期（セメスター）が 1Q・2Q を暦で内包する入れ子（前期⊇1Q+2Q）。
+  // 実行時点を基準に：前期=現在／1Q=前期の前半（終了済み）／2Q=前期の後半（現在）とする。
+  // → home で「2Q」を選んでも前期のセメスター科目が残り、「前期」を選ぶと 1Q+2Q もまとまって出る。
+  const SEM_SPRING = yr + '-前期';  // 他学部の大半（セメスター制・現在）
+  const Q1 = yr + '-1Q';            // 先端理工 1Q（前期前半・終了済み）
+  const Q2 = yr + '-2Q';            // 先端理工 2Q（前期後半・現在）
+  const terms = [
+    { term_id: SEM_SPRING,   system: 'semester', start_date: shiftDate_(-120), end_date: shiftDate_(60) },
+    { term_id: yr + '-後期', system: 'semester', start_date: shiftDate_(61),   end_date: shiftDate_(240) },
+    { term_id: Q1,           system: 'quarter',  start_date: shiftDate_(-120), end_date: shiftDate_(-31) },
+    { term_id: Q2,           system: 'quarter',  start_date: shiftDate_(-30),  end_date: shiftDate_(59) },
+    { term_id: yr + '-3Q',   system: 'quarter',  start_date: shiftDate_(61),   end_date: shiftDate_(150) },
+  ];
+
   const DAYS = ['月', '火', '水', '木', '金'];
   const PERIODS = ['1', '2', '3', '4'];
   const SLOTS = DAYS.length * PERIODS.length; // 20
@@ -88,6 +118,14 @@ function buildDummyData_() {
   ];
   const staff = [{ id: 'S001', name: '山田 花子' }]; // 職員
   const users = ['利用者A', '利用者B', '利用者C', '利用者D', '利用者E', '利用者F', '利用者G', '利用者H'];
+
+  // 利用者を学期体系に振り分ける（デモで両体系＋クォーター切替が見えるように）。
+  // 先頭6名＝セメスター制（前期）、末尾2名＝先端理工のクォーター制（1名 1Q・1名 2Q）。
+  const userTerm = {};
+  users.forEach(function (u, i) {
+    userTerm[u] = (i < users.length - 2) ? SEM_SPRING
+      : (i === users.length - 2 ? Q1 : Q2);
+  });
 
   const SUBJECTS = ['基礎数学', '英語コミュニケーション', '情報リテラシー', '心理学概論',
     '物理学基礎', '経済学入門', '線形代数', '化学基礎', '統計学', '社会学概論',
@@ -155,7 +193,7 @@ function buildDummyData_() {
     const assigned = pickStaff(se.slotKey, need, se.support_type);
     return {
       course_id: 'C' + ('00' + (i + 1)).slice(-3),
-      quarter: QUARTER,
+      quarter: userTerm[se.user], // term_id（セメスター or クォーター・D16）
       day: se.day, period: se.period,
       support_type: se.support_type,
       user_student: se.user,
@@ -171,13 +209,16 @@ function buildDummyData_() {
   // available_slots = 担当が入っていない（空いている）全スロット
   const allSlots = [];
   for (var s = 0; s < SLOTS; s++) { const inf = slotInfo(s); allSlots.push(inf.day + inf.period); }
+  // personal_code = 勤怠CSVの「個人ｺｰﾄﾞ」を模した架空の安定ID（D2 例 'Y2xxxxx' に合わせる）。
+  // 職員は学生スタッフではない＝勤怠CSVに出ないため空にする。
   const staffs = staff.map(function (st) {
-    return { staff_id: st.id, name: st.name, role: '職員', skills: '', available_slots: '' };
-  }).concat(students.map(function (st) {
+    return { staff_id: st.id, name: st.name, role: '職員', skills: '', available_slots: '', personal_code: '' };
+  }).concat(students.map(function (st, i) {
     const free = allSlots.filter(function (sk) { return !busy[st.id][sk]; });
     return {
       staff_id: st.id, name: st.name, role: '学生',
       skills: skillById[st.id], available_slots: free.join(','),
+      personal_code: 'Y2' + ('00000' + (i + 1)).slice(-5),
     };
   }));
 
@@ -191,7 +232,7 @@ function buildDummyData_() {
     };
   });
 
-  return { students: students, staff: staff, users: users, staffs: staffs, courses: courses, contacts: contacts };
+  return { students: students, staff: staff, users: users, staffs: staffs, courses: courses, contacts: contacts, terms: terms };
 }
 
 // ヘッダー＋オブジェクト配列をシートに書き込む（列順はヘッダーに従う）
@@ -258,12 +299,141 @@ function migrateStaffsColumns() {
   Logger.log('   空欄は当面「全対応」として候補に出ます（運用前に入力推奨）。');
 }
 
+/**
+ * 既存の staffs シートに personal_code 列を追加する（D2/D14・機能Bの勤怠CSV突合キー）。
+ * 勤怠CSVの「個人ｺｰﾄﾞ」と突き合わせる安定ID。無ければ末尾に1列足す（冪等）。
+ * 追加した列はテキスト書式にして先頭ゼロ・英字接頭辞の数値化を防ぐ。GASエディタから1回実行。
+ */
+function migrateStaffsPersonalCode() {
+  const ss = openMainDb_();
+  const sheet = ss.getSheetByName('staffs');
+  if (!sheet) { Logger.log('❌ staffs シートが見つかりません。'); return; }
+
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
+    return String(h).trim();
+  });
+  if (headers.indexOf('personal_code') !== -1) {
+    Logger.log('✅ staffs には既に personal_code 列があります（追加なし）。');
+    return;
+  }
+
+  const col = lastCol + 1;
+  sheet.getRange(1, col, 1, 1).setValues([['personal_code']]);
+  // 既存データ行＋余白をテキスト固定（個人ｺｰﾄﾞの数値化・先頭ゼロ欠落を防ぐ）
+  sheet.getRange(2, col, Math.max(sheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+  Logger.log('✅ staffs に personal_code 列を追加しました。');
+  Logger.log('   各学生スタッフに勤怠CSVの「個人ｺｰﾄﾞ」（例 Y2xxxxx）を入力してください。');
+  Logger.log('   未入力の学生は機能Bの照合で「要確認（personal_code 未登録）」になります。');
+}
+
+/**
+ * 指定年度の学期マスタ雛形（前期/後期＋1Q〜4Q）を返す（D16/D19）。
+ * 日付は学事暦に合わせて職員が調整する前提の目安値。年度をまたいで再利用できるよう年を引数に取る。
+ * @param {(string|number)} year 西暦年（例：2027）
+ * @return {Array<{term_id,system,start_date,end_date}>}
+ */
+function yearTermsTemplate_(year) {
+  const yr = String(year);
+  const ny = String(Number(yr) + 1);
+  return [
+    { term_id: yr + '-前期', system: 'semester', start_date: yr + '-04-01', end_date: yr + '-09-20' },
+    { term_id: yr + '-後期', system: 'semester', start_date: yr + '-09-21', end_date: ny + '-03-31' },
+    { term_id: yr + '-1Q', system: 'quarter', start_date: yr + '-04-01', end_date: yr + '-06-05' },
+    { term_id: yr + '-2Q', system: 'quarter', start_date: yr + '-06-06', end_date: yr + '-08-05' },
+    { term_id: yr + '-3Q', system: 'quarter', start_date: yr + '-09-21', end_date: yr + '-11-25' },
+    { term_id: yr + '-4Q', system: 'quarter', start_date: yr + '-11-26', end_date: ny + '-02-10' },
+  ];
+}
+
+/**
+ * 当年度の学期マスタ雛形（前期/後期＋1Q〜4Q）を返す（D16）。
+ * 本番の空セットアップ・マイグレーションで共用。yearTermsTemplate_ の当年度ラッパー。
+ * @return {Array<{term_id,system,start_date,end_date}>}
+ */
+function currentYearTermsTemplate_() {
+  return yearTermsTemplate_(Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy'));
+}
+
+/**
+ * 既存のメインDBに terms（学期マスタ）シートを追加する（D16・11-3）。
+ * 無ければヘッダー付きで新規作成し、当年度のセメスター/クォーターの雛形行を入れる（冪等）。
+ * GASエディタから1回実行。日付列はテキスト固定。実際の開始/終了日は学事暦に合わせて職員が調整する。
+ * ※ terms が空/未作成でも画面は従来どおり courses 由来の学期で動く（後方互換）。
+ */
+function migrateAddTermsSheet() {
+  const ss = openMainDb_();
+  if (ss.getSheetByName('terms')) {
+    Logger.log('✅ terms シートは既に存在します（作成なし）。');
+    return;
+  }
+  const sheet = ss.insertSheet('terms');
+  const HEADERS = ['term_id', 'system', 'start_date', 'end_date'];
+  const template = currentYearTermsTemplate_();
+  sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
+  sheet.getRange(2, 3, template.length, 2).setNumberFormat('@'); // 日付列はテキスト固定
+  writeTable_(sheet, HEADERS, template);
+  applyHeaderStyle_([sheet], '#4a86e8');
+  Logger.log('✅ terms シートを作成し、当年度の雛形（前期/後期＋1Q〜4Q）を入れました。');
+  Logger.log('   先端理工=クォーター制／他学部=セメスター制。実際の開始/終了日は学事暦に合わせて調整してください。');
+  Logger.log('   courses.quarter には該当する term_id（例 前期 / 2Q）を入れます。');
+}
+
+/**
+ * 既存データの学期IDを新表記（1Q〜4Q）に一括リネームする（D16・表記統一）。
+ * 旧ダミーの「Q（実行期）/Q（次期）」や旧「Q1〜Q4」形式を「1Q〜4Q」に揃える。
+ * terms シートの term_id 列と courses の quarter 列を**同時に**書き換えるので参照は壊れない。
+ * 冪等（新表記は再変換されない）。GASエディタから1回実行する。
+ */
+function migrateTermNotation() {
+  const ss = openMainDb_();
+
+  // 1つの term_id を新表記へ。旧ダミー固有ラベル → 現在/次クォーター、Q数字 → 数字Q。
+  const renameId_ = function (id) {
+    var s = String(id == null ? '' : id);
+    s = s.split('Q（実行期）').join('2Q'); // 旧ダミーの現在クォーター
+    s = s.split('Q（次期）').join('3Q');   // 旧ダミーの次クォーター
+    s = s.replace(/Q([1-4])/g, '$1Q');     // 2026-Q1 → 2026-1Q など（新表記は不変＝冪等）
+    return s;
+  };
+
+  const fixColumn_ = function (sheetName, colName) {
+    const sheet = ss.getSheetByName(sheetName);
+    if (!sheet) return 0;
+    const values = sheet.getDataRange().getValues();
+    if (values.length < 2) return 0;
+    const headers = values[0].map(function (h) { return String(h).trim(); });
+    const ci = headers.indexOf(colName);
+    if (ci === -1) return 0;
+    var n = 0;
+    for (var r = 1; r < values.length; r++) {
+      const cur = String(values[r][ci]);
+      if (!cur) continue;
+      const nv = renameId_(cur);
+      if (nv !== cur) { sheet.getRange(r + 1, ci + 1).setValue(nv); n++; }
+    }
+    return n;
+  };
+
+  const a = fixColumn_('terms', 'term_id');
+  const b = fixColumn_('courses', 'quarter');
+  Logger.log('✅ 学期表記を統一しました：terms.term_id ' + a + ' 件 / courses.quarter ' + b + ' 件を変更。');
+  Logger.log('   例：2026-Q（実行期）→ 2026-2Q ／ 2026-Q1 → 2026-1Q（前期/後期はそのまま）。');
+  if (a + b === 0) Logger.log('   変更対象はありませんでした（既に新表記です）。');
+}
+
 // ─── メインDB ────────────────────────────────────────────────
 
 function setupMainDb_(ss, data) {
   const staffsSheet = ss.getActiveSheet();
   staffsSheet.setName('staffs');
-  writeTable_(staffsSheet, ['staff_id', 'name', 'role', 'skills', 'available_slots'], data.staffs);
+  // personal_code（学籍番号系の安定ID）は機能Bの勤怠CSV突合キー（decisions.md D2/D14）。
+  // 先頭ゼロ・英字接頭辞の数値化を防ぐためテキスト固定する（F列）。
+  // 空セットアップ（staffs 0行）でも 3行目以降に職員が直接入力するため、データ行数ではなく
+  // 列全体をテキスト固定する（データ行数だけだと F2 しか保護されず 10-6 の数値化バグを踏む）。
+  staffsSheet.getRange(2, 6, Math.max(staffsSheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+  writeTable_(staffsSheet,
+    ['staff_id', 'name', 'role', 'skills', 'available_slots', 'personal_code'], data.staffs);
 
   // courses は「利用者中心の時間割」を表す（decisions.md D8）。
   // 1行＝1コマ（利用者×曜日×時限）。同じ曜日・時限に複数の利用者が並ぶ。
@@ -293,6 +463,14 @@ function setupMainDb_(ss, data) {
     ['vacancy_id', 'staff_id', 'answer', 'answered_at'],
   ]);
 
+  // terms（学期マスタ）。term_id・system（quarter/semester）・開始/終了日で「現在の学期」を解決する（D16）。
+  // 先端理工=クォーター制／他学部=セメスター制の2体系が同時に走るための真実の源。
+  const termsSheet = ss.insertSheet('terms');
+  const TERM_HEADERS = ['term_id', 'system', 'start_date', 'end_date'];
+  // start_date/end_date（C・D列）は日付の型ゆれを避け 'yyyy-MM-dd' 文字列で扱うためテキスト固定
+  termsSheet.getRange(2, 3, Math.max((data.terms || []).length, 1), 2).setNumberFormat('@');
+  writeTable_(termsSheet, TERM_HEADERS, data.terms || []);
+
   const periodsSheet = ss.insertSheet('periods');
   periodsSheet.getRange(1, 1, 1, 3).setValues([['period', 'start_time', 'end_time']]);
   // period（数値型化を防ぐ）・start_time/end_time（時刻型化を防ぐ）を全てテキスト固定
@@ -308,7 +486,7 @@ function setupMainDb_(ss, data) {
   ]);
 
   applyHeaderStyle_(
-    [staffsSheet, coursesSheet, vacanciesSheet, responsesSheet, periodsSheet],
+    [staffsSheet, coursesSheet, vacanciesSheet, responsesSheet, termsSheet, periodsSheet],
     '#4a86e8'
   );
 }
@@ -318,8 +496,9 @@ function setupMainDb_(ss, data) {
 function setupContactsDb_(ss, data) {
   const contactsSheet = ss.getActiveSheet();
   contactsSheet.setName('contacts');
-  // phone 列（C…ではなくD列）は先頭0欠落・数値化を防ぐためテキスト固定
-  contactsSheet.getRange(2, 4, Math.max(data.contacts.length, 1), 1).setNumberFormat('@');
+  // phone 列（C…ではなくD列）は先頭0欠落・数値化を防ぐためテキスト固定。
+  // personal_code と同様、空セットアップ後に職員が直接追加する行も保護するため列全体に掛ける。
+  contactsSheet.getRange(2, 4, Math.max(contactsSheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
   writeTable_(contactsSheet, ['staff_id', 'name', 'email', 'phone', 'webhook_url'], data.contacts);
 
   applyHeaderStyle_([contactsSheet], '#cc0000');

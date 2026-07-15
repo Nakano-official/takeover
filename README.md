@@ -2,7 +2,7 @@
 
 > 龍谷大学 障がい学生支援室の **シフト管理・欠員補充・勤怠チェック** を自動化する Web システム
 
-ノートテイカー（学生スタッフ）のシフトを時間割としてアプリ内に常設し、欠員が出たら
+学生スタッフ（ノートテイカー・移動/介助スタッフ）のシフトを時間割としてアプリ内に常設し、欠員が出たら
 候補を自動抽出 → Chat で代行依頼 → **最初に承諾した人へ先着で自動確定**するところまでを一気通貫で行う。
 
 | | |
@@ -15,8 +15,10 @@
 
 ## 🎯 解決する2つの課題
 
-1. **欠員補充の非効率** — 欠勤連絡が通知に埋もれ、職員が空きスタッフを目視で探して個別電話していた
-   → **欠員をPush通知し、候補を自動抽出して先着で自動確定**
+1. **欠員補充の非効率** — 欠勤連絡が通知に埋もれるうえ、Google Classroom は生徒ロールの投稿が
+   他の学生へ全体通知されない（臨時スタッフを募集しても学生が自分で見に行かないと気づけない）。
+   職員も空きスタッフを目視で探して個別電話していた
+   → **欠員をPush通知で確実に届け、候補を自動抽出して先着で自動確定**
 2. **勤怠照合の手作業** — カレンダーの勤務予定と勤怠登録を職員が目視で突き合わせていた
    → **自動照合して差分をハイライト**（機能B・開発中）
 
@@ -56,7 +58,7 @@ flowchart TB
   Chat -->|通知| T
 ```
 
-> 📐 画面ごとのデータフロー・通知シーケンス・権限設計など**詳細は [`docs/architecture.md`](docs/architecture.md)** を参照。
+> 📐 画面ごとのデータフロー・通知シーケンス・権限設計など**詳細は [`docs/spec/architecture.md`](docs/spec/architecture.md)** を参照。
 
 ---
 
@@ -64,7 +66,7 @@ flowchart TB
 
 | 画面 | URL | 対象 | 概要 |
 |---|---|---|---|
-| シフト確認（時間割） | `?page=home` | 全員 | 利用者中心の時間割。空き枠の可視化・マイビュー |
+| シフト確認（時間割） | `?page=home` | 全員 | 利用学生（被支援者）中心の時間割。空き枠の可視化・マイビュー |
 | 欠勤連絡 | `?page=absence` | 全員 | 欠勤登録 → 候補抽出 → Chat通知 |
 | 代行依頼への回答 | `?page=respond` | 候補者 | 承諾／辞退。先着で自動確定 |
 | シフト入力 | `?page=input` | 職員 | 時間割（courses）の追加・削除 |
@@ -79,10 +81,10 @@ flowchart TB
 <details open>
 <summary><b>シフト確認（時間割）</b> — 「どこのシフトが空いているか」をひと目で</summary>
 
-- 利用者（被支援者）中心の時間割をアプリ内にデジタル表示（D8）
+- 利用学生（被支援者）中心の時間割をアプリ内にデジタル表示（D8）
 - **レスポンシブ**：PC＝曜日×時限グリッド／スマホ＝曜日タブ＋カード
 - 軸は**固定枠**（標準曜日＋全時限）。空き時限・空きセルも枠として表示
-- コマは**ボタン式**。タップで詳細（利用者・科目・担当教員・教室・備考・状態）
+- コマは**ボタン式**。タップで詳細（利用学生・科目・担当教員・教室・備考・状態）
 - **「あと1名 募集中」を緑表示**（テイク1名＝空き枠）。当日欠勤の「欠員対応中」は赤で区別
 - **マイビュー**（学生）：自分の担当コマ＋自分が入れる募集中を同じ時間割で見比べ（D8③）
 </details>
@@ -101,10 +103,21 @@ flowchart TB
 <details>
 <summary><b>シフト入力</b> — 職員の入力負担を最小化</summary>
 
-- 時間割（`courses`）を画面から追加・削除（backlog #4）
-- 利用者は**選択式**（既存名プルダウン＋新規追加。表記ゆれ防止）
+- 時間割（`courses`）を画面から追加・**編集**・削除（backlog #4・D12）
+- 利用学生は**選択式**（既存名プルダウン＋新規追加。表記ゆれ防止）
 - 担当欄は**その曜日・時限に空きがあり内容に対応できる人だけ**を自動表示（全員表示にも切替可）
-- 同一コマへの二重起用ガード／欠員が紐づくコマは削除不可（記録保全）
+- **編集**は一覧の「編集」から入力フォームを更新モードに切替（履修登録時に教室未定→後から修正、など）
+- 同一コマへの二重起用ガード／欠員が紐づくコマは削除不可・構造変更不可（記録保全）
+</details>
+
+<details>
+<summary><b>フォーム連携</b> — 空きコマ／連絡先の自動取り込み</summary>
+
+- 学生が回答する**1つのフォーム**（①空きコマ・スキル ②電話・Webhook URL）を、送信トリガーで自動反映
+- **メールをキーに名簿（contacts）と照合**し、登録済みスタッフの行だけ更新（学外・無関係ユーザーの混入防止）
+- 振り分け：空きコマ・スキル → `staffs`、電話・Webhook → `contacts`（職員のみ）
+- 上書きは**クォーター再収集で「フォームが正」**。ただし skills は空送信で上書きせず（未回答＝全対応の誤判定を防止）、
+  Webhook は Google Chat の URL 形式のときだけ反映
 </details>
 
 <details>
@@ -121,7 +134,6 @@ flowchart TB
 ## 🚧 開発中・未着手
 
 - **整合性チェック（機能B）** — カレンダーの勤務予定 ↔ 勤怠データの自動照合（`Calendar.gs` に基盤あり）
-- **フォーム連携** — 空きコマ／連絡先フォームを `staffs`・`contacts` にメールをキーで自動取り込み
 - **代行確定の Google カレンダー自動反映**（機能Aの完結）
 - **Phase 3** — 月末リマインダー・教務課向けレポート・クォーター更新フロー
 
@@ -135,13 +147,14 @@ src/                GAS スクリプト（.gs）と画面（.html）
   Vacancy.gs        欠員起票・候補スクリーニング・先着自動確定
   Input.gs          シフト入力（courses 追加・削除・候補絞り込み）
   Notify.gs         Google Chat 通知
+  Forms.gs          フォーム連携（空きコマ・連絡先をメールキーで自動反映）
   Sheets.gs         Spreadsheet 操作の共通処理
   Calendar.gs       カレンダー連携（機能Bの基盤）
   Device.gs         M5Stack 用エンドポイント
   Setup.js          DB初期化・ダミーデータ生成・マイグレーション
   *.html            home / absence / input / respond / manage 各画面
 device/             物理アラート端末（M5Stack）のスケッチと手順
-docs/               設計ドキュメント・決定ログ
+docs/               ドキュメント（spec=仕様・設計 / guides=手順書 / history=変更履歴・レビュー）
 ```
 
 ---
@@ -171,7 +184,7 @@ npx clasp push --force
 
 > 準備中（すべて**ダミーデータ**で撮影予定）。掲載予定：シフト確認（PC／スマホ）・マイビュー・
 > コマ詳細・欠勤連絡の候補抽出・Chat 代行依頼・回答画面・シフト入力。
-> 撮影が必要な画面の一覧は [`docs/operations.md`](docs/operations.md#用意するスクリーンショット一覧) にまとめてある。
+> 撮影が必要な画面の一覧は [`docs/guides/operations.md`](docs/guides/operations.md#用意するスクリーンショット一覧) にまとめてある。
 
 ---
 
@@ -180,9 +193,28 @@ npx clasp push --force
 | ファイル | 内容 |
 |---|---|
 | [`CLAUDE.md`](CLAUDE.md) | プロジェクト全体像・ドメイン知識・データ設計・プロパティ一覧 |
-| [`docs/operations.md`](docs/operations.md) | **職員向け利用マニュアル**（URL受領後の使い方・GAS不要） |
-| [`docs/setup.md`](docs/setup.md) | **構築・引き継ぎ手順**（管理者が一度だけ行うセットアップ） |
-| [`docs/architecture.md`](docs/architecture.md) | アーキテクチャ・データフロー・ER図・権限設計 |
-| [`docs/decisions.md`](docs/decisions.md) | 相談で決まった仕様・経緯（決定ログ） |
-| [`docs/changelog.md`](docs/changelog.md) | 開発の経緯（日付ごとの変更履歴） |
-| [`docs/backlog.md`](docs/backlog.md) | 未対応の改善点 |
+
+**`docs/spec/`** — 仕様・設計（現在の状態。更新され続ける）
+
+| ファイル | 内容 |
+|---|---|
+| [`docs/spec/requirements.md`](docs/spec/requirements.md) | 要件定義 |
+| [`docs/spec/decisions.md`](docs/spec/decisions.md) | 相談で決まった仕様・経緯（決定ログ） |
+| [`docs/spec/backlog.md`](docs/spec/backlog.md) | 未対応の改善点 |
+| [`docs/spec/architecture.md`](docs/spec/architecture.md) | アーキテクチャ・データフロー・ER図・権限設計 |
+| [`docs/spec/notify-scaling-options.md`](docs/spec/notify-scaling-options.md) | 通知スケール課題の検討案（未採用） |
+
+**`docs/guides/`** — 手順書（人が実行する）
+
+| ファイル | 内容 |
+|---|---|
+| [`docs/guides/operations.md`](docs/guides/operations.md) | **職員向け利用マニュアル**（URL受領後の使い方・GAS不要） |
+| [`docs/guides/setup.md`](docs/guides/setup.md) | **構築・引き継ぎ手順**（管理者が一度だけ行うセットアップ） |
+
+**`docs/history/`** — 記録（追記のみ・過去の一時点のスナップショット）
+
+| ファイル | 内容 |
+|---|---|
+| [`docs/history/changelog.md`](docs/history/changelog.md) | 開発の経緯（日付ごとの変更履歴） |
+| [`docs/history/review-2026-06-23.md`](docs/history/review-2026-06-23.md) | コードレビュー記録（2026-06-23） |
+| [`docs/history/review-2026-07-09.md`](docs/history/review-2026-07-09.md) | コードレビュー記録（2026-07-09） |
