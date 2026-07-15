@@ -708,3 +708,115 @@ function testVacancy() {
   Logger.log('（候補が「なし」の場合、その曜日時限に空きのある別の学生を staffs に足すと候補に出ます）');
   Logger.log('===== 確認終了 =====');
 }
+
+// ─── 実機e2e（Tier A・backlog 9-5）──────────────────────────────
+//
+// 実 LockService・実スプレッドシート（ダミーDB前提）に対して、機能Aの中核
+// （欠員登録 → 候補抽出 → 先着競合 → 再オープン）を内部関数で駆動し状態を検証する。
+// 公開関数（submitAbsence 等）は Session 依存で1人では役を演じ分けにくいため、
+// ここでは内部関数を直接叩く（UI/ロール判定/通知配線はブラウザ walkthrough で確認する）。
+// 作成した欠員は最後に削除して後片付けする（ダミーDBを汚さない）。
+
+/**
+ * 機能Aの実機e2e。GASエディタから実行しログを見る。
+ * @param {{notify?:boolean}} [opts] notify=true で確定・再募集の実通知も送る（既定 false）。
+ */
+function e2eVacancyFlow(opts) {
+  opts = opts || {};
+  const notify = !!opts.notify;
+  const say = function (m) { Logger.log(m); };
+  const assert = function (cond, m) {
+    if (!cond) throw new Error('❌ ASSERT失敗: ' + m);
+    say('  ✅ ' + m);
+  };
+
+  say('===== 機能A 実機e2e（内部関数駆動・ダミーDB / 通知=' + (notify ? 'ON' : 'OFF') + '）=====');
+
+  const courses = readRows(SHEET.COURSES);
+  if (!courses.length) throw new Error('courses が空です。setupSpreadsheets を実行してください。');
+
+  // 先着競合を実際に試すため「候補が2人以上」のコマを探す（無ければ候補最多のコマ）。
+  var course = null, cands = [];
+  for (var i = 0; i < courses.length; i++) {
+    const c = courses[i];
+    const cc = findCandidates_(c, [c.staff_a_id, c.staff_b_id]);
+    if (cc.length > cands.length) { course = c; cands = cc; }
+    if (cc.length >= 2) break;
+  }
+  course = course || courses[0];
+  const courseId = String(course.course_id).trim();
+  const absentId = String(course.staff_a_id).trim() || String(course.staff_b_id).trim();
+  const date = nextDateForWeekday_(String(course.day).trim());
+  say('対象コマ: ' + courseId + '（' + course.day + course.period + '限 / ' + course.quarter +
+    ' / ' + course.user_student + '）欠勤=' + absentId + ' 対象日=' + date);
+
+  // 欠員を登録（submitAbsence の書き込み相当）
+  const vacancyId = appendRowWithId(SHEET.VACANCIES, 'vacancy_id', 'V', {
+    date: date, course_id: courseId, absent_staff_id: absentId,
+    notify_status: NOTIFY_STATUS_PENDING, result: '',
+  });
+  say('欠員登録: ' + vacancyId);
+
+  try {
+    // 候補抽出（当日分）
+    const cds = findCandidates_(course, [course.staff_a_id, course.staff_b_id], date);
+    say('候補: ' + (cds.length ? cds.map(function (x) { return x.staff_id + '/' + x.name; }).join('、') : 'なし'));
+
+    if (cds.length >= 2) {
+      // 先着競合：2人が同時承諾 → 実 LockService 下で1人だけ確定（D1）
+      const A = String(cds[0].staff_id).trim(), B = String(cds[1].staff_id).trim();
+      const r1 = tryTransitionVacancy_(vacancyId, 'settle', { result: VACANCY_RESULT.FILLED, substitute_staff_id: A });
+      const r2 = tryTransitionVacancy_(vacancyId, 'settle', { result: VACANCY_RESULT.FILLED, substitute_staff_id: B });
+      assert(r1.applied === true, '先着A（' + A + '）が確定');
+      assert(r2.applied === false, '後着B（' + B + '）は確定不可（受付終了）');
+      const v = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+      assert(String(v.result).trim() === VACANCY_RESULT.FILLED, 'result=補充済');
+      assert(String(v.substitute_staff_id).trim() === A, '代行者=先着A（後着で上書きされない）');
+      if (notify) { notifyVacancyFilled(vacancyId, A); say('  （確定通知を送信）'); }
+    } else if (cds.length === 1) {
+      const A2 = String(cds[0].staff_id).trim();
+      const r = tryTransitionVacancy_(vacancyId, 'settle', { result: VACANCY_RESULT.FILLED, substitute_staff_id: A2 });
+      assert(r.applied === true, '唯一候補A（' + A2 + '）が確定');
+      if (notify) { notifyVacancyFilled(vacancyId, A2); }
+    } else {
+      // 候補0人 → 自動決着の分岐（相方が残るか）。ここでは相方の有無だけ確認。
+      say('  候補0人。自動決着（1人テイク/職員対応）の分岐は submitAbsence 経由で確認する。');
+      tryTransitionVacancy_(vacancyId, 'settle', { result: VACANCY_RESULT.STAFF, substitute_staff_id: '' });
+    }
+
+    // 再オープン（決着 → 未決着）。旧値が current から読めること。
+    const re = transitionVacancyOrThrow_(vacancyId, 'reopen',
+      { result: '', substitute_staff_id: '', notify_status: NOTIFY_STATUS_PENDING });
+    const v2 = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+    assert(String(v2.result).trim() === '', '再オープンで result がクリアされる');
+    assert(re.current && !!String(re.current.result).trim(), '再オープンの current から旧決着値が読める');
+    if (notify) { notifyNewVacancy(vacancyId, true); say('  （再募集通知を送信）'); }
+
+    // 二重再オープンは弾かれる（未決着への reopen は throw）
+    var threw = false;
+    try {
+      transitionVacancyOrThrow_(vacancyId, 'reopen', { result: '' });
+    } catch (e) { threw = true; }
+    assert(threw, '未決着への再オープンは throw（二重再オープン防止）');
+
+    say('===== e2e 成功：実 LockService・実 Sheets で機能A中核を確認 =====');
+  } finally {
+    // 後片付け：作った欠員と紐づく回答を削除
+    const dv = deleteRowByKey(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+    const dr = deleteRowByKey(SHEET.RESPONSES, 'vacancy_id', vacancyId);
+    say('後片付け: 欠員 ' + dv + ' 行 / 回答 ' + dr + ' 行を削除（' + vacancyId + '）');
+  }
+}
+
+// 指定曜日（月〜日）の直近の未来日（明日以降）を 'yyyy-MM-dd' で返す。過去日ガード回避用。
+function nextDateForWeekday_(dayJp) {
+  const names = ['日', '月', '火', '水', '木', '金', '土'];
+  const target = names.indexOf(dayJp);
+  const d = new Date();
+  d.setDate(d.getDate() + 1); // 明日から探す
+  for (var i = 0; i < 7; i++) {
+    if (target === -1 || d.getDay() === target) break;
+    d.setDate(d.getDate() + 1);
+  }
+  return Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy-MM-dd');
+}
