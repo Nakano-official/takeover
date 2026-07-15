@@ -328,12 +328,13 @@ function migrateStaffsPersonalCode() {
 }
 
 /**
- * 当年度の学期マスタ雛形（前期/後期＋1Q〜4Q）を返す（D16）。
- * 本番の空セットアップ・マイグレーションで共用。日付は学事暦に合わせて職員が調整する前提の目安値。
+ * 指定年度の学期マスタ雛形（前期/後期＋1Q〜4Q）を返す（D16/D19）。
+ * 日付は学事暦に合わせて職員が調整する前提の目安値。年度をまたいで再利用できるよう年を引数に取る。
+ * @param {(string|number)} year 西暦年（例：2027）
  * @return {Array<{term_id,system,start_date,end_date}>}
  */
-function currentYearTermsTemplate_() {
-  const yr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy');
+function yearTermsTemplate_(year) {
+  const yr = String(year);
   const ny = String(Number(yr) + 1);
   return [
     { term_id: yr + '-前期', system: 'semester', start_date: yr + '-04-01', end_date: yr + '-09-20' },
@@ -343,6 +344,15 @@ function currentYearTermsTemplate_() {
     { term_id: yr + '-3Q', system: 'quarter', start_date: yr + '-09-21', end_date: yr + '-11-25' },
     { term_id: yr + '-4Q', system: 'quarter', start_date: yr + '-11-26', end_date: ny + '-02-10' },
   ];
+}
+
+/**
+ * 当年度の学期マスタ雛形（前期/後期＋1Q〜4Q）を返す（D16）。
+ * 本番の空セットアップ・マイグレーションで共用。yearTermsTemplate_ の当年度ラッパー。
+ * @return {Array<{term_id,system,start_date,end_date}>}
+ */
+function currentYearTermsTemplate_() {
+  return yearTermsTemplate_(Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy'));
 }
 
 /**

@@ -227,6 +227,7 @@ ryukoku-support-shift/
 │   ├── input.html              # シフト入力（職員）
 │   ├── manage.html             # 欠員補充管理（職員）
 │   ├── check.html              # 整合性チェック（職員・CSVアップロード→照合）
+│   ├── terms.html              # 学期設定（職員・年度追加／学期の開始終了日を編集・D19）
 │   └── appsscript.json         # GASマニフェスト
 ├── device/                     # M5Stack スケッチと手順
 ├── docs/                       # ドキュメント（spec=仕様・設計 / guides=手順書 / history=変更履歴・レビュー）

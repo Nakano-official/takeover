@@ -17,6 +17,7 @@ const PAGES = {
   respond: { file: 'respond', title: '代行依頼への回答',   staffOnly: false },
   manage:  { file: 'manage',  title: '欠員補充管理',       staffOnly: true  },
   check:   { file: 'check',   title: '整合性チェック',     staffOnly: true  },
+  terms:   { file: 'terms',   title: '学期設定',           staffOnly: true  },
 };
 
 const DEFAULT_PAGE = 'home';
