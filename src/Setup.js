@@ -329,7 +329,13 @@ function migrateStaffsPersonalCode() {
 
 /**
  * 指定年度の学期マスタ雛形（前期/後期＋1Q〜4Q）を返す（D16/D19）。
- * 日付は学事暦に合わせて職員が調整する前提の目安値。年度をまたいで再利用できるよう年を引数に取る。
+ * 日付は「学期設定」画面で職員が実際の学事暦に合わせて調整する前提の**目安値**。年度をまたいで
+ * 再利用できるよう年を引数に取る（月日パターンは共通・実始まり曜日は年で数日ずれるため要調整）。
+ *
+ * 月日パターンは2026年度の実カレンダーに寄せてある（龍谷大・2026-07 ヒアリング）：
+ *   前期＝4/7〜8/4（＝2Q終了）、夏休みを挟んで 後期＝9/18〜翌1/28。
+ *   1Q 4/7〜6/8 ／ 2Q 6/9〜8/4 ／ 3Q 9/18〜11/19 ／ 4Q 11/20〜翌1/28。
+ *   ※ 前期⊇1Q+2Q・後期⊇3Q+4Q の入れ子は保つ。夏(8/5〜9/17)・春(1/29〜)は「現在なし」の空白期間になる。
  * @param {(string|number)} year 西暦年（例：2027）
  * @return {Array<{term_id,system,start_date,end_date}>}
  */
@@ -337,12 +343,12 @@ function yearTermsTemplate_(year) {
   const yr = String(year);
   const ny = String(Number(yr) + 1);
   return [
-    { term_id: yr + '-前期', system: 'semester', start_date: yr + '-04-01', end_date: yr + '-09-20' },
-    { term_id: yr + '-後期', system: 'semester', start_date: yr + '-09-21', end_date: ny + '-03-31' },
-    { term_id: yr + '-1Q', system: 'quarter', start_date: yr + '-04-01', end_date: yr + '-06-05' },
-    { term_id: yr + '-2Q', system: 'quarter', start_date: yr + '-06-06', end_date: yr + '-08-05' },
-    { term_id: yr + '-3Q', system: 'quarter', start_date: yr + '-09-21', end_date: yr + '-11-25' },
-    { term_id: yr + '-4Q', system: 'quarter', start_date: yr + '-11-26', end_date: ny + '-02-10' },
+    { term_id: yr + '-前期', system: 'semester', start_date: yr + '-04-07', end_date: yr + '-08-04' },
+    { term_id: yr + '-後期', system: 'semester', start_date: yr + '-09-18', end_date: ny + '-01-28' },
+    { term_id: yr + '-1Q', system: 'quarter', start_date: yr + '-04-07', end_date: yr + '-06-08' },
+    { term_id: yr + '-2Q', system: 'quarter', start_date: yr + '-06-09', end_date: yr + '-08-04' },
+    { term_id: yr + '-3Q', system: 'quarter', start_date: yr + '-09-18', end_date: yr + '-11-19' },
+    { term_id: yr + '-4Q', system: 'quarter', start_date: yr + '-11-20', end_date: ny + '-01-28' },
   ];
 }
 
