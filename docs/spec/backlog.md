@@ -111,6 +111,18 @@ D14で `Attendance.gs`＋`check.html` を実装した後のコードレビュー
 
 ---
 
+## 実機e2e検証の状況（2026-07-10 更新）
+
+- ✅ **機能A・Tier A（GASエディタ内部関数駆動）実機PASS**：`e2eVacancyFlow`（Vacancy.gs）を
+  実 LockService・実 Spreadsheet（ダミーDB）で実行し、先着確定（D1・後着で上書きされない）・
+  再オープン・二重再オープン拒否・候補抽出・後片付けを観測。7アサート全通過。
+  → 中核ロジックは「シミュレーション通過」から「実機で観測済み」に格上げ。
+- ⏳ **未検証（残）**：
+  - **機能A・Tier B（ブラウザ walkthrough）**：公開関数の Session/ロール判定、`google.script.run` 配線、
+    6画面のHTML描画（Date直列化の罠含む）、実Chat通知の到達、D10候補0人の自動決着の実経路。
+  - **機能B（正式な 9-5）**：`migrateStaffsPersonalCode`→`testParseAttendanceCsv`→`testReconcile`→
+    `seedTestCalendar`→`check.html` アップロード〜照合の実機確認。
+
 ## 10. 全体コードレビュー指摘の修正手順（2026-07-09・8角度レビュー）
 
 `main...dev/feature/Nakano` 全差分＋未コミット分（Attendance.gs / check.html / Setup.js）を対象に
