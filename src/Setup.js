@@ -419,7 +419,9 @@ function setupMainDb_(ss, data) {
   staffsSheet.setName('staffs');
   // personal_code（学籍番号系の安定ID）は機能Bの勤怠CSV突合キー（decisions.md D2/D14）。
   // 先頭ゼロ・英字接頭辞の数値化を防ぐためテキスト固定する（F列）。
-  staffsSheet.getRange(2, 6, Math.max(data.staffs.length, 1), 1).setNumberFormat('@');
+  // 空セットアップ（staffs 0行）でも 3行目以降に職員が直接入力するため、データ行数ではなく
+  // 列全体をテキスト固定する（データ行数だけだと F2 しか保護されず 10-6 の数値化バグを踏む）。
+  staffsSheet.getRange(2, 6, Math.max(staffsSheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
   writeTable_(staffsSheet,
     ['staff_id', 'name', 'role', 'skills', 'available_slots', 'personal_code'], data.staffs);
 
@@ -484,8 +486,9 @@ function setupMainDb_(ss, data) {
 function setupContactsDb_(ss, data) {
   const contactsSheet = ss.getActiveSheet();
   contactsSheet.setName('contacts');
-  // phone 列（C…ではなくD列）は先頭0欠落・数値化を防ぐためテキスト固定
-  contactsSheet.getRange(2, 4, Math.max(data.contacts.length, 1), 1).setNumberFormat('@');
+  // phone 列（C…ではなくD列）は先頭0欠落・数値化を防ぐためテキスト固定。
+  // personal_code と同様、空セットアップ後に職員が直接追加する行も保護するため列全体に掛ける。
+  contactsSheet.getRange(2, 4, Math.max(contactsSheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
   writeTable_(contactsSheet, ['staff_id', 'name', 'email', 'phone', 'webhook_url'], data.contacts);
 
   applyHeaderStyle_([contactsSheet], '#cc0000');

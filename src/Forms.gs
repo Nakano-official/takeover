@@ -30,14 +30,9 @@ const Q_EMAIL = 'メールアドレス';
 // セクション②連絡先
 const Q_PHONE = '電話番号';
 const Q_WEBHOOK = 'Google Chat Webhook URL';
-// セクション①空きコマ（曜日ごとのチェックボックス。選択肢は「1限」〜「7限」）
-const DAY_QUESTIONS = [
-  ['月', '月曜の空きコマ'],
-  ['火', '火曜の空きコマ'],
-  ['水', '水曜の空きコマ'],
-  ['木', '木曜の空きコマ'],
-  ['金', '金曜の空きコマ'],
-];
+// セクション①空きコマ（曜日ごとのチェックボックス。選択肢は「1限」〜「7限」）。
+// 設問の曜日集合は WORK_DAYS（Constants.gs）を単一の出所とし、設問名は day+WORK_DAY_SLOT_Q_SUFFIX で
+// 導出する。土曜運用の有効化は WORK_DAYS に '土' を足すだけで入力画面と同時に揃う（backlog 10-5）。
 // スキル（チェックボックス。選択肢は「テイク」「介助」）
 const Q_SKILLS = '対応できる業務';
 
@@ -105,12 +100,12 @@ function onIntakeFormSubmit(e) {
 
 // ─── 値の組み立て ────────────────────────────────────────────
 
-// 曜日別チェックボックス（'1限','3限' …）を 'month1,day3' 形式（例：月1,水3）に組む
+// 曜日別チェックボックス（'1限','3限' …）を 'month1,day3' 形式（例：月1,水3）に組む。
+// 対象曜日と設問名は WORK_DAYS / WORK_DAY_SLOT_Q_SUFFIX（Constants.gs）から関数内で導出する。
 function buildSlots_(nv) {
   const out = [];
-  DAY_QUESTIONS.forEach(function (pair) {
-    const day = pair[0];
-    const arr = nv[pair[1]] || [];
+  WORK_DAYS.forEach(function (day) {
+    const arr = nv[day + WORK_DAY_SLOT_Q_SUFFIX] || [];
     const periods = [];
     arr.forEach(function (v) {
       String(v).split(',').forEach(function (tok) {

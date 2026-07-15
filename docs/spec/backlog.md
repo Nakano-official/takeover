@@ -8,7 +8,7 @@ Phase 1 MVP（機能A：欠員補充の自動化）は最低要件クリア・�
 - 🟡 **磨き込み**（後回し可。実証実験前にまとめて）
 - ⚪ **要検討・定義不足**（仕様を決めてから着手）
 
-最終更新：2026-07-09
+最終更新：2026-07-15
 
 ---
 
@@ -146,18 +146,21 @@ D14で `Attendance.gs`＋`check.html` を実装した後のコードレビュー
   - **検証**：CASの競合分岐を合成データでシミュレーション（19ケース・confirm↔respond 競合、
     reopen の notEmpty ガード、二重reopen、対象なし等）全通過。実GASでの e2e 確認は残（backlog 9-5 と同枠）。
 
-- 🔴 **10-2. ID採番が999で重複する** — `Sheets.gs` `nextId_`
-  - `('000' + (max + 1)).slice(-3)` のため 1000 以降が `'000'` に折り返し、以後**全追加行が同一ID**
+- ✅ **10-2. ID採番が999で重複する** — `Sheets.gs` `nextId_`（2026-07-15 対応）
+  - 対応済み：`('000' + (max + 1)).slice(-3)` を `String(max + 1).padStart(3, '0')` に変更。
+    最小3桁を保ちつつ1000以降は桁を伸ばす。既存IDは可変長でも `parseInt(id.slice(prefix.length))` で読めるため移行不要。
+  - （以下は当時の記述）`('000' + (max + 1)).slice(-3)` のため 1000 以降が `'000'` に折り返し、以後**全追加行が同一ID**
     （`C000`/`V000`）。courses は「過去分は削除しない」方針で1000行超えは現実的。
-  - **手順**：`String(max + 1).padStart(3, '0')`（切り捨てないパディング）に変更。
-    既存IDは可変長でも `parseInt(id.slice(prefix.length))` で読めるため移行不要。
-  - **確認**：`nextId_` に max=999 相当のダミーで 'C1000' が返ること（一時テスト関数でログ確認）。
+  - **確認（残）**：`nextId_` に max=999 相当のダミーで 'C1000' が返ること（実機ログ確認は 9-5 と同枠）。
 
-- 🔴 **10-3. 勤怠照合の恒常的な偽「登録漏れ」（9-1の拡張）** — `Attendance.gs`
+- ⏸️ **10-3. 勤怠照合の恒常的な偽「登録漏れ」（9-1の拡張）** — `Attendance.gs`（カレンダー連携完成まで保留・2026-07-15）
+  - **保留理由**：機能Bはまだ実カレンダーとの照合を実際に走らせる段階に入っていない。
+    カレンダー連携（Phase 2・11-1 の予定側DB由来化含む）が実現してから、9-1/9-4/D7③ とまとめて着手する。
+    それまで分類ロジックは現状のまま据え置く（実データが無いため偽陽性が実運用で顔を出さない）。
   - (a) `personal_code` 未登録の学生：CSV行が破棄され、正しく登録していても全件「登録漏れ」（＝9-1）。
     (b) **職員**：カレンダーに職員名が入るシフト（職員対応）は勤怠CSVに出ないため毎月必ず赤表示。
     `unregistered` 警告は role='学生' 限定で (b) を拾えない。
-  - **手順**：
+  - **着手時の手順**：
     1. `runAttendanceCheck` で「突合可能な staff_id 集合」（role='学生' かつ personal_code 登録済み）を作る。
     2. `reconcileShifts_`（または予定側の組み立て時）で、突合不能な人の予定は
        「登録漏れ」ではなく **「照合対象外（要確認）」** に分類し、warnings 側に出す。
@@ -174,37 +177,38 @@ D14で `Attendance.gs`＋`check.html` を実装した後のコードレビュー
     notify_status 更新は既存実装がそのまま使える）。メッセージに「（再募集）」を付けると誤解がない。
   - **確認**：補充済→再オープンで、候補者スペースに再依頼が届き notify_status が通知済になること。
 
-- 🔴 **10-5. 土曜コマの補充候補が構造的に0人になる** — `Forms.gs` `DAY_QUESTIONS` ×（Google フォーム本体）
-  - フォーム（と DAY_QUESTIONS）は月〜金のみ。`Input.gs` は土曜コマを登録できるため、
+- ✅ **10-5. 土曜コマの補充候補が構造的に0人になる** — `Forms.gs`／`Input.gs`／`Constants.gs`（2026-07-15 対応・D17）
+  - **決定（ヒアリング）**：教育系は土曜授業がありうるが**現時点で土曜授業の学生はいない**。
+    → 案B（土を完全に塞ぐ）は将来困る／案A（今フォームに土曜設問追加）は時期尚早。
+    両者の折衷として、**曜日集合を単一定数 `WORK_DAYS`（Constants.gs）に集約**し、`Input.gs`（選択肢）と
+    `Forms.gs`（設問名 `day+曜の空きコマ`）を**そこから導出**。現状は月〜金。ドリフト（＝10-5の根本原因）を解消。
+  - **将来の土曜有効化**：`WORK_DAYS` に `'土'` を足す＋実 Google フォームに「土曜の空きコマ」設問を追加、の2手。
+  - （以下は当時の記述）フォーム（と DAY_QUESTIONS）は月〜金のみ。`Input.gs` は土曜コマを登録できるため、
     土曜に欠員が出ると誰も `available_slots` に「土n」を持てず、毎回「職員対応」に自動決着する。
-  - **手順**（どちらかを**決めて**から着手・decisions.md に記録）：
-    - 案A：土曜コマを使う → Google フォームに「土曜の空きコマ」設問を追加し、
-      `DAY_QUESTIONS` を共有の曜日定数から生成する（タイトルは `day + '曜の空きコマ'` で導出）。
-    - 案B：土曜運用が無い → `Input.gs` の `INPUT_DAYS` から「土」を外し、入力側で塞ぐ。
-  - **確認**：土曜コマで `findCandidates_` が空き申告者を返すこと（案A）／土曜コマが登録不可なこと（案B）。
+  - **確認（残）**：入力画面の曜日が月〜金になること／`buildSlots_` が WORK_DAYS で回ること（実機確認は 9-5 と同枠）。
 
-- 🔴 **10-6. personal_code のテキスト書式が本番セットアップで1セルのみ** — `Setup.js` `setupMainDb_`
-  - `'@'` 書式を `data.staffs.length` 行にしか掛けないため、`setupSpreadsheetsEmpty`（staffs 空）では
+- ✅ **10-6. personal_code のテキスト書式が本番セットアップで1セルのみ** — `Setup.js` `setupMainDb_`（2026-07-15 対応）
+  - 対応済み：staffs.personal_code（F列）を `Math.max(sheet.getMaxRows() - 1, 1)` 行＝**列全体**へテキスト固定に変更。
+    連絡先DBの phone 列も同一の潜在バグ（空セットアップ後に職員が直接追加する行が数値化）だったため、同様に列全体へ拡張。
+  - （以下は当時の記述）`'@'` 書式を `data.staffs.length` 行にしか掛けないため、`setupSpreadsheetsEmpty`（staffs 空）では
     F2 のみ保護。3行目以降に先頭ゼロの個人ｺｰﾄﾞを入力すると数値化され、CSVと永久に不一致になる。
-  - **手順**：`migrateStaffsPersonalCode` と同じく
-    `sheet.getRange(2, 6, Math.max(sheet.getMaxRows() - 1, 1), 1).setNumberFormat('@')` に変更
-    （writeTable_ の前に実行。列番号6の決め打ちはヘッダー名から引くとなお良い）。
-  - **確認**：`setupSpreadsheetsEmpty` 実行後、F列の任意の行に `0123456` を入力して先頭ゼロが残ること。
+  - **確認（残）**：`setupSpreadsheetsEmpty` 実行後、F列の任意の行に `0123456` を入力して先頭ゼロが残ること（実機確認は 9-5 と同枠）。
 
-- 🔴 **10-7. 未知の ?page= で利用登録ゲートを素通り** — `code.js` `doGet`
-  - 未知ページのフォールバックが `renderPage_(PAGES[DEFAULT_PAGE], ..., getCurrentUser_(), {})` を
+- ✅ **10-7. 未知の ?page= で利用登録ゲートを素通り** — `code.js` `doGet`（2026-07-15 対応）
+  - 対応済み：早期 return を削除し、`const pageKey = PAGES[params.page] ? params.page : DEFAULT_PAGE;`＋
+    `const config = PAGES[pageKey];` に統一。未知ページも以降の共通ガード（null 拒否 → staffOnly 判定）を必ず通る。
+    pageKey も既定へ正規化するのでナビ表示のずれも無い。
+  - （以下は当時の記述）未知ページのフォールバックが `renderPage_(PAGES[DEFAULT_PAGE], ..., getCurrentUser_(), {})` を
     直接呼び、null ユーザー拒否（利用登録なし画面）と staffOnly 判定を迂回する。
-  - **手順**：早期 return の分岐を削除し、`const config = PAGES[pageKey] || PAGES[DEFAULT_PAGE];` として
-    以降の共通ガード（null 拒否 → staffOnly 判定 → renderPage_）に必ず通す。
-  - **確認**：未登録アカウントで `?page=xxx` を開き「利用登録がありません」が出ること。
+  - **確認（残）**：未登録アカウントで `?page=xxx` を開き「利用登録がありません」が出ること（実機確認は 9-5 と同枠）。
 
-- 🔴 **10-8. user.staff_id が生セル値で厳密比較が破綻し得る** — `code.js` `getCurrentUser_`
-  - `staff_id: contact.staff_id` を未加工で返す一方、Vacancy.gs は `String().trim()` 済みIDと
+- ✅ **10-8. user.staff_id が生セル値で厳密比較が破綻し得る** — `code.js` `getCurrentUser_`（2026-07-15 対応）
+  - 対応済み：`getCurrentUser_` の戻り値を `staff_id: String(contact.staff_id).trim()` に正規化。
+    以降「user.staff_id は正規化済み」を前提にしてよい（Vacancy.gs 等の `===` 比較が型/空白ゆれで壊れなくなる）。
+  - （以下は当時の記述）`staff_id: contact.staff_id` を未加工で返す一方、Vacancy.gs は `String().trim()` 済みIDと
     `===` 比較。contacts のセルが数値や空白付きだと、自己除外（候補0人の自動決着）・
     重複欠勤チェック・相方表示がすべて不成立になる。
-  - **手順**：`getCurrentUser_` で `staff_id: String(contact.staff_id).trim()` に正規化する（1行）。
-    以降「user.staff_id は正規化済み」を前提にしてよい。比較箇所の総点検は不要になる。
-  - **確認**：contacts の staff_id を数値セルにして欠勤登録→自動決着の分類が正しいこと。
+  - **確認（残）**：contacts の staff_id を数値セルにして欠勤登録→自動決着の分類が正しいこと（実機確認は 9-5 と同枠）。
 
 - ✅ **10-9. 過去日の欠員に古いリンクから承諾できてしまう** — `Vacancy.gs` `respondToVacancy`（2026-07-10 対応・D15）
   - 対応済み：`respondToVacancy` 冒頭に `assertVacancyNotPast_`（対象日が過去なら throw）を追加。

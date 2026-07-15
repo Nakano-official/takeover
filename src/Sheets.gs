@@ -218,7 +218,10 @@ function nextId_(sheetName, idColumn, prefix) {
       if (!isNaN(n) && n > max) max = n;
     }
   });
-  return prefix + ('000' + (max + 1)).slice(-3);
+  // padStart で最小3桁を保ちつつ、1000以降は桁を伸ばす（slice(-3) だと 1000→'000' に
+  // 折り返して以後の追加行が全て同一IDになる。courses は過去分を残す方針で1000超は現実的）。
+  // 既存IDは可変長でも parseInt(id.slice(prefix.length)) で読めるため移行不要。
+  return prefix + String(max + 1).padStart(3, '0');
 }
 
 /**

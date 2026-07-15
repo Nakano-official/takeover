@@ -34,13 +34,11 @@ function doGet(e) {
     return handleDevicePoll_(params);
   }
 
-  const pageKey = params.page || DEFAULT_PAGE;
+  // 未知の page は既定画面へフォールバックするが、必ず以降の共通ガード
+  // （null ユーザー拒否 → staffOnly 判定）を通す。ここで renderPage_ を直接呼ぶと
+  // 未登録ユーザーが ?page=xxx で利用登録ゲートを素通りできてしまう（旧実装のバグ）。
+  const pageKey = PAGES[params.page] ? params.page : DEFAULT_PAGE;
   const config = PAGES[pageKey];
-
-  // 未知の page は既定画面へフォールバック
-  if (!config) {
-    return renderPage_(PAGES[DEFAULT_PAGE], DEFAULT_PAGE, getCurrentUser_(), {});
-  }
 
   const user = getCurrentUser_();
 
@@ -80,7 +78,9 @@ function getCurrentUser_() {
   const staff = findRow(SHEET.STAFFS, 'staff_id', contact.staff_id);
   return {
     email: email,
-    staff_id: contact.staff_id,
+    // staff_id は正規化して返す（Vacancy.gs 等が String().trim() 済みIDと === で比較するため、
+    // contacts のセルが数値や前後空白付きだと自己除外・重複欠勤チェック・相方表示が不成立になる）。
+    staff_id: String(contact.staff_id).trim(),
     name: staff ? staff.name : contact.name,
     role: staff ? String(staff.role).trim() : '',
   };

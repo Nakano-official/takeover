@@ -11,8 +11,9 @@
  *  - deleteCourse(courseId) : 1コマを削除する
  */
 
+// 既存コマ一覧の並び替え用（土日コマが過去データに在っても順序が壊れないよう全曜日を持つ）。
+// 入力の選択肢そのものは WORK_DAYS（Constants.gs・関数内参照）を使う（backlog 10-5）。
 const DAY_ORDER_INPUT = ['月', '火', '水', '木', '金', '土', '日'];
-const INPUT_DAYS = ['月', '火', '水', '木', '金', '土'];
 
 // 入力画面用データ（マスタ＋指定クォーターのコマ一覧）を返す
 function getInputData(quarter) {
@@ -102,7 +103,7 @@ function getInputData(quarter) {
   return {
     terms: termOptions,       // 学期セレクタ用（体系ラベル付き・{value,label,system}）
     quarter: selected,
-    days: INPUT_DAYS,
+    days: WORK_DAYS.slice(),  // 業務のある曜日（Constants.gs・関数内参照で連結順に依存しない）
     periods: periods,
     staff: students,
     users: users,
