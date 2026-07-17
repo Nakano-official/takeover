@@ -32,6 +32,10 @@
     .btn-save { padding: 7px 14px; font-size: .82rem; font-weight: 600; color: #fff; background: #1e7a3d;
                 border: none; border-radius: 6px; cursor: pointer; }
     .btn-save:disabled { background: #a9cdb6; cursor: default; }
+    .btn-del { padding: 7px 12px; font-size: .82rem; font-weight: 600; color: #c0392b; background: #fff;
+               border: 1px solid #e3b4ae; border-radius: 6px; cursor: pointer; }
+    .btn-del:hover { background: #fdf1f0; }
+    .btn-del:disabled { color: #c9a7a3; border-color: #efe0de; background: #fff; cursor: default; }
 
     .status { padding: 12px 14px; border-radius: 8px; font-size: .9rem; line-height: 1.6; }
     .status.ok { background: #eaf7ee; border: 1px solid #bfe6cb; color: #1e7a3d; }
@@ -176,6 +180,7 @@
               '<div><label>終了日</label>' +
                 '<input type="date" class="en" value="' + escapeHtml(t.end_date) + '"></div>' +
               '<button class="btn-save" onclick="saveRow(this)">保存</button>' +
+              '<button class="btn-del" onclick="delRow(this)"' + (t.used ? ' disabled title="授業が登録されているため削除できません"' : '') + '>削除</button>' +
               '<span class="rtoast"></span>' +
             '</div>' +
           '</div>';
@@ -204,6 +209,24 @@
           rowMsg(msg, err.message, false);
         })
         .updateTermDates(termId, start, end);
+    }
+
+    function delRow(btn) {
+      var row = btn.closest('.trow');
+      var termId = row.getAttribute('data-tid');
+      var msg = row.querySelector('.rtoast');
+      if (!confirm(termId + ' を削除しますか？（授業が登録されている学期は削除できません）')) return;
+      btn.disabled = true; btn.textContent = '削除中…';
+      google.script.run
+        .withSuccessHandler(function () {
+          rowMsg(msg, '削除しました。', true);
+          load(); // 一覧を更新
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false; btn.textContent = '削除';
+          rowMsg(msg, err.message, false);
+        })
+        .deleteTerm(termId);
     }
 
     function rowMsg(el, text, ok) {

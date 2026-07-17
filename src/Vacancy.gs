@@ -36,6 +36,10 @@ function getMyCourses() {
   const activeSet = {};
   activeTermIds_(courseTermIds).forEach(function (id) { activeSet[id] = true; });
 
+  // 学期ID → 開講期間（欠勤日の選択肢を「授業のある日」に限定するため画面へ渡す）
+  const termById = {};
+  readTerms_().forEach(function (t) { termById[t.term_id] = t; });
+
   return allCourses
     .filter(function (c) {
       return activeSet[String(c.quarter).trim()] && isAssigned_(c, user.staff_id);
@@ -43,6 +47,7 @@ function getMyCourses() {
     .map(function (c) {
       const partnerId = String(c.staff_a_id).trim() === user.staff_id ? c.staff_b_id : c.staff_a_id;
       const p = periodById[String(c.period).trim()] || {};
+      const term = termById[String(c.quarter).trim()] || {};
       return {
         course_id: c.course_id,
         quarter: c.quarter,
@@ -50,6 +55,8 @@ function getMyCourses() {
         period: String(c.period).trim(),
         time: p.start_time ? p.start_time + '〜' + p.end_time : '',
         partner: nameById[String(partnerId).trim()] || partnerId || '',
+        termStart: term.start_date || '',
+        termEnd: term.end_date || '',
       };
     });
 }
@@ -86,6 +93,20 @@ function submitAbsence(courseId, date) {
   const courseDay = String(course.day).trim();
   if (wd && courseDay && wd !== courseDay) {
     throw new Error('欠勤日（' + dateStr + '・' + wd + '曜）が、このコマの曜日（' + courseDay + '曜）と一致しません。');
+  }
+
+  // 学期期間チェック：欠勤日はコマの学期（terms）の開講期間内であること。
+  // 曜日が合っていても、長期休暇中や学期外・翌年など「授業が無い日」の登録を防ぐ（重大バグ修正）。
+  // terms 未整備／該当学期に日付が無い場合はスキップ（後方互換）。
+  const courseTerm = readTerms_().filter(function (t) {
+    return t.term_id === String(course.quarter).trim();
+  })[0];
+  if (courseTerm && courseTerm.start_date && courseTerm.end_date) {
+    if (dateStr < courseTerm.start_date || dateStr > courseTerm.end_date) {
+      throw new Error('欠勤日（' + dateStr + '）は、このコマの学期「' + courseTerm.term_id +
+        '」の開講期間（' + courseTerm.start_date + '〜' + courseTerm.end_date + '）外です。' +
+        '授業のある日を選んでください。');
+    }
   }
 
   // 二重登録の防止（同じ人・同じコマ・同じ日で未解決の欠員が既にある）

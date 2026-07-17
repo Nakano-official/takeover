@@ -63,8 +63,70 @@
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
+    var COURSES = [];  // getMyCourses の戻り（学期範囲つき）を保持
+
+    function todayISO() {
+      var t = new Date();
+      return t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2);
+    }
+    function parseISO(s) { var m = String(s).split('-'); return new Date(+m[0], +m[1] - 1, +m[2]); }
+    function fmtISO(d) {
+      return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+    }
+
+    // コマの曜日に一致し、学期期間内で今日以降の授業日をすべて列挙する
+    function classDates(dayJa, startStr, endStr) {
+      if (!endStr) return [];
+      var W = ['日', '月', '火', '水', '木', '金', '土'];
+      var today = new Date(); today.setHours(0, 0, 0, 0);
+      var start = startStr ? parseISO(startStr) : new Date(today);
+      if (start < today) start = new Date(today);
+      var end = parseISO(endStr);
+      var out = [], d = new Date(start), guard = 0;
+      while (d <= end && guard < 400) {
+        if (W[d.getDay()] === dayJa) out.push(fmtISO(d));
+        d.setDate(d.getDate() + 1); guard++;
+      }
+      return out;
+    }
+
+    function selectedCourse() {
+      var id = document.getElementById('course').value;
+      for (var i = 0; i < COURSES.length; i++) if (COURSES[i].course_id === id) return COURSES[i];
+      return COURSES[0];
+    }
+
+    // 選択中コマに合わせて「欠勤日」の選択肢を組み直す（授業のある日だけ）
+    function rebuildDates() {
+      var c = selectedCourse();
+      var wrap = document.getElementById('dateWrap');
+      var btn = document.getElementById('submit');
+      var hint = document.getElementById('datehint');
+      if (!c.termEnd) {
+        // 学期日程が未設定のコマ → 日付直接入力にフォールバック（サーバーが曜日を検証）
+        var iso = todayISO();
+        wrap.innerHTML = '<input type="date" id="date" min="' + iso + '" value="' + iso + '">';
+        btn.disabled = false;
+        hint.textContent = 'この授業は学期日程が未設定のため日付を直接選べます（' + c.day + '曜のみ有効）。学期設定への登録を推奨します。';
+        return;
+      }
+      var dates = classDates(c.day, c.termStart, c.termEnd);
+      if (dates.length === 0) {
+        wrap.innerHTML = '<select id="date"><option value="">（選べる日がありません）</option></select>';
+        btn.disabled = true;
+        hint.textContent = 'この学期（' + c.termStart + '〜' + c.termEnd + '）に残りの' + c.day + '曜がありません。';
+        return;
+      }
+      wrap.innerHTML = '<select id="date">' + dates.map(function (d) {
+        return '<option value="' + d + '">' + d + '（' + c.day + '）</option>';
+      }).join('') + '</select>';
+      btn.disabled = false;
+      hint.textContent = 'この学期に授業のある' + c.day + '曜だけが選べます。';
+    }
+
     // 担当コマを読み込んでフォームを組み立てる
     function buildForm(courses) {
+      COURSES = courses || [];
       var form = document.getElementById('form');
       if (!courses || courses.length === 0) {
         form.className = 'state';
@@ -78,19 +140,15 @@
         return '<option value="' + escapeHtml(c.course_id) + '">' + escapeHtml(label) + '</option>';
       }).join('');
 
-      var today = new Date();
-      var iso = today.getFullYear() + '-'
-        + ('0' + (today.getMonth() + 1)).slice(-2) + '-'
-        + ('0' + today.getDate()).slice(-2);
-
       form.className = '';
       form.innerHTML =
         '<label for="course">欠勤するコマ</label>' +
-        '<select id="course">' + opts + '</select>' +
+        '<select id="course" onchange="rebuildDates()">' + opts + '</select>' +
         '<label for="date">欠勤日</label>' +
-        '<input type="date" id="date" value="' + iso + '">' +
+        '<div id="dateWrap"></div>' +
         '<button id="submit" onclick="submit()">欠勤を登録して代行候補を探す</button>' +
-        '<p class="hint">登録すると、その曜日・時限に空きのある学生が代行候補として表示されます。</p>';
+        '<p class="hint" id="datehint"></p>';
+      rebuildDates();
     }
 
     function submit() {
