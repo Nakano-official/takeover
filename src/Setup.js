@@ -331,6 +331,43 @@ function migrateStaffsPersonalCode() {
 }
 
 /**
+ * 既存の periods シートのテキスト書式を「列全体」に広げる（D21 で判明した潜在バグの修正）。
+ *
+ * セットアップ時のテキスト固定は既定の7行ぶんにしか掛かっておらず、職員が8行目以降に
+ * 時限（8限・課外時限など）を手で足すと `09:15` が**時刻値**として保存される。
+ * すると `readRows` が Date を返し、締切判定（D21・`isPastRecruitDeadline_`）が
+ * 黙って「締切前」に倒れたり、時刻表示が壊れたりする。10-6（personal_code）と同じパターン。
+ *
+ * 書式を広げるだけで、既に時刻値になっているセルは文字列へ直さない
+ * （表示上の見た目は変わらないため、必要なら職員が入力し直す）。冪等。
+ * GASエディタから1回実行する。
+ */
+function migratePeriodsTextFormat() {
+  const ss = openMainDb_();
+  const sheet = ss.getSheetByName('periods');
+  if (!sheet) { Logger.log('❌ periods シートが見つかりません。'); return; }
+
+  const rows = Math.max(sheet.getMaxRows() - 1, 1);
+  sheet.getRange(2, 1, rows, 3).setNumberFormat('@');
+  invalidateSheetCache_('periods'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
+
+  Logger.log('✅ periods の period / start_time / end_time を列全体（' + rows + '行）テキスト固定にしました。');
+
+  // 既に時刻値（Date）として保存されている行があれば知らせる
+  const bad = readRows('periods').filter(function (p) {
+    return (p.start_time instanceof Date) || (p.end_time instanceof Date);
+  });
+  if (bad.length === 0) {
+    Logger.log('   現在の全行が文字列として読めています（問題なし）。');
+  } else {
+    Logger.log('   ⚠️ 次の時限は既に時刻値になっています。該当セルを入力し直してください（例：先頭に \' を付けて 09:15）：');
+    bad.forEach(function (p) {
+      Logger.log('     ' + p.period + '限: ' + p.start_time + ' 〜 ' + p.end_time);
+    });
+  }
+}
+
+/**
  * 指定年度の学期マスタ雛形（前期/後期＋1Q〜4Q）を返す（D16/D19）。
  * 日付は「学期設定」画面で職員が実際の学事暦に合わせて調整する前提の**目安値**。年度をまたいで
  * 再利用できるよう年を引数に取る（月日パターンは共通・実始まり曜日は年で数日ずれるため要調整）。
@@ -380,7 +417,8 @@ function migrateAddTermsSheet() {
   const HEADERS = ['term_id', 'system', 'start_date', 'end_date'];
   const template = currentYearTermsTemplate_();
   sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
-  sheet.getRange(2, 3, template.length, 2).setNumberFormat('@'); // 日付列はテキスト固定
+  // 日付列はテキスト固定。雛形の行数ぶんではなく列全体に掛ける（10-6 / 10-6b と同じ理由）
+  sheet.getRange(2, 3, Math.max(sheet.getMaxRows() - 1, 1), 2).setNumberFormat('@');
   writeTable_(sheet, HEADERS, template);
   applyHeaderStyle_([sheet], '#4a86e8');
   invalidateSheetCache_('terms'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
@@ -460,8 +498,10 @@ function setupMainDb_(ss, data) {
     'staff_a_id', 'staff_b_id',
     'note',           // 備考
   ];
-  // period 列（D列）は periods シートと突合するためテキスト固定
-  coursesSheet.getRange(2, 4, Math.max(data.courses.length, 1), 1).setNumberFormat('@');
+  // period 列（D列）は periods シートと突合するためテキスト固定。初期データの行数ぶんではなく
+  // 列全体に掛ける（10-6 / 10-6b と同じ理由。空セットアップだと1行しか掛からず、以後
+  // シフト入力画面から足したコマの period が数値になる）。
+  coursesSheet.getRange(2, 4, Math.max(coursesSheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
   writeTable_(coursesSheet, COURSE_HEADERS, data.courses);
 
   const vacanciesSheet = ss.insertSheet('vacancies');
@@ -478,14 +518,18 @@ function setupMainDb_(ss, data) {
   // 先端理工=クォーター制／他学部=セメスター制の2体系が同時に走るための真実の源。
   const termsSheet = ss.insertSheet('terms');
   const TERM_HEADERS = ['term_id', 'system', 'start_date', 'end_date'];
-  // start_date/end_date（C・D列）は日付の型ゆれを避け 'yyyy-MM-dd' 文字列で扱うためテキスト固定
-  termsSheet.getRange(2, 3, Math.max((data.terms || []).length, 1), 2).setNumberFormat('@');
+  // start_date/end_date（C・D列）は日付の型ゆれを避け 'yyyy-MM-dd' 文字列で扱うためテキスト固定。
+  // 初期データの行数ぶんではなく**列全体**に掛ける（10-6 / 10-6b と同じ理由）。
+  termsSheet.getRange(2, 3, Math.max(termsSheet.getMaxRows() - 1, 1), 2).setNumberFormat('@');
   writeTable_(termsSheet, TERM_HEADERS, data.terms || []);
 
   const periodsSheet = ss.insertSheet('periods');
   periodsSheet.getRange(1, 1, 1, 3).setValues([['period', 'start_time', 'end_time']]);
-  // period（数値型化を防ぐ）・start_time/end_time（時刻型化を防ぐ）を全てテキスト固定
-  periodsSheet.getRange(2, 1, 7, 3).setNumberFormat('@');
+  // period（数値型化を防ぐ）・start_time/end_time（時刻型化を防ぐ）を全てテキスト固定。
+  // 既定の7行ぶんだけでなく**列全体**に掛ける（10-6 と同じ理由）。7行だけだと、職員が
+  // 8行目以降に時限（8限・課外時限など）を手で足したとき '09:15' が時刻値に化け、
+  // readRows が Date を返して締切判定（D21）や時刻表示が黙って壊れる。
+  periodsSheet.getRange(2, 1, Math.max(periodsSheet.getMaxRows() - 1, 1), 3).setNumberFormat('@');
   periodsSheet.getRange(2, 1, 7, 3).setValues([
     ['1', '09:15', '11:00'],
     ['2', '11:15', '12:30'],

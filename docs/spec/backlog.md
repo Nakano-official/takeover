@@ -187,6 +187,22 @@ D14で `Attendance.gs`＋`check.html` を実装した後のコードレビュー
     土曜に欠員が出ると誰も `available_slots` に「土n」を持てず、毎回「職員対応」に自動決着する。
   - **確認（残）**：入力画面の曜日が月〜金になること／`buildSlots_` が WORK_DAYS で回ること（実機確認は 9-5 と同枠）。
 
+- ✅ **10-6b. periods の時刻列のテキスト書式が既定7行ぶんのみ** — `Setup.js`（2026-08-09 対応・D21の実機テストで発見）
+  - 10-6 と**同じパターンの再発**。`setupMainDb_` が `getRange(2,1,7,3).setNumberFormat('@')` と
+    既定の7時限ぶんにしか書式を掛けておらず、職員が8行目以降（8限・課外時限）を足すと
+    `'09:15'` が時刻値として保存され、`readRows` が **Date** を返す。
+    `isPastRecruitDeadline_`（D21）がパースに失敗して**常に「締切前」に倒れる**＝直前欠勤の分岐が
+    黙って死ぬ。エラーにならないので気づけない。時刻表示（`p.start_time + '〜'`）も壊れる。
+  - **対応済み**：(1) `setupMainDb_` を列全体テキスト固定に変更、(2) 既存DB向けに
+    `migratePeriodsTextFormat()` を追加、(3) `periodStartMinutes_` で文字列/Date の両方を受けて堅牢化。
+  - **教訓**：`setNumberFormat('@')` は**必ず列全体**（`Math.max(getMaxRows()-1, 1)`）に掛ける。
+    「初期データの行数ぶん」で書くと、職員が行を足した瞬間に型が変わる。
+  - **横展開（同日・確認済み）**：同じ書き方が `terms` の日付列に2箇所あった
+    （`setupMainDb_` の `Math.max(data.terms.length,1)` と `migrateAddTermsSheet` の `template.length`）。
+    どちらも列全体へ修正。`terms` は `readTerms_` が `dateToStr_` で Date を吸収するため実害は出ていなかったが、
+    同じ形を残さない。`staffs.personal_code` / `contacts.phone` は 10-6 で対応済み。
+  - **確認（残）**：既存DBで `migratePeriodsTextFormat` を実行し、8行目に時限を足しても文字列のままになること。
+
 - ✅ **10-6. personal_code のテキスト書式が本番セットアップで1セルのみ** — `Setup.js` `setupMainDb_`（2026-07-15 対応）
   - 対応済み：staffs.personal_code（F列）を `Math.max(sheet.getMaxRows() - 1, 1)` 行＝**列全体**へテキスト固定に変更。
     連絡先DBの phone 列も同一の潜在バグ（空セットアップ後に職員が直接追加する行が数値化）だったため、同様に列全体へ拡張。

@@ -129,48 +129,51 @@ function submitAbsence(courseId, date) {
     result: '',
   });
 
+  const courseInfo = {
+    course_id: course.course_id,
+    day: course.day,
+    period: String(course.period).trim(),
+  };
+
+  // 代行者なしで決着させる共通処理（候補0人・締切超過の両方から使う）。
+  // 決着書き込みは状態機械（settle 遷移）に通す。作成直後で競合は無いが、
+  // 全ての result 書き込みを1経路に揃える（backlog 11-2）。
+  const settleWithoutSubstitute_ = function (reason) {
+    const autoResult = autoSettleResult_(course, dateStr, user.staff_id);
+    transitionVacancyOrThrow_(vacancyId, 'settle', { result: autoResult });
+    var autoNotify;
+    try {
+      autoNotify = notifyAutoResolved(vacancyId, autoResult, reason);
+    } catch (e) {
+      autoNotify = { error: e.message };
+    }
+    return {
+      vacancy_id: vacancyId,
+      course: courseInfo,
+      candidates: [],
+      autoResult: autoResult,
+      notify: autoNotify,
+    };
+  };
+
+  // 締切超過（授業開始 RECRUIT_DEADLINE_MIN_BEFORE 分前を過ぎている）→ 直前欠勤。
+  // 欠勤の記録は残すが、間に合わない代行依頼は候補へ送らない（requirements §8・運用決定）。
+  // 職員スペースには「直前欠勤（代行募集なし）」を通知し、画面では学生に
+  // Google Classroom への欠勤連絡を案内する（従来の人力フローへ戻す）。
+  if (isPastRecruitDeadline_(dateStr, course.period)) {
+    const late = settleWithoutSubstitute_(AUTO_RESOLVE_REASON.PAST_DEADLINE);
+    late.lateAbsence = true;
+    late.deadlineMinutes = RECRUIT_DEADLINE_MIN_BEFORE;
+    return late;
+  }
+
   // 代行候補を抽出（欠勤者と相方＋当日のダブルブッキングを除外）
   const candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id], dateStr);
 
   // 補充候補が0人 → 自動決着（review #4・CLAUDE.md ドメイン）。
   // 相方が残るコマ（2名テイク等）は「1人テイク」、残らない1名コマは「職員対応」。
   if (candidates.length === 0) {
-    // 同コマ・同日に欠勤登録済みのスタッフ（相方も欠勤しているケース）を把握する（review再レビューB）
-    const absentSameSlot = {};
-    readRows(SHEET.VACANCIES).forEach(function (v) {
-      if (String(v.course_id).trim() === String(courseId).trim() &&
-          dateToStr_(v.date) === dateStr) {
-        const a = String(v.absent_staff_id).trim();
-        if (a) absentSameSlot[a] = true;
-      }
-    });
-    // 欠勤者本人＋同コマ同日に欠勤している人を除いて、残るスタッフがいるか
-    const remaining = [course.staff_a_id, course.staff_b_id]
-      .map(function (x) { return String(x).trim(); })
-      .filter(Boolean)
-      .filter(function (id) { return id !== user.staff_id && !absentSameSlot[id]; });
-    const autoResult = remaining.length > 0 ? VACANCY_RESULT.SOLO : VACANCY_RESULT.STAFF;
-    // 決着書き込みは状態機械（settle 遷移）に通す。作成直後で競合は無いが、
-    // 全ての result 書き込みを1経路に揃える（backlog 11-2）。
-    transitionVacancyOrThrow_(vacancyId, 'settle', { result: autoResult });
-
-    var autoNotify;
-    try {
-      autoNotify = notifyAutoResolved(vacancyId, autoResult);
-    } catch (e) {
-      autoNotify = { error: e.message };
-    }
-    return {
-      vacancy_id: vacancyId,
-      course: {
-        course_id: course.course_id,
-        day: course.day,
-        period: String(course.period).trim(),
-      },
-      candidates: [],
-      autoResult: autoResult,
-      notify: autoNotify,
-    };
+    return settleWithoutSubstitute_(AUTO_RESOLVE_REASON.NO_CANDIDATES);
   }
 
   // 職員スペース＋候補者へ通知（失敗しても欠員登録は確定させる）
@@ -183,11 +186,7 @@ function submitAbsence(courseId, date) {
 
   return {
     vacancy_id: vacancyId,
-    course: {
-      course_id: course.course_id,
-      day: course.day,
-      period: String(course.period).trim(),
-    },
+    course: courseInfo,
     candidates: candidates,
     notify: notify,
   };
@@ -350,6 +349,68 @@ function transitionVacancyOrThrow_(vacancyId, direction, updates) {
       : MSG_VACANCY_SETTLED);
   }
   return res;
+}
+
+/**
+ * 代行募集の締切（授業開始の RECRUIT_DEADLINE_MIN_BEFORE 分前）を過ぎているか。
+ *
+ * 締切は欠員行に保存せず、対象日＋時限マスタの開始時刻から**毎回算出する**。
+ * こうしておくと定数を変えたときに既存の未解決欠員へも即反映され、
+ * 「この欠員だけ締切が違う」という状態が生まれない（requirements §8）。
+ *
+ * 時限マスタに開始時刻が無い／形式が読めない場合は**判定不能**とみなし false を返す
+ * （＝従来どおり代行募集を行う）。締切が読めないことを理由に募集を止めない、という安全側に倒す。
+ * 時刻セルが文字列でも Date でも同じ結果になる（periodStartMinutes_）。
+ *
+ * @param {string} dateStr 'yyyy-MM-dd'
+ * @param {(string|number)} period 時限
+ * @return {boolean} 締切を過ぎていれば true
+ */
+function isPastRecruitDeadline_(dateStr, period) {
+  const dm = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!dm) return false;
+
+  const p = buildPeriodMap_()[String(period).trim()];
+  const startMin = p ? periodStartMinutes_(p.start_time) : null;
+  if (startMin === null) return false;
+
+  // スクリプトのタイムゾーンは Asia/Tokyo（appsscript.json）なので、
+  // 数値から組み立てた Date と new Date() の比較はそのまま日本時間の比較になる。
+  const midnight = new Date(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3]), 0, 0, 0);
+  const deadline = midnight.getTime() + (startMin - RECRUIT_DEADLINE_MIN_BEFORE) * 60 * 1000;
+  return new Date().getTime() > deadline;
+}
+
+/**
+ * 代行者なしで決着させるときの結果を決める（D10）。
+ * 欠勤者本人と、同コマ・同日に既に欠勤登録している人（相方も欠勤しているケース）を除いて、
+ * 担当が残るなら「1人テイク」、誰も残らないなら「職員対応」。
+ *
+ * 補充候補0人のときと、締切超過の直前欠勤のときの**両方**から使う。
+ *
+ * @param {Object} course
+ * @param {string} dateStr        'yyyy-MM-dd'
+ * @param {string} absentStaffId  欠勤者
+ * @return {string} VACANCY_RESULT.SOLO / VACANCY_RESULT.STAFF
+ */
+function autoSettleResult_(course, dateStr, absentStaffId) {
+  const courseId = String(course.course_id).trim();
+  const absentId = String(absentStaffId).trim();
+
+  const absentSameSlot = {};
+  readRows(SHEET.VACANCIES).forEach(function (v) {
+    if (String(v.course_id).trim() === courseId && dateToStr_(v.date) === dateStr) {
+      const a = String(v.absent_staff_id).trim();
+      if (a) absentSameSlot[a] = true;
+    }
+  });
+
+  const remaining = [course.staff_a_id, course.staff_b_id]
+    .map(function (x) { return String(x).trim(); })
+    .filter(Boolean)
+    .filter(function (id) { return id !== absentId && !absentSameSlot[id]; });
+
+  return remaining.length > 0 ? VACANCY_RESULT.SOLO : VACANCY_RESULT.STAFF;
 }
 
 /**
@@ -659,6 +720,27 @@ function buildNameMap_() {
   return map;
 }
 
+/**
+ * 時限マスタの時刻セルを「0時からの分」に直す。読めなければ null。
+ *
+ * periods.start_time は **文字列（'09:15'）と Date の両方がありうる**。
+ * Setup.js はテキスト書式を固定して文字列で書くが、その書式は既定の7行ぶんしか
+ * 掛かっておらず（10-6 と同じパターン）、職員が8行目以降に時限を手で足すと
+ * Sheets が '09:15' を時刻値として解釈し、読み戻すと Date になる。
+ * 締切判定がその1点で黙って壊れる（＝常に「締切前」に倒れる）ため、両方を受ける。
+ *
+ * パースは Attendance.gs の既存ヘルパーを使い分ける（hhmmToMin_ / jstMinutes_）。
+ */
+function periodStartMinutes_(value) {
+  if (value instanceof Date) return jstMinutes_(value);
+  // 'HH:mm:ss' や全角コロンでも読めるように整えてから渡す
+  const s = String(value == null ? '' : value)
+    .replace(/：/g, ':')
+    .trim()
+    .replace(/^(\d{1,2}:\d{2}).*$/, '$1');
+  return hhmmToMin_(s);
+}
+
 // period → periodsレコード のマップ
 function buildPeriodMap_() {
   const map = {};
@@ -826,6 +908,156 @@ function e2eVacancyFlow(opts) {
     const dv = deleteRowByKey(SHEET.VACANCIES, 'vacancy_id', vacancyId);
     const dr = deleteRowByKey(SHEET.RESPONSES, 'vacancy_id', vacancyId);
     say('後片付け: 欠員 ' + dv + ' 行 / 回答 ' + dr + ' 行を削除（' + vacancyId + '）');
+  }
+}
+
+// ─── D21 実機確認用（一時的・確認できたら削除してよい）─────────
+//
+// 「授業開始30分前を過ぎた欠勤連絡」の挙動を実機で確認するための関数。
+// 本物の授業時刻を待つのは非現実的なので、**時計ではなく授業時刻の方を動かす**：
+// 一時的な時限（開始時刻＝今から+N分）を作り、その時限のコマに対して submitAbsence を実行する。
+// 実行アカウント自身を担当スタッフにするので、GASエディタから1人で全経路を通せる。
+//
+// 作成する一時データ（すべて末尾で削除する）：
+//   staffs  ZTEST1（代行候補役）/ ZTEST2（相方役）
+//   periods ZT（開始時刻を書き換えながら使い回す）
+//   courses ZC1（締切超過の検証）/ ZC2（締切前の検証）
+//   vacancies / responses … 上記コマに紐づく行
+//
+// 既定では Chat を実際に送らない（スクリプトプロパティ CHAT_WEBHOOK_URL を一時的に外す）。
+// 職員スペースへの実際の文面を見たい場合は e2eDeadlineFlow({notify:true}) で実行する。
+
+/**
+ * D21（代行募集の締切）の実機e2e。GASエディタから実行してログを見る。
+ * @param {{notify?:boolean}} [opts] notify=true で職員スペースへ実際に通知する（既定 false）
+ */
+function e2eDeadlineFlow(opts) {
+  opts = opts || {};
+  const notify = !!opts.notify;
+  const say = function (m) { Logger.log(m); };
+  var pass = 0, fail = 0;
+  const assert = function (cond, m) {
+    if (cond) { pass++; say('  ✅ ' + m); } else { fail++; say('  ❌ ' + m); }
+  };
+
+  const me = getCurrentUser_();
+  if (!me) throw new Error('実行アカウントが連絡先DB（contacts）に登録されていません。先に登録してください。');
+
+  const now = new Date();
+  const today = Utilities.formatDate(now, 'Asia/Tokyo', 'yyyy-MM-dd');
+  const hourNow = Number(Utilities.formatDate(now, 'Asia/Tokyo', 'HH'));
+  if (hourNow < 2 || hourNow >= 21) {
+    throw new Error('この確認は 02:00〜21:00 の間に実行してください（前後の時刻が日付をまたぐと判定が意味を持たないため）。');
+  }
+
+  const dayJp = weekdayOf_(today);
+  const TEST_Q = '__TEST_D21__';
+  const PERIOD = 'ZT';
+  const SLOT = dayJp + PERIOD;
+
+  // 「今から offsetMin 分後」の HH:mm
+  const at = function (offsetMin) {
+    return Utilities.formatDate(new Date(new Date().getTime() + offsetMin * 60000), 'Asia/Tokyo', 'HH:mm');
+  };
+  // 一時時限の開始時刻を書き換える（＝授業時刻を動かす）
+  const setStart = function (offsetMin) {
+    updateRow(SHEET.PERIODS, 'period', PERIOD, { start_time: at(offsetMin), end_time: at(offsetMin + 90) });
+    return at(offsetMin);
+  };
+
+  say('===== D21 締切（授業開始' + RECRUIT_DEADLINE_MIN_BEFORE + '分前）実機e2e / 通知=' +
+    (notify ? 'ON' : 'OFF') + ' =====');
+  say('実行者: ' + me.name + '（' + me.staff_id + '・' + me.role + '） 対象日: ' + today + '（' + dayJp + '曜）');
+
+  const props = PropertiesService.getScriptProperties();
+  const savedWebhook = props.getProperty(PROP_STAFF_WEBHOOK);
+  if (!notify && savedWebhook) props.deleteProperty(PROP_STAFF_WEBHOOK); // 実送信を止める
+
+  try {
+    // ── 一時データを作る ──
+    appendRow(SHEET.PERIODS, { period: PERIOD, start_time: at(60), end_time: at(150) });
+    appendRow(SHEET.STAFFS, {
+      staff_id: 'ZTEST1', name: 'テスト候補', role: '学生', skills: 'テイク,介助', available_slots: SLOT,
+    });
+    appendRow(SHEET.STAFFS, {
+      staff_id: 'ZTEST2', name: 'テスト相方', role: '学生', skills: 'テイク,介助', available_slots: '',
+    });
+    ['ZC1', 'ZC2'].forEach(function (cid) {
+      appendRow(SHEET.COURSES, {
+        course_id: cid, quarter: TEST_Q, day: dayJp, period: PERIOD,
+        support_type: 'テイク', user_student: 'テスト利用学生', subject: 'D21確認用',
+        staff_a_id: me.staff_id, staff_b_id: 'ZTEST2', note: '★一時データ（e2eDeadlineFlow）',
+      });
+    });
+    say('一時データを作成（periods ' + PERIOD + ' / staffs ZTEST1・ZTEST2 / courses ZC1・ZC2）');
+
+    // ── 0) 時刻セルの型を確認（Date化していると締切判定も時刻表示も壊れる）──
+    // periods のテキスト書式が既定7行ぶんしか無かった問題（migratePeriodsTextFormat）の確認も兼ねる。
+    say('--- periods の時刻セルの型 ---');
+    readRows(SHEET.PERIODS).forEach(function (p) {
+      const t = p.start_time;
+      say('   ' + p.period + '限: ' + t + ' 〜 ' + p.end_time +
+        '（型: ' + (t instanceof Date ? '⚠️Date' : typeof t) + ' → ' + periodStartMinutes_(t) + '分）');
+    });
+
+    // ── 1) 締切判定そのものを、開始時刻をずらしながら確認 ──
+    say('--- 締切判定（授業開始' + RECRUIT_DEADLINE_MIN_BEFORE + '分前が締切）---');
+    [-30, -5, 25, 35, 90].forEach(function (off) {
+      const start = setStart(off);
+      const past = isPastRecruitDeadline_(today, PERIOD);
+      const expected = off < RECRUIT_DEADLINE_MIN_BEFORE; // 開始が「今+30分」より手前なら締切超過
+      say('   開始 ' + start + '（今から' + (off >= 0 ? '+' : '') + off + '分）→ ' +
+        (past ? '締切超過＝募集しない' : '締切前＝募集する') + (past === expected ? '' : '  ← ⚠️想定と違う'));
+      assert(past === expected, '今から' + off + '分後開始 → ' + (expected ? '募集しない' : '募集する'));
+    });
+
+    // ── 2) 締切超過の欠勤連絡（授業が10分後に始まる）──
+    say('--- 締切超過ケース（授業が10分後に開始）---');
+    setStart(10);
+    const late = submitAbsence('ZC1', today);
+    say('   戻り: ' + JSON.stringify(late));
+    assert(late.lateAbsence === true, '直前欠勤として扱われる（lateAbsence=true）');
+    assert(late.deadlineMinutes === RECRUIT_DEADLINE_MIN_BEFORE, '締切の分数を画面へ返す');
+    assert(late.candidates.length === 0, '代行候補への依頼を出さない');
+    assert(late.autoResult === VACANCY_RESULT.SOLO, '相方 ZTEST2 が残るので「1人テイク」で自動決着');
+    const vLate = findRow(SHEET.VACANCIES, 'vacancy_id', late.vacancy_id);
+    assert(!!vLate, '欠勤の記録自体は残る（登録はさせる）');
+    assert(vLate && String(vLate.result).trim() === VACANCY_RESULT.SOLO, 'シートにも決着結果が入る');
+
+    // ── 3) 締切前の欠勤連絡（授業が90分後に始まる）──
+    say('--- 締切前ケース（授業が90分後に開始）---');
+    setStart(90);
+    const early = submitAbsence('ZC2', today);
+    say('   戻り: ' + JSON.stringify(early));
+    assert(!early.lateAbsence, '従来どおり代行募集が走る（lateAbsence が立たない）');
+    assert(early.candidates.length === 1 && String(early.candidates[0].staff_id).trim() === 'ZTEST1',
+      '代行候補 ZTEST1 を抽出する');
+    const vEarly = findRow(SHEET.VACANCIES, 'vacancy_id', early.vacancy_id);
+    assert(vEarly && !String(vEarly.result).trim(), '未解決のまま（回答待ち）になる');
+
+    say(fail === 0
+      ? '===== ✅ 全' + pass + '件成功：D21 の挙動を実機で確認しました ====='
+      : '===== ❌ ' + fail + '件失敗（成功 ' + pass + '件）。上のログを確認してください =====');
+  } finally {
+    // ── 後片付け（作った一時データを必ず消す）──
+    if (!notify && savedWebhook) props.setProperty(PROP_STAFF_WEBHOOK, savedWebhook);
+    var removed = [];
+    ['ZC1', 'ZC2'].forEach(function (cid) {
+      readRows(SHEET.VACANCIES)
+        .filter(function (v) { return String(v.course_id).trim() === cid; })
+        .forEach(function (v) {
+          deleteRowByKey(SHEET.RESPONSES, 'vacancy_id', v.vacancy_id);
+          deleteRowByKey(SHEET.VACANCIES, 'vacancy_id', v.vacancy_id);
+          removed.push(v.vacancy_id);
+        });
+      deleteRowByKey(SHEET.COURSES, 'course_id', cid);
+    });
+    deleteRowByKey(SHEET.STAFFS, 'staff_id', 'ZTEST1');
+    deleteRowByKey(SHEET.STAFFS, 'staff_id', 'ZTEST2');
+    deleteRowByKey(SHEET.PERIODS, 'period', PERIOD);
+    say('後片付け: 一時データを削除しました（欠員 ' + (removed.join('・') || 'なし') +
+      ' / courses ZC1・ZC2 / staffs ZTEST1・ZTEST2 / periods ' + PERIOD + '）');
+    say('   ※ 残っていたら、上記のIDでシートから手動削除してください。');
   }
 }
 

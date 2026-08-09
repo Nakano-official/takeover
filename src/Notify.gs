@@ -428,14 +428,15 @@ function notifySubstituteReleased(vacancyId, substituteStaffId) {
 }
 
 /**
- * 補充候補が0人で自動決着したことを職員スペースへ知らせる（review #4）。
- * 候補がいないため個別通知の宛先は無く、職員への一報のみ。
+ * 代行者なしで自動決着したことを職員スペースへ知らせる（review #4）。
+ * 候補へ依頼を送っていないケースなので個別通知の宛先は無く、職員への一報のみ。
  *
  * @param  {string} vacancyId
  * @param  {string} resultLabel  '1人テイク' / '職員対応'
+ * @param  {string} [reason]     AUTO_RESOLVE_REASON。PAST_DEADLINE なら「直前欠勤」の文面にする
  * @return {{staff:boolean, errors:Array}}
  */
-function notifyAutoResolved(vacancyId, resultLabel) {
+function notifyAutoResolved(vacancyId, resultLabel, reason) {
   const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
   if (!vacancy) throw new Error('対象の欠員が見つかりません。');
   const course = findRow(SHEET.COURSES, 'course_id', vacancy.course_id);
@@ -449,11 +450,16 @@ function notifyAutoResolved(vacancyId, resultLabel) {
   const slot = String(course.day).trim() + String(course.period).trim() + '限';
   const absentName = nameById[String(vacancy.absent_staff_id).trim()] || vacancy.absent_staff_id;
 
+  // 直前欠勤（締切超過で募集を行わなかった）は、候補不在とは原因も職員の動き方も違うので文面を分ける。
+  const late = reason === AUTO_RESOLVE_REASON.PAST_DEADLINE;
   const msg =
-    '⚠️ *補充候補がいませんでした*\n' +
+    (late ? '⏰ *直前の欠勤連絡です（代行募集なし）*\n' : '⚠️ *補充候補がいませんでした*\n') +
     '日付: ' + dateText + '\n' +
     'コマ: ' + slot + (timeText ? '（' + timeText + '）' : '') + '\n' +
     '欠勤: ' + absentName + '\n' +
+    (late
+      ? '→ 授業開始' + RECRUIT_DEADLINE_MIN_BEFORE + '分前を過ぎているため、代行候補への依頼は送っていません。\n'
+      : '') +
     '→ 自動で「' + resultLabel + '」に設定しました。変更が必要なら管理画面で対応してください。\n' +
     '欠員ID: ' + vacancyId;
 

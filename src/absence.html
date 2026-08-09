@@ -147,7 +147,18 @@
       var head = '<h2>✅ 欠員を登録しました</h2>'
         + '<div>欠員ID: ' + escapeHtml(res.vacancy_id) + '（' + escapeHtml(c.day + c.period) + '限）</div>';
 
-      if (res.candidates && res.candidates.length > 0) {
+      if (res.lateAbsence) {
+        // 締切超過（授業開始 N 分前を過ぎた直前欠勤）。代行依頼は送っていないので、
+        // 従来どおり Google Classroom へも連絡してもらうよう案内する。
+        box.className = 'result warn';
+        box.innerHTML = '<h2>⚠️ 欠勤を登録しました（代行の募集は行いません）</h2>'
+          + '<div>欠員ID: ' + escapeHtml(res.vacancy_id) + '（' + escapeHtml(c.day + c.period) + '限）</div>'
+          + '<div style="margin-top:8px;">授業開始が近いため（' + escapeHtml(res.deadlineMinutes)
+          + '分前を過ぎています）、代行候補者への依頼は送っていません。'
+          + '自動で <b>「' + escapeHtml(res.autoResult) + '」</b> として処理しました。</div>'
+          + '<div style="margin-top:8px;"><b>お手数ですが、Google Classroom にも欠勤の連絡を投稿してください。</b></div>'
+          + notifyHtml(res.notify);
+      } else if (res.candidates && res.candidates.length > 0) {
         var chips = res.candidates.map(function (x) {
           return '<span class="cand">' + escapeHtml(x.name) + '</span>';
         }).join('');
