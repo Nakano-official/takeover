@@ -10,13 +10,25 @@
     main { padding: 14px; }
 
     /* 絞り込みバー。項目が多いので白いカードにまとめて本文と切り分ける */
-    .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-               background: var(--surface); border: 1px solid var(--border);
+    .filters { background: var(--surface); border: 1px solid var(--border);
                border-radius: var(--radius); box-shadow: var(--shadow-1);
-               padding: 12px 14px; margin-bottom: 12px; }
+               padding: 11px 14px; margin-bottom: 12px; }
+    .filterbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
     .toolbar label { font-size: .82rem; color: var(--text-muted); font-weight: 600; }
     .toolbar select { padding: 7px 10px; font-size: .88rem; }
     .legend { font-size: .76rem; color: var(--text-faint); margin-left: auto; }
+
+    /* 「絞り込み」開閉ボタン。PCでは絞り込みを常に出すので隠す */
+    .ftoggle { display: none; gap: 5px; }
+    .ftoggle .caret { font-size: .7rem; transition: transform .15s ease; }
+    .filters.open .ftoggle .caret { transform: rotate(180deg); }
+    /* 折りたたんでいても「何件絞り込み中か」が分かるようにバッジを出す */
+    .fbadge { display: inline-flex; align-items: center; justify-content: center;
+              min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-pill);
+              background: var(--brand); color: #fff; font-size: .72rem; font-weight: 700; }
+    .fbadge[hidden] { display: none; }
+    .mv-short { display: none; }
     .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px;
                 margin-right: 3px; vertical-align: 0; }
     .count { font-size: .8rem; color: var(--text-muted); margin-bottom: 8px; }
@@ -115,6 +127,19 @@
       .pc { display: none; }
       .mb { display: block; }
       .legend { display: none; }
+
+      /* スマホは時間割を優先し、絞り込みは既定で閉じておく（.open で開く）。
+         マイビューは折りたたみの外なので、閉じていても1タップで切り替えられる。 */
+      .ftoggle { display: inline-flex; }
+      .toolbar { display: none; }
+      .filters.open .toolbar { display: flex; }
+      .mv-long { display: none; }
+      .mv-short { display: inline; }
+      /* 開いたときは1項目1行にして、ラベルと選択肢が横に潰れないようにする */
+      .filters.open .toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
+      .toolbar label { margin-bottom: -4px; }
+      .toolbar select { width: 100%; font-size: .95rem; padding: 9px 11px; }
+      .toolbar .btn { width: 100%; }
     }
   </style>
 </head>
@@ -122,29 +147,41 @@
   <?!= chrome ?>
 
   <main>
-    <div class="toolbar">
-      <label for="q">クォーター</label>
-      <select id="q" onchange="onQuarter()"></select>
-      <label for="fUser">利用者</label>
-      <select id="fUser" onchange="applyFilters()"></select>
-      <label for="fStaff">スタッフ</label>
-      <select id="fStaff" onchange="applyFilters()"></select>
-      <label for="fType">内容</label>
-      <select id="fType" onchange="applyFilters()">
-        <option value="__all__">すべて</option>
-        <option value="テイク">テイク</option>
-        <option value="介助">介助</option>
-      </select>
-      <button class="btn sm" onclick="resetFilters()" type="button">クリア</button>
-      <label class="myview" id="myviewLabel" style="display:none">
-        <input type="checkbox" id="fMine" onchange="applyFilters()">
-        マイビュー（自分の担当＋入れる募集中）
-      </label>
-      <span class="legend">
-        <i style="background:var(--brand)"></i>テイク（2名）
-        　<i style="background:var(--help)"></i>介助（1名）
-        　<i style="background:var(--ok)"></i>募集中
-      </span>
+    <div class="filters">
+      <!-- 常に見えている行。スマホでは「絞り込み」ボタンで下の toolbar を開閉する。
+           マイビューは1タップで切り替えたいので、折りたたみの外に置く。 -->
+      <div class="filterbar">
+        <button type="button" class="btn sm ftoggle" id="fToggle" onclick="toggleFilters()"
+                aria-expanded="false" aria-controls="toolbar">
+          絞り込み<span class="fbadge" id="fBadge" hidden></span><span class="caret">▾</span>
+        </button>
+        <label class="myview" id="myviewLabel" style="display:none">
+          <input type="checkbox" id="fMine" onchange="applyFilters()">
+          <span class="mv-long">マイビュー（自分の担当＋入れる募集中）</span>
+          <span class="mv-short">マイビュー</span>
+        </label>
+        <span class="legend">
+          <i style="background:var(--brand)"></i>テイク（2名）
+          　<i style="background:var(--help)"></i>介助（1名）
+          　<i style="background:var(--ok)"></i>募集中
+        </span>
+      </div>
+
+      <div class="toolbar" id="toolbar">
+        <label for="q">クォーター</label>
+        <select id="q" onchange="onQuarter()"></select>
+        <label for="fUser">利用者</label>
+        <select id="fUser" onchange="applyFilters()"></select>
+        <label for="fStaff">スタッフ</label>
+        <select id="fStaff" onchange="applyFilters()"></select>
+        <label for="fType">内容</label>
+        <select id="fType" onchange="applyFilters()">
+          <option value="__all__">すべて</option>
+          <option value="テイク">テイク</option>
+          <option value="介助">介助</option>
+        </select>
+        <button class="btn sm" onclick="resetFilters()" type="button">クリア</button>
+      </div>
     </div>
     <div id="count" class="count"></div>
     <div id="content" class="state">読み込み中…</div>
@@ -372,6 +409,7 @@
           return true;
         });
       }
+      updateFilterBadge();
       VIEW = buildView(courses);
       render();
     }
@@ -381,6 +419,30 @@
       ['fUser', 'fStaff', 'fType'].forEach(function (id) {
         document.getElementById(id).disabled = disabled;
       });
+    }
+
+    // ===== 絞り込みの開閉（スマホ） =====
+    // スマホは画面が狭く、絞り込みが常時開いていると時間割が下へ押し下げられるため
+    // 既定は閉じておく。PCではCSSで常に開いた状態にしている。
+    function toggleFilters() {
+      var open = document.querySelector('.filters').classList.toggle('open');
+      document.getElementById('fToggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+
+    // 閉じていても絞り込み中だと分かるように、効いている条件の数をバッジに出す
+    function updateFilterBadge() {
+      var n = 0;
+      // マイビュー中は利用者/スタッフ/内容の絞り込みが効かないので数えない
+      if (!MYVIEW) {
+        if (val('fUser') !== '__all__') n++;
+        if (val('fStaff') !== '__all__') n++;
+        if (val('fType') !== '__all__') n++;
+      }
+      // クォーターは既定が「現在（開講中）」＝空文字。別の学期を選んでいれば1件と数える
+      if (document.getElementById('q').value) n++;
+      var badge = document.getElementById('fBadge');
+      badge.textContent = n;
+      badge.hidden = (n === 0);
     }
 
     function resetFilters() {
