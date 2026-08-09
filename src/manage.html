@@ -4,62 +4,41 @@
   <base target="_top">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('shared-styles') ?>
   <style>
-    * { box-sizing: border-box; }
-    body { font-family: "Helvetica Neue", Arial, "Hiragino Sans", "Yu Gothic", sans-serif;
-           margin: 0; background: #f5f6f8; color: #222; }
-    header { background: #4a86e8; color: #fff; padding: 14px 16px; }
-    header h1 { font-size: 1.1rem; margin: 0; }
-    header .user { font-size: .8rem; opacity: .9; margin-top: 2px; }
-    nav { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; background: #fff;
-          border-bottom: 1px solid #e3e6ea; }
-    nav a { font-size: .85rem; text-decoration: none; color: #4a86e8;
-            border: 1px solid #cdddfb; border-radius: 999px; padding: 5px 12px; }
-    nav a:hover { background: #eef4ff; }
-    main { padding: 16px; max-width: 720px; margin: 0 auto; }
-    .vac { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 14px;
-           box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-    .vac h2 { font-size: 1rem; margin: 0 0 4px; }
-    .vac .meta { font-size: .82rem; color: #777; margin-bottom: 10px; }
-    .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .78rem; }
-    .b-open { background: #fdecea; color: #c0392b; }
-    .b-done { background: #e7f0fd; color: #2a63c0; }
-    .resp { border-top: 1px solid #eef0f3; padding-top: 10px; margin-top: 8px; }
+    :root { --main-max: 720px; }
+
+    /* 欠員1件のカード。左の色帯で「対応中／確定」が一目で分かるようにする */
+    .vac { background: var(--surface); border: 1px solid var(--border);
+           border-left: 4px solid var(--border-strong); border-radius: var(--radius);
+           padding: 16px 18px; margin-bottom: 14px; box-shadow: var(--shadow-1); }
+    .vac.open { border-left-color: var(--danger); }
+    .vac.done { border-left-color: var(--brand); }
+    .vac h2 { font-size: 1rem; margin: 0 0 4px; font-weight: 700; }
+    .vac .meta { font-size: .82rem; color: var(--text-muted); margin-bottom: 10px; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: var(--radius-pill);
+             font-size: .78rem; font-weight: 600; }
+    .b-open { background: var(--danger-bg); color: var(--danger); }
+    .b-done { background: var(--info-bg); color: var(--info); }
+    .resp { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
     .resp-row { display: flex; align-items: center; justify-content: space-between;
-                padding: 6px 0; font-size: .9rem; }
-    .ans { font-size: .78rem; padding: 1px 8px; border-radius: 999px; margin-left: 6px; }
-    .ans-ok { background: #e7f6ec; color: #1e7a3d; }
-    .ans-no { background: #f0f0f0; color: #777; }
-    .ans-wait { background: #fff3e0; color: #b06f00; }
-    .resp-h { font-size: .82rem; font-weight: 600; color: #555; margin-bottom: 4px; }
+                gap: 10px; padding: 7px 0; font-size: .9rem; }
+    .ans { font-size: .78rem; padding: 1px 8px; border-radius: var(--radius-pill); margin-left: 6px; }
+    .ans-ok { background: var(--ok-bg); color: var(--ok); font-weight: 600; }
+    .ans-no { background: #f1f3f6; color: var(--text-muted); }
+    .ans-wait { background: var(--warn-bg); color: var(--warn); }
+    .resp-h { font-size: .82rem; font-weight: 700; color: var(--text-muted); margin-bottom: 4px; }
     .cand-right { display: flex; align-items: center; gap: 10px; }
-    .tel { font-size: .9rem; color: #2a63c0; text-decoration: none; white-space: nowrap; }
+    .tel { font-size: .9rem; color: var(--brand-ink); text-decoration: none; white-space: nowrap; }
     .tel:hover { text-decoration: underline; }
-    .nophone { font-size: .8rem; color: #b06f00; }
-    .confirm { background: #1e7a3d; color: #fff; border: none; border-radius: 6px;
-               padding: 6px 14px; font-size: .85rem; font-weight: 600; cursor: pointer; }
-    .confirm:disabled { opacity: .5; cursor: default; }
+    .nophone { font-size: .8rem; color: var(--warn); }
     .alt { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
-    .alt button { background: #fff; border: 1px solid #cdd3da; border-radius: 6px;
-                  padding: 6px 12px; font-size: .82rem; cursor: pointer; color: #555; }
-    .none { font-size: .85rem; color: #999; padding: 6px 0; }
-    .done-line { font-size: .9rem; color: #2a63c0; font-weight: 600; }
-    .state { padding: 24px; text-align: center; color: #888; }
+    .none { font-size: .85rem; color: var(--text-faint); padding: 6px 0; }
+    .done-line { font-size: .9rem; color: var(--brand-ink); font-weight: 700; }
   </style>
 </head>
 <body>
-  <header>
-    <h1>欠員補充管理</h1>
-    <div class="user"><?= user.name ?> さん（<?= user.role ?>）</div>
-  </header>
-
-  <nav>
-    <a href="<?= appUrl ?>?page=home">シフト確認</a>
-    <a href="<?= appUrl ?>?page=absence">欠勤連絡</a>
-    <a href="<?= appUrl ?>?page=manage">欠員補充管理</a>
-    <a href="<?= appUrl ?>?page=check">整合性チェック</a>
-    <a href="<?= appUrl ?>?page=terms">学期設定</a>
-  </nav>
+  <?!= chrome ?>
 
   <main>
     <div id="content" class="state">読み込み中…</div>
@@ -97,10 +76,10 @@
         var label = v.result === '補充済' && v.substituteName
           ? '補充済（代行: ' + escapeHtml(v.substituteName) + '）'
           : escapeHtml(v.result);
-        return '<div class="vac"><span class="badge b-done">確定</span> ' +
+        return '<div class="vac done"><span class="badge b-done">確定</span> ' +
           '<span class="done-line">' + label + '</span>' +
           '<div style="margin-top:6px">' + head + '</div>' +
-          '<div class="alt"><button onclick="reopen(\'' + v.vacancy_id +
+          '<div class="alt"><button class="btn sm" onclick="reopen(\'' + v.vacancy_id +
             '\',this)">再オープン（変更する）</button></div>' +
           '</div>';
       }
@@ -121,7 +100,7 @@
             return '<div class="resp-row">' +
               '<div>' + escapeHtml(c.name) + '<span class="ans ' + stCls + '">' + st + '</span></div>' +
               '<div class="cand-right">' + phone +
-                '<button class="confirm" onclick="confirmSub(\'' + v.vacancy_id + '\',\'' +
+                '<button class="btn sm ok" onclick="confirmSub(\'' + v.vacancy_id + '\',\'' +
                   c.staff_id + '\',this)">確定</button>' +
               '</div></div>';
           }).join('');
@@ -129,11 +108,11 @@
 
       var alt =
         '<div class="alt">' +
-        '<button onclick="setResult(\'' + v.vacancy_id + '\',\'1人テイク\',this)">1人テイクにする</button>' +
-        '<button onclick="setResult(\'' + v.vacancy_id + '\',\'職員対応\',this)">職員対応にする</button>' +
+        '<button class="btn sm" onclick="setResult(\'' + v.vacancy_id + '\',\'1人テイク\',this)">1人テイクにする</button>' +
+        '<button class="btn sm" onclick="setResult(\'' + v.vacancy_id + '\',\'職員対応\',this)">職員対応にする</button>' +
         '</div>';
 
-      return '<div class="vac"><span class="badge b-open">対応中</span>' + head +
+      return '<div class="vac open"><span class="badge b-open">対応中</span>' + head +
         '<div class="resp">' + respHtml + '</div>' + alt + '</div>';
     }
 
