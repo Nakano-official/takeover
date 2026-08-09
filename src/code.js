@@ -10,10 +10,15 @@
  */
 
 // 画面定義：page パラメータ → HTMLファイル名・タイトル・職員限定フラグ
+//
+// hideInStaffNav: 職員のナビには出さない画面。アクセス自体は禁止しない
+//   （staffOnly とは別の概念。URLで開けば従来どおり動く）。
 const PAGES = {
   home:    { file: 'home',    title: 'シフト確認',         staffOnly: false },
   input:   { file: 'input',   title: 'シフト入力',         staffOnly: true  },
-  absence: { file: 'absence', title: '欠勤連絡',           staffOnly: false },
+  // 欠勤連絡は「学生スタッフが自分の担当コマの欠勤を出す」画面。職員には担当コマが
+  // 無く常に空になるため、職員のナビには並べない。
+  absence: { file: 'absence', title: '欠勤連絡',           staffOnly: false, hideInStaffNav: true },
   respond: { file: 'respond', title: '代行依頼への回答',   staffOnly: false },
   manage:  { file: 'manage',  title: '欠員補充管理',       staffOnly: true  },
   check:   { file: 'check',   title: '整合性チェック',     staffOnly: true  },
@@ -154,7 +159,11 @@ function renderChrome_(config, pageKey, user) {
   const isStaff = user && user.role === ROLE_STAFF;
 
   const visible = NAV_PAGES.filter(function (key) {
-    return PAGES[key] && (!PAGES[key].staffOnly || isStaff);
+    const p = PAGES[key];
+    if (!p) return false;
+    if (p.staffOnly && !isStaff) return false;       // 職員限定画面は学生に出さない
+    if (p.hideInStaffNav && isStaff) return false;   // 学生専用の画面は職員に出さない
+    return true;
   });
 
   const links = visible.map(function (key) {

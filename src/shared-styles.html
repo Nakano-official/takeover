@@ -112,6 +112,24 @@
   .appnav.few a.on { background: var(--brand); }
   .appnav.few a.on:hover { background: var(--brand-dark); }
 
+  /* PC幅では項目が多くても（職員＝5画面）大きな切り替えボタンにする。
+     職員の利用はPC中心で横幅に余裕があるため。スマホ幅は上のピル並びのまま。 */
+  @media (min-width: 761px) {
+    .appnav {
+      gap: 10px; padding: 10px 16px 12px;
+      justify-content: center; overflow-x: visible;
+    }
+    .appnav a {
+      flex: 1 1 0; max-width: 200px; min-height: 46px;
+      display: flex; align-items: center; justify-content: center;
+      padding: 10px 12px; font-size: .95rem; font-weight: 600;
+      border-radius: var(--radius); background: var(--surface-alt);
+    }
+    .appnav a:hover { background: var(--brand-soft); }
+    .appnav a.on { background: var(--brand); }
+    .appnav a.on:hover { background: var(--brand-dark); }
+  }
+
   main {
     padding: 16px;
     max-width: var(--main-max);
