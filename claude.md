@@ -210,7 +210,7 @@ GAS は src/ 一式（.gs と .html を同居）を clasp で push する。html
 ```
 ryukoku-support-shift/
 ├── src/                        # GAS スクリプト＋画面
-│   ├── code.js                 # エントリポイント（doGet・ルーティング・ロール判定）
+│   ├── code.js                 # エントリポイント（doGet・ルーティング・ロール判定・ヘッダー/ナビ生成）
 │   ├── Vacancy.gs              # 欠員補充ロジック（候補抽出・先着確定・自動決着・再オープン）
 │   ├── Input.gs                # シフト入力（courses 追加・削除・候補絞り込み）
 │   ├── Notify.gs               # Google Chat 通知
@@ -221,6 +221,7 @@ ryukoku-support-shift/
 │   ├── Constants.gs            # ドメイン定数（VACANCY_RESULT/ANSWER 等・状態文字列の一元化・11-4）
 │   ├── Terms.gs                # 学期マスタ解決（現在学期の集合・クォーター/セメスター同時進行・D16）
 │   ├── Setup.js                # DB初期化・ダミーデータ生成・マイグレーション
+│   ├── shared-styles.html      # 全画面共通のCSS（デザイントークン＋共通パーツ・D20）
 │   ├── home.html               # シフト確認（時間割）
 │   ├── absence.html            # 欠勤連絡
 │   ├── respond.html            # 代行依頼への回答
@@ -234,6 +235,21 @@ ryukoku-support-shift/
 ├── .clasp.json                 # clasp設定（GitIgnore対象）
 └── CLAUDE.md                   # このファイル
 ```
+
+### 画面（HTML）の共通ルール（D20）
+
+- **ヘッダーとナビは各HTMLに書かない**。`code.js` の `renderChrome_` がサーバー側で組み立て、
+  各画面は `<?!= chrome ?>` を1行貼るだけ。ナビの内容は `PAGES` と `NAV_PAGES` から導出される。
+- **画面を追加するとき**は `PAGES` に足し、ナビに出すなら `NAV_PAGES` にも足す。それだけで全画面の
+  ナビに載り、`staffOnly` による出し分け・現在地ハイライトも自動で効く（各HTMLの編集は不要）。
+  - `staffOnly: true` … 職員限定（`doGet` がアクセスも拒否する）
+  - `hideInStaffNav: true` … 職員のナビに出さないだけ（アクセスは拒否しない。例：`absence`）
+- **CSSは `shared-styles.html` を先に読む**。`<?!= include('shared-styles') ?>` を画面固有の `<style>`
+  より**前**に置くこと（後に書いたものが勝つため、画面固有で上書きできる順序にする）。
+  色・余白・角丸は `:root` のCSS変数を使い、生の色コードを新たに書かない。
+  本文幅は各画面が `:root { --main-max: 760px; }` のように指定する。
+- 共通パーツは `.card` / `.btn`（`primary`/`ok`/`danger`/`block`/`sm`）/ `.notice`（`ok`/`warn`/`err`/`info`）/
+  `.state` / `.hint`。画面固有の見た目だけを各HTMLの `<style>` に書く。
 
 ※ 勤怠整合性チェック（機能B）は `Attendance.gs`（照合エンジン）＋ `check.html`（職員画面）で実装済み（D14）。
   CSVをアップロード→Shift_JIS復号→カレンダーと15分丸めで突合し、登録漏れ/予定外勤務/時間不一致をハイライトする。

@@ -8,7 +8,7 @@ Phase 1 MVP（機能A：欠員補充の自動化）は最低要件クリア・�
 - 🟡 **磨き込み**（後回し可。実証実験前にまとめて）
 - ⚪ **要検討・定義不足**（仕様を決めてから着手）
 
-最終更新：2026-07-15
+最終更新：2026-08-09
 
 ---
 
@@ -238,7 +238,10 @@ D14で `Attendance.gs`＋`check.html` を実装した後のコードレビュー
 ### レビューで確認済みだが今回は見送った改善候補（着手時の参考）
 
 - `Input.gs`：`updateCourse` が `addCourse` の検証約50行を複製 → `validateCoursePayload_(p, excludeCourseId)` に抽出。
-- HTML 6画面がヘッダー/ナビ/CSS/escapeHtml を各自コピー（`include()` ヘルパーは未使用）→ 共通断片化。
+- ~~HTML 6画面がヘッダー/ナビ/CSS/escapeHtml を各自コピー（`include()` ヘルパーは未使用）→ 共通断片化。~~
+  **✅ ヘッダー/ナビ/CSS は対応済（D20・2026-08-09）**。`shared-styles.html`（デザイントークン＋共通パーツ）と
+  `code.js` の `renderChrome_`（`PAGES` からナビを生成）に集約。**`escapeHtml` の重複は未対応**：
+  各HTMLがそれぞれ定義したままなので、共通JS断片（例：`shared-scripts.html`）に出すなら別途。
 - 「最新クォーター選定」（辞書順ソート末尾）が `code.js`/`Input.gs`/`Vacancy.gs` に三重複 →
   共有 `latestQuarter_` に集約（クォーター表記変更時に一斉に壊れるのを防ぐ。CLAUDE.md も変更可能性大と明記）。
 - 候補0人の自動決着（D10）が、同コマ・同日に**確定済みの代行者**がいるケースを考慮せず
