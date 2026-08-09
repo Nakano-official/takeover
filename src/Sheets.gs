@@ -8,6 +8,7 @@
  *  - シートは「ヘッダー名 → 値」のオブジェクト配列として読む（列順に依存しない）
  *  - 書き込みは必ず LockService で保護する（同時回答などの競合対策）
  *  - メインDB / 連絡先DB の振り分けはこのファイル内で吸収する
+ *  - 同じ実行の中では同じシートを何度読んでも API 往復は1回（実行内キャッシュ・下記）
  */
 
 // シート名の定数（タイプミス防止のため文字列を直書きしない）
@@ -27,40 +28,100 @@ const CONTACTS_DB_SHEETS = [SHEET.CONTACTS];
 // 書き込みロックの最大待機時間（ミリ秒）
 const LOCK_TIMEOUT_MS = 15000;
 
+// ─── 実行内キャッシュ（backlog 10-10）────────────────────────
+//
+// GAS の1実行は数秒で終わる短命プロセスだが、従来はシートを読むたびに
+// SpreadsheetApp.openById() → getDataRange().getValues() を丸ごと走らせていた。
+// 候補者が「承諾」を1タップする経路（respondToVacancy → isCandidate_ →
+// notifyVacancyFilled）だけで同じシートを17回以上読み、さらに候補人数ぶん
+// contacts を全読みしており、**先着確定（D1）の競合が起きるまさにその瞬間が
+// 最も遅い**という状態だった（ロック待ち LOCK_TIMEOUT_MS=15秒に接近する）。
+//
+// そこで1実行の内側に限って以下をメモ化する：
+//   - Spreadsheet / Sheet オブジェクト（openById の往復そのもの）
+//   - シートの生データ（headers + values）
+//
+// 整合性の担保は「ロックを跨いだら必ず捨てる」の一点に集約する。withLock_ が
+// 取得直後と解放直前にデータキャッシュを全消しするため、
+//   (a) ロック内の読み取り（nextId_ の採番・CAS の現在値検証）は必ず実データを見る
+//   (b) 自分の書き込み後は、次の読み取りで必ず最新を読み直す
+// が保証される。キャッシュに乗るのはロック外の読み取り（画面表示・候補抽出・
+// 通知文の組み立て）だけで、書き込み判断には一切使われない。
+//
+// ※ Sheets.gs を経由せず直接シートを書き換えるコード（Setup.js の各 migrate 等）は、
+//    書き換え後に invalidateSheetCache_() を呼ぶこと。
+// ※ readRows は毎回オブジェクトを組み直して返す（キャッシュしているのは生の値配列だけ）。
+//    呼び出し側が戻り値を書き換えても他の呼び出しに影響しない。
+
+var SS_CACHE_ = {};          // 'main' | 'contacts' → Spreadsheet
+var SHEET_OBJ_CACHE_ = {};   // シート名 → Sheet
+var SHEET_DATA_CACHE_ = {};  // シート名 → {headers, values}
+
+/**
+ * シートの生データキャッシュを捨てる。
+ * @param {string} [sheetName] 省略時は全シート分を捨てる
+ */
+function invalidateSheetCache_(sheetName) {
+  if (sheetName) delete SHEET_DATA_CACHE_[sheetName];
+  else SHEET_DATA_CACHE_ = {};
+}
+
 // ─── スプレッドシートを開く ──────────────────────────────────
 
 function openMainDb_() {
+  if (SS_CACHE_.main) return SS_CACHE_.main;
   const id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
   if (!id) throw new Error('スクリプトプロパティ SPREADSHEET_ID が未設定です。');
-  return SpreadsheetApp.openById(id);
+  SS_CACHE_.main = SpreadsheetApp.openById(id);
+  return SS_CACHE_.main;
 }
 
 function openContactsDb_() {
+  if (SS_CACHE_.contacts) return SS_CACHE_.contacts;
   const id = PropertiesService.getScriptProperties().getProperty('CONTACTS_SPREADSHEET_ID');
   if (!id) throw new Error('スクリプトプロパティ CONTACTS_SPREADSHEET_ID が未設定です。');
-  return SpreadsheetApp.openById(id);
+  SS_CACHE_.contacts = SpreadsheetApp.openById(id);
+  return SS_CACHE_.contacts;
 }
 
 // シート名から対象シートを取得する（DBの振り分けを内部で吸収）
 function getSheet_(sheetName) {
+  if (SHEET_OBJ_CACHE_[sheetName]) return SHEET_OBJ_CACHE_[sheetName];
   const ss = CONTACTS_DB_SHEETS.indexOf(sheetName) !== -1 ? openContactsDb_() : openMainDb_();
   const sheet = ss.getSheetByName(sheetName);
+  // 見つからないケースはキャッシュしない（Setup.js が実行中にシートを作ることがある）
   if (!sheet) throw new Error('シートが見つかりません：' + sheetName);
+  SHEET_OBJ_CACHE_[sheetName] = sheet;
   return sheet;
 }
 
 // ─── 読み取り ────────────────────────────────────────────────
 
 /**
+ * シートの生データ（1行目＝ヘッダーを含む2次元配列）を返す。実行内でキャッシュする。
+ * 戻り値の配列は共有物なので**書き換えないこと**（書き換えは各 write 系関数が行う）。
+ * @return {{headers:Array, values:Array<Array>}}
+ */
+function readSheetData_(sheetName) {
+  const cached = SHEET_DATA_CACHE_[sheetName];
+  if (cached) return cached;
+  const values = getSheet_(sheetName).getDataRange().getValues();
+  const data = { headers: values.length ? values[0] : [], values: values };
+  SHEET_DATA_CACHE_[sheetName] = data;
+  return data;
+}
+
+/**
  * シート全行を「ヘッダー名 → 値」のオブジェクト配列で返す。
  * 1行目をヘッダーとして扱い、完全に空の行は除外する。
+ * 生データはキャッシュを使うが、オブジェクトは毎回組み直すので呼び出し側で自由に扱える。
  */
 function readRows(sheetName) {
-  const sheet = getSheet_(sheetName);
-  const values = sheet.getDataRange().getValues();
+  const data = readSheetData_(sheetName);
+  const values = data.values;
   if (values.length < 2) return [];
 
-  const headers = values[0];
+  const headers = data.headers;
   const rows = [];
   for (var r = 1; r < values.length; r++) {
     const raw = values[r];
@@ -104,11 +165,12 @@ function filterRows(sheetName, columnName, value) {
 function appendRow(sheetName, rowObject) {
   return withLock_(function () {
     const sheet = getSheet_(sheetName);
-    const headers = getHeaders_(sheet);
+    const headers = getHeaders_(sheetName);
     const row = headers.map(function (h) {
       return rowObject[h] !== undefined && rowObject[h] !== null ? rowObject[h] : '';
     });
     sheet.appendRow(row);
+    invalidateSheetCache_(sheetName);
     return true;
   });
 }
@@ -120,18 +182,16 @@ function appendRow(sheetName, rowObject) {
 function updateRow(sheetName, keyColumn, keyValue, updates) {
   return withLock_(function () {
     const sheet = getSheet_(sheetName);
-    const values = sheet.getDataRange().getValues();
-    const headers = values[0];
+    const data = readSheetData_(sheetName); // ロック取得時にキャッシュは捨てられているので実データ
+    const values = data.values;
+    const headers = data.headers;
     const keyIdx = headers.indexOf(keyColumn);
     if (keyIdx === -1) throw new Error('キー列が存在しません：' + keyColumn);
 
     for (var r = 1; r < values.length; r++) {
       if (String(values[r][keyIdx]).trim() !== String(keyValue).trim()) continue;
-      for (var c = 0; c < headers.length; c++) {
-        if (updates[headers[c]] !== undefined) {
-          sheet.getRange(r + 1, c + 1).setValue(updates[headers[c]]);
-        }
-      }
+      writeRowUpdates_(sheet, r + 1, headers, updates);
+      invalidateSheetCache_(sheetName);
       return true;
     }
     return false;
@@ -154,8 +214,9 @@ function updateRow(sheetName, keyColumn, keyValue, updates) {
 function updateRowIfGuard_(sheetName, keyColumn, keyValue, guardColumn, mode, updates) {
   return withLock_(function () {
     const sheet = getSheet_(sheetName);
-    const values = sheet.getDataRange().getValues();
-    const headers = values[0];
+    const data = readSheetData_(sheetName); // ロック取得時にキャッシュは捨てられているので実データ
+    const values = data.values;
+    const headers = data.headers;
     const keyIdx = headers.indexOf(keyColumn);
     const guardIdx = headers.indexOf(guardColumn);
     if (keyIdx === -1) throw new Error('キー列が存在しません：' + keyColumn);
@@ -176,11 +237,8 @@ function updateRowIfGuard_(sheetName, keyColumn, keyValue, guardColumn, mode, up
       }
 
       // 条件を満たすので updates を書き込む
-      for (var c2 = 0; c2 < headers.length; c2++) {
-        if (updates[headers[c2]] !== undefined) {
-          sheet.getRange(r + 1, c2 + 1).setValue(updates[headers[c2]]);
-        }
-      }
+      writeRowUpdates_(sheet, r + 1, headers, updates);
+      invalidateSheetCache_(sheetName);
       return { ok: true, applied: true, current: current };
     }
     return { ok: false, applied: false, current: null };
@@ -232,7 +290,7 @@ function appendRowWithId(sheetName, idColumn, prefix, rowObject) {
   return withLock_(function () {
     const id = nextId_(sheetName, idColumn, prefix);
     const sheet = getSheet_(sheetName);
-    const headers = getHeaders_(sheet);
+    const headers = getHeaders_(sheetName);
     const obj = {};
     for (var k in rowObject) obj[k] = rowObject[k];
     obj[idColumn] = id;
@@ -240,6 +298,7 @@ function appendRowWithId(sheetName, idColumn, prefix, rowObject) {
       return obj[h] !== undefined && obj[h] !== null ? obj[h] : '';
     });
     sheet.appendRow(row);
+    invalidateSheetCache_(sheetName);
     return id;
   });
 }
@@ -253,8 +312,9 @@ function appendRowWithId(sheetName, idColumn, prefix, rowObject) {
 function upsertRow(sheetName, matchObj, rowObject) {
   return withLock_(function () {
     const sheet = getSheet_(sheetName);
-    const values = sheet.getDataRange().getValues();
-    const headers = values[0];
+    const data = readSheetData_(sheetName); // ロック取得時にキャッシュは捨てられているので実データ
+    const values = data.values;
+    const headers = data.headers;
 
     // 書き込む値（キー＋更新内容をマージ）
     const merged = {};
@@ -264,11 +324,8 @@ function upsertRow(sheetName, matchObj, rowObject) {
     for (var r = 1; r < values.length; r++) {
       if (isEmptyRow_(values[r])) continue;
       if (rowMatches_(values[r], headers, matchObj)) {
-        for (var c = 0; c < headers.length; c++) {
-          if (merged[headers[c]] !== undefined) {
-            sheet.getRange(r + 1, c + 1).setValue(merged[headers[c]]);
-          }
-        }
+        writeRowUpdates_(sheet, r + 1, headers, merged);
+        invalidateSheetCache_(sheetName);
         return 'updated';
       }
     }
@@ -276,6 +333,7 @@ function upsertRow(sheetName, matchObj, rowObject) {
       return merged[h] !== undefined && merged[h] !== null ? merged[h] : '';
     });
     sheet.appendRow(row);
+    invalidateSheetCache_(sheetName);
     return 'inserted';
   });
 }
@@ -287,8 +345,9 @@ function upsertRow(sheetName, matchObj, rowObject) {
 function deleteRowByKey(sheetName, keyColumn, keyValue) {
   return withLock_(function () {
     const sheet = getSheet_(sheetName);
-    const values = sheet.getDataRange().getValues();
-    const keyIdx = values[0].indexOf(keyColumn);
+    const data = readSheetData_(sheetName); // ロック取得時にキャッシュは捨てられているので実データ
+    const values = data.values;
+    const keyIdx = data.headers.indexOf(keyColumn);
     if (keyIdx === -1) throw new Error('キー列が存在しません：' + keyColumn);
     var deleted = 0;
     for (var r = values.length - 1; r >= 1; r--) {
@@ -297,8 +356,41 @@ function deleteRowByKey(sheetName, keyColumn, keyValue) {
         deleted++;
       }
     }
+    if (deleted) invalidateSheetCache_(sheetName);
     return deleted;
   });
+}
+
+/**
+ * 1行のうち updates（ヘッダー名 → 値）に含まれる列だけを書き換える。
+ * 連続した列はまとめて setValues するので、列ごと setValue の往復が減る（backlog 10-10）。
+ * 更新対象**以外**のセルには一切触れないため、他列の書式・数式を巻き込まない。
+ *
+ * @param {Sheet}  sheet
+ * @param {number} rowNumber 1始まりの行番号（ヘッダー行が1）
+ * @param {Array}  headers
+ * @param {Object} updates
+ * @return {number} 実行した setValues の回数
+ */
+function writeRowUpdates_(sheet, rowNumber, headers, updates) {
+  const cols = [];
+  for (var c = 0; c < headers.length; c++) {
+    if (updates[headers[c]] !== undefined) cols.push(c);
+  }
+  if (cols.length === 0) return 0;
+
+  var writes = 0;
+  var i = 0;
+  while (i < cols.length) {
+    // 連続する列インデックスの区間 [i, j] をひとまとめにする
+    var j = i;
+    while (j + 1 < cols.length && cols[j + 1] === cols[j] + 1) j++;
+    const run = cols.slice(i, j + 1).map(function (c2) { return updates[headers[c2]]; });
+    sheet.getRange(rowNumber, cols[i] + 1, 1, run.length).setValues([run]);
+    writes++;
+    i = j + 1;
+  }
+  return writes;
 }
 
 // 行配列が matchObj の全カラムと一致するか
@@ -313,8 +405,8 @@ function rowMatches_(rowArr, headers, matchObj) {
 
 // ─── 内部ヘルパー ────────────────────────────────────────────
 
-function getHeaders_(sheet) {
-  return sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+function getHeaders_(sheetName) {
+  return readSheetData_(sheetName).headers;
 }
 
 function isEmptyRow_(row) {
@@ -324,13 +416,23 @@ function isEmptyRow_(row) {
   return true;
 }
 
-// 関数を LockService で保護して実行する共通ラッパー
+/**
+ * 関数を LockService で保護して実行する共通ラッパー。
+ *
+ * 実行内キャッシュの整合性もここが担保する（backlog 10-10）：
+ *  - 取得直後に捨てる … ロック待ちの間に他の実行が書き込んでいる可能性があるため、
+ *    ロック内の読み取り（nextId_ の採番・CAS の現在値検証）は必ず実データを読み直す。
+ *    これが無いと、ロック外で読んだ古い vacancies から採番して**同じIDを二重発行**しうる。
+ *  - 解放直前に捨てる … 自分の書き込みを、以降の読み取りに必ず反映させる。
+ */
 function withLock_(fn) {
   const lock = LockService.getScriptLock();
   lock.waitLock(LOCK_TIMEOUT_MS);
+  invalidateSheetCache_();
   try {
     return fn();
   } finally {
+    invalidateSheetCache_();
     lock.releaseLock();
   }
 }

@@ -221,19 +221,32 @@ D14で `Attendance.gs`＋`check.html` を実装した後のコードレビュー
 
 ### 🟡 磨き込み（効率・重複整理）
 
-- 🟡 **10-10. 「承諾」1タップで同一シートを15回超読む／通知が逐次fetch** — `Vacancy.gs`・`Notify.gs`
-  - `respondToVacancy` → `isCandidate_` → `findCandidates_`（ctx なし）→ `notifyVacancyFilled` が
-    COURSES/VACANCIES/STAFFS を繰り返し全読み。さらに候補n人ぶん contacts を毎回全読み＋
-    `UrlFetchApp.fetch` を逐次実行。複数候補が承諾を競う瞬間に最も遅く、ロック15秒に接近する。
-  - **手順**（`getVacanciesForManage` で実績のある ctx 注入を横展開）：
-    1. `respondToVacancy` 冒頭で各シートを1回ずつ読み、`isCandidate_`／`notifyVacancyFilled` に
-       ctx として渡す（`findCandidates_` は ctx 対応済み）。
-    2. Notify.gs の各通知関数で contacts を**ループ前に1回** `readRows` し staff_id→webhook_url の
-       Map を作る（`getStaffWebhook_` の per-candidate findRow を廃止）。
-    3. 候補への送信を `UrlFetchApp.fetchAll`（muteHttpExceptions）に置き換える。
-    4. （余力があれば）`Sheets.gs` `updateRow`/`claimIfEmpty` の列ごと setValue ループを
-       1行 `setValues` に、`getSheet_` の openById を実行単位でメモ化。10-1 と同時に触ると安全。
-  - **確認**：承諾1回の実行ログで各シートの読み取りが1回ずつになっていること・通知が全員に届くこと。
+- ✅ **10-10. 「承諾」1タップで同一シートを15回超読む／通知が逐次fetch** — `Sheets.gs`・`Notify.gs`（2026-08-09 対応）
+  - **対応済み**：手順1（ctx 注入の横展開）ではなく、**`Sheets.gs` に実行内キャッシュを入れる**形で解決した。
+    ctx 引数を各関数へ配って回るより、データアクセス層1箇所に閉じるほうが呼び出し側を触らずに全経路へ効き、
+    今後追加する関数にも自動で効くため。
+    1. **実行内キャッシュ**：`openById` の結果（Spreadsheet/Sheet）とシートの生データ（headers+values）を
+       1実行の間だけメモ化する（`readSheetData_`／`SHEET_DATA_CACHE_`）。整合性は
+       **`withLock_` がロック取得直後と解放直前に `invalidateSheetCache_()` を呼ぶ**ことだけで担保する
+       （ロック内の読み取り＝採番・CASの現在値検証は必ず実データ／自分の書き込みは次の読み取りに必ず反映）。
+       → 結果として `findCandidates_` の ctx 引数は「無くても速い」状態になった（既存の ctx 対応はそのまま残す）。
+    2. **contacts の1回読み**：`buildWebhookMap_()` で staff_id→webhook_url の Map を作り、
+       候補ごとの `getStaffWebhook_` → `findRow` → contacts 全読みを廃止。
+    3. **`UrlFetchApp.fetchAll`**：職員スペース・確定者・他候補への送信を1回にまとめる（`postToWebhooks_`）。
+       空・不正URLは fetchAll に渡さず「Webhook未登録」として記録（1件の不正URLで全員未達になるのを防ぐ）。
+    4. **行更新の書き込み**：列ごと `setValue` ループを `writeRowUpdates_` に集約し、連続する列はまとめて
+       `setValues`。更新対象外のセルには触れないので他列の書式・数式を巻き込まない。
+  - **検証**：合成シミュレーション36アサート通過。「承諾」1タップで
+    **openById 19→2 ／ シート全読み 19→11 ／ setValue 2→setValues 1 ／ 逐次fetch 3→fetchAll 1回**。
+    スプレッドシートを開く回数は**どの操作でも2回**（メインDB＋連絡先DB）に固定される（画面系は 7〜10 回→2回）。
+    詳細な操作別の数値は changelog 2026-08-09 の表を参照。
+    あわせて CAS の割り込み検知（他候補が先に確定 → 上書きせず「受付終了」）・
+    **ID二重採番が起きないこと**・書き込み直後の読み取りが最新を返すことを確認。
+  - **確認（残）**：実GASで承諾1回の実行ログ／通知が全員に届くこと（実機確認は 9-5 と同枠）。
+  - **注意（今後の実装者向け）**：`Sheets.gs` を経由せず直接シートを書き換えるコード（`Setup.js` の各 migrate 等）は、
+    書き換え後に `invalidateSheetCache_()` を呼ぶこと。また `withLock_` の中で
+    **「書き込み対象と別のシート」を読んで書き込みを判断しない**こと（ロック取得時に捨てるのは
+    データキャッシュ全体なので現状は安全だが、この前提が崩れるコードは書かない）。
 
 ### レビューで確認済みだが今回は見送った改善候補（着手時の参考）
 

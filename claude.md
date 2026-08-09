@@ -217,7 +217,7 @@ ryukoku-support-shift/
 │   ├── Calendar.gs             # カレンダー連携（予定パース parseEvent_・診断）
 │   ├── Attendance.gs           # 勤怠整合性チェック（機能B・CSV↔カレンダー照合）
 │   ├── Device.gs               # M5Stack 端末用エンドポイント
-│   ├── Sheets.gs               # Sheets操作（共通）・CAS（updateRowIfGuard_/claimIfEmpty）
+│   ├── Sheets.gs               # Sheets操作（共通）・CAS（updateRowIfGuard_/claimIfEmpty）・実行内キャッシュ
 │   ├── Constants.gs            # ドメイン定数（VACANCY_RESULT/ANSWER 等・状態文字列の一元化・11-4）
 │   ├── Terms.gs                # 学期マスタ解決（現在学期の集合・クォーター/セメスター同時進行・D16）
 │   ├── Setup.js                # DB初期化・ダミーデータ生成・マイグレーション
@@ -308,3 +308,8 @@ GASエディタの「スクリプトのプロパティ」から設定し、コ�
 4. **実証実験フェーズでは実データを使わない**。仮想データで動作確認を行うこと。
 5. Gitブランチは `main`（本番）と `dev`（開発）の2本運用。機能追加は `feature/xxx` ブランチで作業してPRを出すこと。
 6. **GASの実行時間制限は6分/回**。重い処理は分割するか、時間起動トリガーで対応すること。
+7. **シートへのアクセスは必ず `Sheets.gs` の関数を経由**する（`readRows` / `findRow` / `updateRow` /
+   `claimIfEmpty` 等）。`Sheets.gs` は1実行の間だけ読み取り結果をキャッシュしており、整合性は
+   「ロックを跨いだら捨てる」（`withLock_`）で担保している。この前提を壊さないため：
+   - 直接 `SpreadsheetApp` で書き換えたら、その後に `invalidateSheetCache_()` を呼ぶ（`Setup.js` の各 migrate が例）
+   - `withLock_` の中で「書き込み対象と**別**のシート」を読んで書き込みを判断しない

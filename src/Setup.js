@@ -270,6 +270,7 @@ function migrateCoursesColumns() {
   }
 
   sheet.getRange(1, lastCol + 1, 1, toAdd.length).setValues([toAdd]);
+  invalidateSheetCache_('courses'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
   Logger.log('✅ courses に ' + toAdd.length + ' 列を追加しました: ' + toAdd.join(', '));
   Logger.log('   既存行の新カラムは空です。時間割の内容を入力してください。');
 }
@@ -294,6 +295,7 @@ function migrateStaffsColumns() {
   }
 
   sheet.getRange(1, lastCol + 1, 1, 1).setValues([['skills']]);
+  invalidateSheetCache_('staffs'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
   Logger.log('✅ staffs に skills 列を追加しました。');
   Logger.log('   各学生に「テイク」「介助」「テイク,介助」のいずれかを入力してください。');
   Logger.log('   空欄は当面「全対応」として候補に出ます（運用前に入力推奨）。');
@@ -322,6 +324,7 @@ function migrateStaffsPersonalCode() {
   sheet.getRange(1, col, 1, 1).setValues([['personal_code']]);
   // 既存データ行＋余白をテキスト固定（個人ｺｰﾄﾞの数値化・先頭ゼロ欠落を防ぐ）
   sheet.getRange(2, col, Math.max(sheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+  invalidateSheetCache_('staffs'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
   Logger.log('✅ staffs に personal_code 列を追加しました。');
   Logger.log('   各学生スタッフに勤怠CSVの「個人ｺｰﾄﾞ」（例 Y2xxxxx）を入力してください。');
   Logger.log('   未入力の学生は機能Bの照合で「要確認（personal_code 未登録）」になります。');
@@ -380,6 +383,7 @@ function migrateAddTermsSheet() {
   sheet.getRange(2, 3, template.length, 2).setNumberFormat('@'); // 日付列はテキスト固定
   writeTable_(sheet, HEADERS, template);
   applyHeaderStyle_([sheet], '#4a86e8');
+  invalidateSheetCache_('terms'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
   Logger.log('✅ terms シートを作成し、当年度の雛形（前期/後期＋1Q〜4Q）を入れました。');
   Logger.log('   先端理工=クォーター制／他学部=セメスター制。実際の開始/終了日は学事暦に合わせて調整してください。');
   Logger.log('   courses.quarter には該当する term_id（例 前期 / 2Q）を入れます。');
@@ -423,6 +427,7 @@ function migrateTermNotation() {
 
   const a = fixColumn_('terms', 'term_id');
   const b = fixColumn_('courses', 'quarter');
+  invalidateSheetCache_(); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
   Logger.log('✅ 学期表記を統一しました：terms.term_id ' + a + ' 件 / courses.quarter ' + b + ' 件を変更。');
   Logger.log('   例：2026-Q（実行期）→ 2026-2Q ／ 2026-Q1 → 2026-1Q（前期/後期はそのまま）。');
   if (a + b === 0) Logger.log('   変更対象はありませんでした（既に新表記です）。');
