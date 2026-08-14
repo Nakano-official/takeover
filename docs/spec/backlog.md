@@ -117,11 +117,13 @@ D14で `Attendance.gs`＋`check.html` を実装した後のコードレビュー
   実 LockService・実 Spreadsheet（ダミーDB）で実行し、先着確定（D1・後着で上書きされない）・
   再オープン・二重再オープン拒否・候補抽出・後片付けを観測。7アサート全通過。
   → 中核ロジックは「シミュレーション通過」から「実機で観測済み」に格上げ。
+- ✅ **機能A 実機テスト完了（2026-08-14 更新）**：Tier B（ブラウザ walkthrough）まで含め、
+  機能A のテストは終了。D20/D21 の UI・締切判定を含む。
 - ⏳ **未検証（残）**：
-  - **機能A・Tier B（ブラウザ walkthrough）**：公開関数の Session/ロール判定、`google.script.run` 配線、
-    6画面のHTML描画（Date直列化の罠含む）、実Chat通知の到達、D10候補0人の自動決着の実経路。
   - **機能B（正式な 9-5）**：`migrateStaffsPersonalCode`→`testParseAttendanceCsv`→`testReconcile`→
     `seedTestCalendar`→`check.html` アップロード〜照合の実機確認。
+    **テスト段階に未着手**（実勤怠CSV・実カレンダーが未入手のため）。
+  - **M5Stack 端末**：通電・Wi-Fi 接続・通知テスト（D6）。
 
 ## 10. 全体コードレビュー指摘の修正手順（2026-07-09・8角度レビュー）
 
