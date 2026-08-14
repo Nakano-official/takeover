@@ -211,6 +211,13 @@ function getTermsAdmin() {
   const curSet = {};
   currentTermIds_(terms).forEach(function (id) { curSet[id] = true; });
 
+  // courses から参照されている学期（＝授業あり）。削除可否の判定に使う。
+  const usedSet = {};
+  readRows(SHEET.COURSES).forEach(function (c) {
+    const q = String(c.quarter).trim();
+    if (q) usedSet[q] = true;
+  });
+
   const rows = terms.slice()
     .sort(function (a, b) { return String(b.start_date).localeCompare(String(a.start_date)); })
     .map(function (t) {
@@ -221,6 +228,7 @@ function getTermsAdmin() {
         start_date: t.start_date,
         end_date: t.end_date,
         isCurrent: !!curSet[t.term_id],
+        used: !!usedSet[t.term_id],
       };
     });
 
@@ -316,4 +324,28 @@ function updateTermDates(termId, startDate, endDate) {
   const ok = updateRow(SHEET.TERMS, 'term_id', id, { start_date: s, end_date: e });
   if (!ok) throw new Error('対象の学期が見つかりません（' + id + '）。画面を更新してください。');
   return { term_id: id, start_date: s, end_date: e };
+}
+
+/**
+ * 学期を1件削除する（職員限定）。courses から参照されている学期は削除しない（授業データの学期喪失を防ぐ）。
+ * 学期セレクタが増えすぎたときに不要な学期を片付けるための操作（backlog: terms 削除不可の解消）。
+ * @return {{ok:true, deleted:number, term_id:string}}
+ */
+function deleteTerm(termId) {
+  requireStaff_();
+  const id = String(termId == null ? '' : termId).trim();
+  if (!id) throw new Error('学期が指定されていません。');
+
+  // この学期を参照するコマ（courses.quarter）があれば削除不可（記録保全・deleteCourse と同方針）
+  const used = readRows(SHEET.COURSES).some(function (c) {
+    return String(c.quarter).trim() === id;
+  });
+  if (used) {
+    throw new Error('この学期には授業（コマ）が登録されているため削除できません。' +
+      '先にシフト入力で該当コマを削除／別学期へ移してください。');
+  }
+
+  const n = deleteRowByKey(SHEET.TERMS, 'term_id', id);
+  if (!n) throw new Error('対象の学期が見つかりません（' + id + '）。画面を更新してください。');
+  return { ok: true, deleted: n, term_id: id };
 }

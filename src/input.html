@@ -4,82 +4,53 @@
   <base target="_top">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('shared-styles') ?>
   <style>
-    * { box-sizing: border-box; }
-    body { font-family: "Helvetica Neue", Arial, "Hiragino Sans", "Yu Gothic", sans-serif;
-           margin: 0; background: #f5f6f8; color: #222; }
-    header { background: #4a86e8; color: #fff; padding: 14px 16px; }
-    header h1 { font-size: 1.1rem; margin: 0; }
-    header .user { font-size: .8rem; opacity: .9; margin-top: 2px; }
-    nav { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; background: #fff;
-          border-bottom: 1px solid #e3e6ea; }
-    nav a { font-size: .85rem; text-decoration: none; color: #4a86e8;
-            border: 1px solid #cdddfb; border-radius: 999px; padding: 5px 12px; }
-    nav a:hover { background: #eef4ff; }
-    main { padding: 16px; max-width: 760px; margin: 0 auto; }
-    .card { background: #fff; border-radius: 8px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08);
-            margin-bottom: 16px; }
-    .card h2 { font-size: 1rem; margin: 0 0 12px; }
+    :root { --main-max: 760px; }
 
     .qbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .qbar label { font-weight: 600; font-size: .9rem; }
+    .qbar label { font-weight: 700; font-size: .9rem; margin: 0; }
 
-    label { display: block; font-size: .85rem; font-weight: 600; margin: 0 0 6px; }
-    input, select, textarea { width: 100%; padding: 9px 10px; font-size: .95rem;
-            border: 1px solid #cdd3da; border-radius: 6px; background: #fff; font-family: inherit; }
+    label { display: block; font-size: .85rem; font-weight: 700; margin: 0 0 6px; }
+    /* 入力フォームは1列＝1項目。幅はここで揃える（共通CSSは幅を決めない） */
+    input, select, textarea { width: 100%; }
     textarea { resize: vertical; min-height: 44px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
     .grid .full { grid-column: 1 / -1; }
     @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
 
-    .btn { margin-top: 16px; width: 100%; padding: 12px; font-size: 1rem; font-weight: 600;
-           color: #fff; background: #2a63c0; border: none; border-radius: 6px; cursor: pointer; }
-    .btn:disabled { background: #9db8e3; cursor: default; }
-    .req { color: #c0392b; margin-left: 3px; }
-    .hint { font-size: .78rem; color: #888; margin-top: 6px; }
+    .req { color: var(--danger); margin-left: 3px; }
 
-    .toast { margin-top: 12px; padding: 12px 14px; border-radius: 8px; font-size: .9rem; display: none; }
-    .toast.ok { display: block; background: #eaf7ee; border: 1px solid #bfe6cb; color: #1e7a3d; }
-    .toast.err { display: block; background: #fdecea; border: 1px solid #f5c6c0; color: #c0392b; }
+    #submit { margin-top: 16px; }
+    #cancelEdit { margin-top: 8px; }
+    /* 一覧の行内ボタン（編集＝青の枠線／削除＝赤の枠線） */
+    .btn.ed  { color: var(--brand-ink); border-color: var(--brand-border); }
+    .btn.ed:hover:not(:disabled)  { background: var(--brand-soft); }
+    .btn.del { color: var(--danger); border-color: var(--danger-border); }
+    .btn.del:hover:not(:disabled) { background: var(--danger-bg); }
 
-    .count { font-size: .82rem; color: #666; margin-bottom: 10px; }
-    .row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0;
-           border-top: 1px solid #eef1f4; }
+    .toast { margin-top: 12px; display: none; }
+    .toast.ok, .toast.err { display: block; }
+
+    .count { font-size: .82rem; color: var(--text-muted); margin-bottom: 10px; }
+    .row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0;
+           border-top: 1px solid var(--border); }
     .row:first-child { border-top: none; }
-    .row .info { flex: 1; font-size: .88rem; line-height: 1.5; }
-    .row .slot { font-weight: 700; color: #2a63c0; }
-    .row .tag { display: inline-block; font-size: .7rem; padding: 0 7px; border-radius: 999px;
-                color: #fff; margin-left: 6px; vertical-align: 1px; }
-    .row .tag.take { background: #2a63c0; }
+    .row .info { flex: 1; font-size: .88rem; line-height: 1.55; }
+    .row .slot { font-weight: 700; color: var(--brand-ink); }
+    .row .tag { display: inline-block; font-size: .7rem; padding: 0 7px;
+                border-radius: var(--radius-pill); color: #fff; margin-left: 6px; vertical-align: 1px; }
+    .row .tag.take { background: var(--brand); }
     .row .tag.help { background: #d98a00; }
-    .row .sub { color: #555; }
-    .row .stf { color: #1e7a3d; }
+    .row .sub { color: var(--text-muted); }
+    .row .stf { color: var(--ok); }
     .ops { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; }
-    .ed { border: 1px solid #b9c9ea; background: #fff; color: #2a63c0;
-          border-radius: 6px; padding: 6px 12px; font-size: .82rem; cursor: pointer; }
-    .ed:hover { background: #eef4ff; }
-    .del { border: 1px solid #e3b4ae; background: #fff; color: #c0392b;
-           border-radius: 6px; padding: 6px 12px; font-size: .82rem; cursor: pointer; }
-    .del:hover { background: #fdf1f0; }
-    .btn.cancel { background: #888; margin-top: 8px; }
-    .row.editing { background: #fff8e6; border-radius: 6px; }
-    .state { padding: 18px; text-align: center; color: #888; }
+    /* 編集中の行は黄色く残して「いまどれを直しているか」を見失わないようにする */
+    .row.editing { background: #fff8e6; border-radius: var(--radius-sm); }
   </style>
 </head>
 <body>
-  <header>
-    <h1>シフト入力</h1>
-    <div class="user"><?= user.name ?> さん（<?= user.role ?>）</div>
-  </header>
-
-  <nav>
-    <a href="<?= appUrl ?>?page=home">シフト確認</a>
-    <a href="<?= appUrl ?>?page=absence">欠勤連絡</a>
-    <a href="<?= appUrl ?>?page=input">シフト入力</a>
-    <a href="<?= appUrl ?>?page=manage">欠員補充管理</a>
-    <a href="<?= appUrl ?>?page=check">整合性チェック</a>
-    <a href="<?= appUrl ?>?page=terms">学期設定</a>
-  </nav>
+  <?!= chrome ?>
 
   <main>
     <div class="card">
@@ -188,8 +159,8 @@
           '<div><label>担当スタッフB</label><select id="staff_b_id"></select></div>' +
           '<div class="full"><label>備考</label><textarea id="note" placeholder="任意"></textarea></div>' +
         '</div>' +
-        '<button class="btn" id="submit" onclick="submitCourse()">このコマを追加</button>' +
-        '<button class="btn cancel" id="cancelEdit" onclick="cancelEdit()" style="display:none">編集をやめる</button>' +
+        '<button class="btn primary block" id="submit" onclick="submitCourse()">このコマを追加</button>' +
+        '<button class="btn block" id="cancelEdit" onclick="cancelEdit()" style="display:none">編集をやめる</button>' +
         '<p class="hint">＊は必須。テイクはB欄に2人目を選びます（未定なら「なし」のままでも登録可）。' +
         '担当欄は選んだ曜日・時限に空きがあり内容に対応できる人だけを表示します。' +
         '登録済みのコマは下の一覧の「編集」から修正できます（教室が後から決まった場合など）。</p>';
@@ -436,8 +407,8 @@
         var editing = (c.course_id === EDIT_ID) ? ' editing' : '';
         return '<div class="row' + editing + '"><div class="info">' + info + '</div>' +
           '<div class="ops">' +
-            '<button class="ed" onclick="editCourse(\'' + cid + '\')">編集</button>' +
-            '<button class="del" onclick="delCourse(\'' + cid + '\',\''
+            '<button class="btn sm ed" onclick="editCourse(\'' + cid + '\')">編集</button>' +
+            '<button class="btn sm del" onclick="delCourse(\'' + cid + '\',\''
               + escapeHtml(label).replace(/'/g, '') + '\')">削除</button>' +
           '</div></div>';
       }).join('');
@@ -445,7 +416,7 @@
 
     function showToast(msg, ok) {
       var t = document.getElementById('toast');
-      t.className = 'toast ' + (ok ? 'ok' : 'err');
+      t.className = 'notice toast ' + (ok ? 'ok' : 'err');
       t.textContent = msg;
     }
 

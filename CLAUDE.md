@@ -1,4 +1,4 @@
-# ryukoku-support-shift — Claude Code コンテキスト
+# takeover — Claude Code コンテキスト
 
 このファイルはClaude Codeがプロジェクトを理解するためのコンテキストです。
 作業を始める前に必ずこのファイルを読んでください。
@@ -15,8 +15,11 @@
 障がい学生支援室のアルバイトスタッフ（ノートテイカー）のシフト管理、
 欠員補充業務の自動化、および勤怠整合性チェックを行うWebシステム。
 
-- **リポジトリ名**: ryukoku-support-shift
-- **可視性**: Private
+- **リポジトリ名**: takeover（`Nakano-official/takeover`。旧 `ryukoku-support-shift`）
+- **可視性**: Public。**実データ・個人情報を含むものは絶対にコミットしない**
+  （勤怠CSV・時間割PDF・実データのスクリーンショットは `.gitignore` で除外済み）
+- **画面に出す名称**: 「支援室シフト管理」（利用者向けの呼称。リポジトリ名とは別物なので、
+  `code.js` のタイトルや `Setup.js` のスプレッドシート名は変更しない）
 - **開発期間**: 〜 2026年9月17日（授業開始日）
 
 ---
@@ -208,19 +211,20 @@
 GAS は src/ 一式（.gs と .html を同居）を clasp で push する。html は別ディレクトリではなく src 直下。
 
 ```
-ryukoku-support-shift/
+takeover/
 ├── src/                        # GAS スクリプト＋画面
-│   ├── code.js                 # エントリポイント（doGet・ルーティング・ロール判定）
+│   ├── code.js                 # エントリポイント（doGet・ルーティング・ロール判定・ヘッダー/ナビ生成）
 │   ├── Vacancy.gs              # 欠員補充ロジック（候補抽出・先着確定・自動決着・再オープン）
 │   ├── Input.gs                # シフト入力（courses 追加・削除・候補絞り込み）
 │   ├── Notify.gs               # Google Chat 通知
 │   ├── Calendar.gs             # カレンダー連携（予定パース parseEvent_・診断）
 │   ├── Attendance.gs           # 勤怠整合性チェック（機能B・CSV↔カレンダー照合）
 │   ├── Device.gs               # M5Stack 端末用エンドポイント
-│   ├── Sheets.gs               # Sheets操作（共通）・CAS（updateRowIfGuard_/claimIfEmpty）
+│   ├── Sheets.gs               # Sheets操作（共通）・CAS（updateRowIfGuard_/claimIfEmpty）・実行内キャッシュ
 │   ├── Constants.gs            # ドメイン定数（VACANCY_RESULT/ANSWER 等・状態文字列の一元化・11-4）
 │   ├── Terms.gs                # 学期マスタ解決（現在学期の集合・クォーター/セメスター同時進行・D16）
 │   ├── Setup.js                # DB初期化・ダミーデータ生成・マイグレーション
+│   ├── shared-styles.html      # 全画面共通のCSS（デザイントークン＋共通パーツ・D20）
 │   ├── home.html               # シフト確認（時間割）
 │   ├── absence.html            # 欠勤連絡
 │   ├── respond.html            # 代行依頼への回答
@@ -234,6 +238,21 @@ ryukoku-support-shift/
 ├── .clasp.json                 # clasp設定（GitIgnore対象）
 └── CLAUDE.md                   # このファイル
 ```
+
+### 画面（HTML）の共通ルール（D20）
+
+- **ヘッダーとナビは各HTMLに書かない**。`code.js` の `renderChrome_` がサーバー側で組み立て、
+  各画面は `<?!= chrome ?>` を1行貼るだけ。ナビの内容は `PAGES` と `NAV_PAGES` から導出される。
+- **画面を追加するとき**は `PAGES` に足し、ナビに出すなら `NAV_PAGES` にも足す。それだけで全画面の
+  ナビに載り、`staffOnly` による出し分け・現在地ハイライトも自動で効く（各HTMLの編集は不要）。
+  - `staffOnly: true` … 職員限定（`doGet` がアクセスも拒否する）
+  - `hideInStaffNav: true` … 職員のナビに出さないだけ（アクセスは拒否しない。例：`absence`）
+- **CSSは `shared-styles.html` を先に読む**。`<?!= include('shared-styles') ?>` を画面固有の `<style>`
+  より**前**に置くこと（後に書いたものが勝つため、画面固有で上書きできる順序にする）。
+  色・余白・角丸は `:root` のCSS変数を使い、生の色コードを新たに書かない。
+  本文幅は各画面が `:root { --main-max: 760px; }` のように指定する。
+- 共通パーツは `.card` / `.btn`（`primary`/`ok`/`danger`/`block`/`sm`）/ `.notice`（`ok`/`warn`/`err`/`info`）/
+  `.state` / `.hint`。画面固有の見た目だけを各HTMLの `<style>` に書く。
 
 ※ 勤怠整合性チェック（機能B）は `Attendance.gs`（照合エンジン）＋ `check.html`（職員画面）で実装済み（D14）。
   CSVをアップロード→Shift_JIS復号→カレンダーと15分丸めで突合し、登録漏れ/予定外勤務/時間不一致をハイライトする。
@@ -276,6 +295,12 @@ GASエディタの「スクリプトのプロパティ」から設定し、コ�
 - [x] 勤怠整合性チェック（カレンダー ↔ 勤怠データ照合）※`Attendance.gs`＋`check.html`（D14）
 - [x] 差分ハイライト一覧表示（登録漏れ/予定外勤務/時間不一致）
 - [ ] 通知の非同期化・締切リマインド・エスカレーション（時間トリガー基盤・review #5/#7）
+  - [x] 代行募集の締切を「授業開始30分前」に決定（`RECRUIT_DEADLINE_MIN_BEFORE`・D21）
+  - [x] 締切超過の欠勤連絡は登録のみ受け付け、代行募集をせず自動決着＋Classroom案内（D21）
+  - [ ] 締切前のリマインド／締切到達時の自動エスカレーション（時間トリガーが必要）
+  - [ ] **締切到達時は募集クローズのみにし、`result` を書かず職員に決着を返す（D22）**。
+    D10/D21 の「自動決着」を置き換える方針転換。同じ時間トリガー基盤に乗せる。
+    ドキュメント上は **募集クローズ＝システム／決着＝職員** と用語を分けること
 
 ### Phase 3
 - [ ] 月末リマインダー通知
@@ -292,3 +317,8 @@ GASエディタの「スクリプトのプロパティ」から設定し、コ�
 4. **実証実験フェーズでは実データを使わない**。仮想データで動作確認を行うこと。
 5. Gitブランチは `main`（本番）と `dev`（開発）の2本運用。機能追加は `feature/xxx` ブランチで作業してPRを出すこと。
 6. **GASの実行時間制限は6分/回**。重い処理は分割するか、時間起動トリガーで対応すること。
+7. **シートへのアクセスは必ず `Sheets.gs` の関数を経由**する（`readRows` / `findRow` / `updateRow` /
+   `claimIfEmpty` 等）。`Sheets.gs` は1実行の間だけ読み取り結果をキャッシュしており、整合性は
+   「ロックを跨いだら捨てる」（`withLock_`）で担保している。この前提を壊さないため：
+   - 直接 `SpreadsheetApp` で書き換えたら、その後に `invalidateSheetCache_()` を呼ぶ（`Setup.js` の各 migrate が例）
+   - `withLock_` の中で「書き込み対象と**別**のシート」を読んで書き込みを判断しない

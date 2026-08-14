@@ -4,51 +4,24 @@
   <base target="_top">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('shared-styles') ?>
   <style>
-    * { box-sizing: border-box; }
-    body { font-family: "Helvetica Neue", Arial, "Hiragino Sans", "Yu Gothic", sans-serif;
-           margin: 0; background: #f5f6f8; color: #222; }
-    header { background: #4a86e8; color: #fff; padding: 14px 16px; }
-    header h1 { font-size: 1.1rem; margin: 0; }
-    header .user { font-size: .8rem; opacity: .9; margin-top: 2px; }
-    nav { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; background: #fff;
-          border-bottom: 1px solid #e3e6ea; }
-    nav a { font-size: .85rem; text-decoration: none; color: #4a86e8;
-            border: 1px solid #cdddfb; border-radius: 999px; padding: 5px 12px; }
-    nav a:hover { background: #eef4ff; }
-    main { padding: 16px; max-width: 520px; margin: 0 auto; }
-    .card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-    .detail { font-size: .95rem; line-height: 1.9; }
-    .detail dt { color: #888; font-size: .8rem; }
-    .detail dd { margin: 0 0 10px; font-weight: 600; }
+    :root { --main-max: 520px; }
+
+    .detail { font-size: .95rem; line-height: 1.9; margin: 0; }
+    .detail dt { color: var(--text-muted); font-size: .78rem; }
+    .detail dd { margin: 0 0 12px; font-weight: 700; }
+    /* 承諾／辞退は指で押す前提なので大きめ・等幅に並べる */
     .btns { display: flex; gap: 12px; margin-top: 22px; }
-    .btns button { flex: 1; padding: 14px; font-size: 1.05rem; font-weight: 700;
-                   border: none; border-radius: 8px; cursor: pointer; color: #fff; }
-    .accept { background: #1e7a3d; }
-    .decline { background: #777; }
-    .btns button:disabled { opacity: .5; cursor: default; }
-    .state { padding: 22px; text-align: center; color: #888; }
-    .msg { margin-top: 16px; padding: 16px; border-radius: 8px; font-size: .95rem;
-           line-height: 1.7; text-align: center; }
-    .msg.ok   { background: #e7f6ec; color: #1e7a3d; border: 1px solid #b7e4c4; }
-    .msg.info { background: #eef6ff; color: #2a63c0; border: 1px solid #cfe2fb; }
-    .msg.warn { background: #fff7e6; color: #9a6b00; border: 1px solid #ffe0a3; }
-    .current { font-size: .85rem; color: #666; margin-top: 10px; text-align: center; }
+    .btns .btn { flex: 1; padding: 15px; font-size: 1.05rem; font-weight: 700; }
+    .decline { background: #6d7684; border-color: #6d7684; color: #fff; }
+    .decline:hover:not(:disabled) { background: #5b636f; border-color: #5b636f; }
+    .msg { margin-top: 16px; text-align: center; }
+    .current { font-size: .85rem; color: var(--text-muted); margin-top: 12px; text-align: center; }
   </style>
 </head>
 <body>
-  <header>
-    <h1>代行依頼への回答</h1>
-    <div class="user"><?= user.name ?> さん（<?= user.role ?>）</div>
-  </header>
-
-  <nav>
-    <a href="<?= appUrl ?>?page=home">シフト確認</a>
-    <a href="<?= appUrl ?>?page=absence">欠勤連絡</a>
-    <? if (user.role === '職員') { ?>
-      <a href="<?= appUrl ?>?page=manage">欠員補充管理</a>
-    <? } ?>
-  </nav>
+  <?!= chrome ?>
 
   <main>
     <div class="card">
@@ -98,14 +71,14 @@
       if (v.closed) {
         content.className = '';
         content.innerHTML = detail +
-          '<div class="msg info">この欠員は既に対応が確定しています。回答は受け付けていません。</div>';
+          '<div class="notice msg info">この欠員は既に対応が確定しています。回答は受け付けていません。</div>';
         return;
       }
       // 候補ではない
       if (!v.eligible) {
         content.className = '';
         content.innerHTML = detail +
-          '<div class="msg warn">あなたはこの時限の代行候補ではないため、回答できません。</div>';
+          '<div class="notice msg warn">あなたはこの時限の代行候補ではないため、回答できません。</div>';
         return;
       }
 
@@ -116,8 +89,8 @@
       content.className = '';
       content.innerHTML = detail +
         '<div class="btns">' +
-        '<button class="accept" onclick="answer(\'承諾\')">承諾する</button>' +
-        '<button class="decline" onclick="answer(\'辞退\')">辞退する</button>' +
+        '<button class="btn ok" onclick="answer(\'承諾\')">承諾する</button>' +
+        '<button class="btn decline" onclick="answer(\'辞退\')">辞退する</button>' +
         '</div>' + current +
         '<div id="msg"></div>';
     }
@@ -126,7 +99,7 @@
       var buttons = document.querySelectorAll('.btns button');
       buttons.forEach(function (b) { b.disabled = true; });
       document.getElementById('msg').innerHTML =
-        '<div class="msg info">送信中…</div>';
+        '<div class="notice msg info">送信中…</div>';
 
       google.script.run
         .withSuccessHandler(function (res) {
@@ -136,26 +109,26 @@
           // 先約で埋まった → 受付終了。ボタンは無効のままにする。
           if (res.filled) {
             msg.innerHTML =
-              '<div class="msg info">この欠員は既に他の方で補充が決まりました。<br>' +
+              '<div class="notice msg info">この欠員は既に他の方で補充が決まりました。<br>' +
               '回答は締め切られています。</div>';
             return;
           }
           // 承諾が通って自分に確定した
           if (res.confirmed) {
             msg.innerHTML =
-              '<div class="msg ok">あなたに代行が決まりました！<br>' +
+              '<div class="notice msg ok">あなたに代行が決まりました！<br>' +
               'ご協力ありがとうございます。</div>';
             return; // 確定済みなのでボタンは無効のまま
           }
           // 辞退を記録（欠員はまだ開いているので、気が変われば承諾できるよう再度有効化）
           buttons.forEach(function (b) { b.disabled = false; });
           msg.innerHTML =
-            '<div class="msg info">辞退で承りました。ご確認ありがとうございます。</div>';
+            '<div class="notice msg info">辞退で承りました。ご確認ありがとうございます。</div>';
         })
         .withFailureHandler(function (err) {
           buttons.forEach(function (b) { b.disabled = false; });
           document.getElementById('msg').innerHTML =
-            '<div class="msg warn">エラー: ' + escapeHtml(err.message) + '</div>';
+            '<div class="notice msg warn">エラー: ' + escapeHtml(err.message) + '</div>';
         })
         .respondToVacancy(VACANCY_ID, ans);
     }

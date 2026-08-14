@@ -270,6 +270,7 @@ function migrateCoursesColumns() {
   }
 
   sheet.getRange(1, lastCol + 1, 1, toAdd.length).setValues([toAdd]);
+  invalidateSheetCache_('courses'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
   Logger.log('✅ courses に ' + toAdd.length + ' 列を追加しました: ' + toAdd.join(', '));
   Logger.log('   既存行の新カラムは空です。時間割の内容を入力してください。');
 }
@@ -294,6 +295,7 @@ function migrateStaffsColumns() {
   }
 
   sheet.getRange(1, lastCol + 1, 1, 1).setValues([['skills']]);
+  invalidateSheetCache_('staffs'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
   Logger.log('✅ staffs に skills 列を追加しました。');
   Logger.log('   各学生に「テイク」「介助」「テイク,介助」のいずれかを入力してください。');
   Logger.log('   空欄は当面「全対応」として候補に出ます（運用前に入力推奨）。');
@@ -322,14 +324,58 @@ function migrateStaffsPersonalCode() {
   sheet.getRange(1, col, 1, 1).setValues([['personal_code']]);
   // 既存データ行＋余白をテキスト固定（個人ｺｰﾄﾞの数値化・先頭ゼロ欠落を防ぐ）
   sheet.getRange(2, col, Math.max(sheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+  invalidateSheetCache_('staffs'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
   Logger.log('✅ staffs に personal_code 列を追加しました。');
   Logger.log('   各学生スタッフに勤怠CSVの「個人ｺｰﾄﾞ」（例 Y2xxxxx）を入力してください。');
   Logger.log('   未入力の学生は機能Bの照合で「要確認（personal_code 未登録）」になります。');
 }
 
 /**
+ * 既存の periods シートのテキスト書式を「列全体」に広げる（D21 で判明した潜在バグの修正）。
+ *
+ * セットアップ時のテキスト固定は既定の7行ぶんにしか掛かっておらず、職員が8行目以降に
+ * 時限（8限・課外時限など）を手で足すと `09:15` が**時刻値**として保存される。
+ * すると `readRows` が Date を返し、締切判定（D21・`isPastRecruitDeadline_`）が
+ * 黙って「締切前」に倒れたり、時刻表示が壊れたりする。10-6（personal_code）と同じパターン。
+ *
+ * 書式を広げるだけで、既に時刻値になっているセルは文字列へ直さない
+ * （表示上の見た目は変わらないため、必要なら職員が入力し直す）。冪等。
+ * GASエディタから1回実行する。
+ */
+function migratePeriodsTextFormat() {
+  const ss = openMainDb_();
+  const sheet = ss.getSheetByName('periods');
+  if (!sheet) { Logger.log('❌ periods シートが見つかりません。'); return; }
+
+  const rows = Math.max(sheet.getMaxRows() - 1, 1);
+  sheet.getRange(2, 1, rows, 3).setNumberFormat('@');
+  invalidateSheetCache_('periods'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
+
+  Logger.log('✅ periods の period / start_time / end_time を列全体（' + rows + '行）テキスト固定にしました。');
+
+  // 既に時刻値（Date）として保存されている行があれば知らせる
+  const bad = readRows('periods').filter(function (p) {
+    return (p.start_time instanceof Date) || (p.end_time instanceof Date);
+  });
+  if (bad.length === 0) {
+    Logger.log('   現在の全行が文字列として読めています（問題なし）。');
+  } else {
+    Logger.log('   ⚠️ 次の時限は既に時刻値になっています。該当セルを入力し直してください（例：先頭に \' を付けて 09:15）：');
+    bad.forEach(function (p) {
+      Logger.log('     ' + p.period + '限: ' + p.start_time + ' 〜 ' + p.end_time);
+    });
+  }
+}
+
+/**
  * 指定年度の学期マスタ雛形（前期/後期＋1Q〜4Q）を返す（D16/D19）。
- * 日付は学事暦に合わせて職員が調整する前提の目安値。年度をまたいで再利用できるよう年を引数に取る。
+ * 日付は「学期設定」画面で職員が実際の学事暦に合わせて調整する前提の**目安値**。年度をまたいで
+ * 再利用できるよう年を引数に取る（月日パターンは共通・実始まり曜日は年で数日ずれるため要調整）。
+ *
+ * 月日パターンは2026年度の実カレンダーに寄せてある（龍谷大・2026-07 ヒアリング）：
+ *   前期＝4/7〜8/4（＝2Q終了）、夏休みを挟んで 後期＝9/18〜翌1/28。
+ *   1Q 4/7〜6/8 ／ 2Q 6/9〜8/4 ／ 3Q 9/18〜11/19 ／ 4Q 11/20〜翌1/28。
+ *   ※ 前期⊇1Q+2Q・後期⊇3Q+4Q の入れ子は保つ。夏(8/5〜9/17)・春(1/29〜)は「現在なし」の空白期間になる。
  * @param {(string|number)} year 西暦年（例：2027）
  * @return {Array<{term_id,system,start_date,end_date}>}
  */
@@ -337,12 +383,12 @@ function yearTermsTemplate_(year) {
   const yr = String(year);
   const ny = String(Number(yr) + 1);
   return [
-    { term_id: yr + '-前期', system: 'semester', start_date: yr + '-04-01', end_date: yr + '-09-20' },
-    { term_id: yr + '-後期', system: 'semester', start_date: yr + '-09-21', end_date: ny + '-03-31' },
-    { term_id: yr + '-1Q', system: 'quarter', start_date: yr + '-04-01', end_date: yr + '-06-05' },
-    { term_id: yr + '-2Q', system: 'quarter', start_date: yr + '-06-06', end_date: yr + '-08-05' },
-    { term_id: yr + '-3Q', system: 'quarter', start_date: yr + '-09-21', end_date: yr + '-11-25' },
-    { term_id: yr + '-4Q', system: 'quarter', start_date: yr + '-11-26', end_date: ny + '-02-10' },
+    { term_id: yr + '-前期', system: 'semester', start_date: yr + '-04-07', end_date: yr + '-08-04' },
+    { term_id: yr + '-後期', system: 'semester', start_date: yr + '-09-18', end_date: ny + '-01-28' },
+    { term_id: yr + '-1Q', system: 'quarter', start_date: yr + '-04-07', end_date: yr + '-06-08' },
+    { term_id: yr + '-2Q', system: 'quarter', start_date: yr + '-06-09', end_date: yr + '-08-04' },
+    { term_id: yr + '-3Q', system: 'quarter', start_date: yr + '-09-18', end_date: yr + '-11-19' },
+    { term_id: yr + '-4Q', system: 'quarter', start_date: yr + '-11-20', end_date: ny + '-01-28' },
   ];
 }
 
@@ -371,9 +417,11 @@ function migrateAddTermsSheet() {
   const HEADERS = ['term_id', 'system', 'start_date', 'end_date'];
   const template = currentYearTermsTemplate_();
   sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
-  sheet.getRange(2, 3, template.length, 2).setNumberFormat('@'); // 日付列はテキスト固定
+  // 日付列はテキスト固定。雛形の行数ぶんではなく列全体に掛ける（10-6 / 10-6b と同じ理由）
+  sheet.getRange(2, 3, Math.max(sheet.getMaxRows() - 1, 1), 2).setNumberFormat('@');
   writeTable_(sheet, HEADERS, template);
   applyHeaderStyle_([sheet], '#4a86e8');
+  invalidateSheetCache_('terms'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
   Logger.log('✅ terms シートを作成し、当年度の雛形（前期/後期＋1Q〜4Q）を入れました。');
   Logger.log('   先端理工=クォーター制／他学部=セメスター制。実際の開始/終了日は学事暦に合わせて調整してください。');
   Logger.log('   courses.quarter には該当する term_id（例 前期 / 2Q）を入れます。');
@@ -417,6 +465,7 @@ function migrateTermNotation() {
 
   const a = fixColumn_('terms', 'term_id');
   const b = fixColumn_('courses', 'quarter');
+  invalidateSheetCache_(); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
   Logger.log('✅ 学期表記を統一しました：terms.term_id ' + a + ' 件 / courses.quarter ' + b + ' 件を変更。');
   Logger.log('   例：2026-Q（実行期）→ 2026-2Q ／ 2026-Q1 → 2026-1Q（前期/後期はそのまま）。');
   if (a + b === 0) Logger.log('   変更対象はありませんでした（既に新表記です）。');
@@ -449,8 +498,10 @@ function setupMainDb_(ss, data) {
     'staff_a_id', 'staff_b_id',
     'note',           // 備考
   ];
-  // period 列（D列）は periods シートと突合するためテキスト固定
-  coursesSheet.getRange(2, 4, Math.max(data.courses.length, 1), 1).setNumberFormat('@');
+  // period 列（D列）は periods シートと突合するためテキスト固定。初期データの行数ぶんではなく
+  // 列全体に掛ける（10-6 / 10-6b と同じ理由。空セットアップだと1行しか掛からず、以後
+  // シフト入力画面から足したコマの period が数値になる）。
+  coursesSheet.getRange(2, 4, Math.max(coursesSheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
   writeTable_(coursesSheet, COURSE_HEADERS, data.courses);
 
   const vacanciesSheet = ss.insertSheet('vacancies');
@@ -467,14 +518,18 @@ function setupMainDb_(ss, data) {
   // 先端理工=クォーター制／他学部=セメスター制の2体系が同時に走るための真実の源。
   const termsSheet = ss.insertSheet('terms');
   const TERM_HEADERS = ['term_id', 'system', 'start_date', 'end_date'];
-  // start_date/end_date（C・D列）は日付の型ゆれを避け 'yyyy-MM-dd' 文字列で扱うためテキスト固定
-  termsSheet.getRange(2, 3, Math.max((data.terms || []).length, 1), 2).setNumberFormat('@');
+  // start_date/end_date（C・D列）は日付の型ゆれを避け 'yyyy-MM-dd' 文字列で扱うためテキスト固定。
+  // 初期データの行数ぶんではなく**列全体**に掛ける（10-6 / 10-6b と同じ理由）。
+  termsSheet.getRange(2, 3, Math.max(termsSheet.getMaxRows() - 1, 1), 2).setNumberFormat('@');
   writeTable_(termsSheet, TERM_HEADERS, data.terms || []);
 
   const periodsSheet = ss.insertSheet('periods');
   periodsSheet.getRange(1, 1, 1, 3).setValues([['period', 'start_time', 'end_time']]);
-  // period（数値型化を防ぐ）・start_time/end_time（時刻型化を防ぐ）を全てテキスト固定
-  periodsSheet.getRange(2, 1, 7, 3).setNumberFormat('@');
+  // period（数値型化を防ぐ）・start_time/end_time（時刻型化を防ぐ）を全てテキスト固定。
+  // 既定の7行ぶんだけでなく**列全体**に掛ける（10-6 と同じ理由）。7行だけだと、職員が
+  // 8行目以降に時限（8限・課外時限など）を手で足したとき '09:15' が時刻値に化け、
+  // readRows が Date を返して締切判定（D21）や時刻表示が黙って壊れる。
+  periodsSheet.getRange(2, 1, Math.max(periodsSheet.getMaxRows() - 1, 1), 3).setNumberFormat('@');
   periodsSheet.getRange(2, 1, 7, 3).setValues([
     ['1', '09:15', '11:00'],
     ['2', '11:15', '12:30'],

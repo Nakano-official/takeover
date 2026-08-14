@@ -4,68 +4,49 @@
   <base target="_top">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('shared-styles') ?>
   <style>
-    * { box-sizing: border-box; }
-    body { font-family: "Helvetica Neue", Arial, "Hiragino Sans", "Yu Gothic", sans-serif;
-           margin: 0; background: #f5f6f8; color: #222; }
-    header { background: #4a86e8; color: #fff; padding: 14px 16px; }
-    header h1 { font-size: 1.1rem; margin: 0; }
-    header .user { font-size: .8rem; opacity: .9; margin-top: 2px; }
-    nav { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; background: #fff;
-          border-bottom: 1px solid #e3e6ea; }
-    nav a { font-size: .85rem; text-decoration: none; color: #4a86e8;
-            border: 1px solid #cdddfb; border-radius: 999px; padding: 5px 12px; }
-    nav a:hover { background: #eef4ff; }
-    main { padding: 16px; max-width: 880px; margin: 0 auto; }
-    .card { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 14px;
-            box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-    .card h2 { font-size: 1rem; margin: 0 0 12px; }
+    :root { --main-max: 880px; }
+
+    .card { padding: 16px 18px; margin-bottom: 14px; }
     .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
     .field { display: flex; flex-direction: column; gap: 4px; }
-    .field label { font-size: .78rem; color: #666; }
-    .field input { padding: 7px 9px; border: 1px solid #cdd3da; border-radius: 6px; font-size: .9rem; }
-    .run { background: #4a86e8; color: #fff; border: none; border-radius: 6px;
-           padding: 9px 20px; font-size: .9rem; font-weight: 600; cursor: pointer; }
-    .run:disabled { opacity: .5; cursor: default; }
-    .hint { font-size: .78rem; color: #888; margin-top: 8px; line-height: 1.6; }
+    .field label { font-size: .78rem; color: var(--text-muted); }
+    .field input { font-size: .9rem; padding: 7px 10px; }
+
+    /* 照合結果のサマリー（件数チップ） */
     .summary { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 4px; }
-    .chip { border-radius: 999px; padding: 6px 14px; font-size: .85rem; font-weight: 600; }
-    .c-miss { background: #fdecea; color: #c0392b; }
-    .c-extra { background: #fff3e0; color: #b06f00; }
-    .c-time { background: #fdf0d5; color: #9a6a00; }
-    .c-ok { background: #e7f6ec; color: #1e7a3d; }
+    .chip { border-radius: var(--radius-pill); padding: 6px 14px; font-size: .85rem; font-weight: 700; }
+    .c-miss  { background: var(--danger-bg); color: var(--danger); }
+    .c-extra { background: var(--warn-bg);   color: var(--warn); }
+    .c-time  { background: #fdf0d5;          color: #9a6a00; }
+    .c-ok    { background: var(--ok-bg);     color: var(--ok); }
+
+    /* 差分テーブル。行の淡い地色と左端のタグで種別を見分ける */
+    .tablewrap { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; font-size: .86rem; }
-    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eef0f3; vertical-align: top; }
-    th { font-size: .78rem; color: #666; background: #fafbfc; }
-    tr.t-miss { background: #fff7f6; }
-    tr.t-time { background: #fffaf0; }
+    th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { font-size: .76rem; color: var(--text-muted); background: var(--surface-alt);
+         font-weight: 700; white-space: nowrap; position: sticky; top: 0; }
+    tr.t-miss  { background: #fff7f6; }
+    tr.t-time  { background: #fffaf0; }
     tr.t-extra { background: #fffdf7; }
-    .tag { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: .76rem; font-weight: 600; white-space: nowrap; }
-    .tag-miss { background: #fdecea; color: #c0392b; }
-    .tag-extra { background: #fff3e0; color: #b06f00; }
-    .tag-time { background: #fdf0d5; color: #9a6a00; }
-    .warn { border-left: 4px solid #e0a800; background: #fffdf3; padding: 10px 14px; border-radius: 4px;
+    .tag { display: inline-block; padding: 1px 9px; border-radius: var(--radius-pill);
+           font-size: .76rem; font-weight: 700; white-space: nowrap; }
+    .tag-miss  { background: var(--danger-bg); color: var(--danger); }
+    .tag-extra { background: var(--warn-bg);   color: var(--warn); }
+    .tag-time  { background: #fdf0d5;          color: #9a6a00; }
+
+    .warn { border-left: 4px solid var(--warn-border); background: var(--warn-bg);
+            padding: 10px 14px; border-radius: var(--radius-sm);
             font-size: .84rem; margin-bottom: 10px; }
-    .warn b { color: #9a6a00; }
+    .warn b { color: var(--warn); }
     .warn ul { margin: 6px 0 0; padding-left: 18px; }
-    .diag { font-size: .76rem; color: #999; margin-top: 10px; }
-    .state { padding: 24px; text-align: center; color: #888; }
-    .muted { color: #aaa; }
+    .diag { font-size: .76rem; color: var(--text-faint); margin-top: 10px; }
   </style>
 </head>
 <body>
-  <header>
-    <h1>整合性チェック</h1>
-    <div class="user"><?= user.name ?> さん（<?= user.role ?>）</div>
-  </header>
-
-  <nav>
-    <a href="<?= appUrl ?>?page=home">シフト確認</a>
-    <a href="<?= appUrl ?>?page=absence">欠勤連絡</a>
-    <a href="<?= appUrl ?>?page=manage">欠員補充管理</a>
-    <a href="<?= appUrl ?>?page=check">整合性チェック</a>
-    <a href="<?= appUrl ?>?page=terms">学期設定</a>
-  </nav>
+  <?!= chrome ?>
 
   <main>
     <div class="card">
@@ -83,7 +64,7 @@
           <label>照合期間（終了）</label>
           <input type="date" id="to">
         </div>
-        <button class="run" id="run" onclick="runCheck()">照合する</button>
+        <button class="btn primary" id="run" onclick="runCheck()">照合する</button>
       </div>
       <div class="hint">
         カレンダー（職員が修正済みの勤務予定）を「正」として、学生が登録した勤怠CSVとのズレを検出します。<br>
@@ -175,11 +156,12 @@
       if (!res.diffs || res.diffs.length === 0) {
         html += '<div class="state">差分はありませんでした（一致のみ）。</div>';
       } else {
-        html += '<table><thead><tr>' +
+        // 列が多いので、狭い画面では表だけを横スクロールさせる（ページ全体は横に伸ばさない）
+        html += '<div class="tablewrap"><table><thead><tr>' +
           '<th>種別</th><th>日付</th><th>氏名</th><th>カレンダー予定</th><th>勤怠CSV</th><th>内容</th>' +
           '</tr></thead><tbody>';
         html += res.diffs.map(renderRow).join('');
-        html += '</tbody></table>';
+        html += '</tbody></table></div>';
       }
       html += '</div>';
 

@@ -4,150 +4,184 @@
   <base target="_top">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('shared-styles') ?>
   <style>
-    * { box-sizing: border-box; }
-    body { font-family: "Helvetica Neue", Arial, "Hiragino Sans", "Yu Gothic", sans-serif;
-           margin: 0; background: #f5f6f8; color: #222; }
-    header { background: #4a86e8; color: #fff; padding: 14px 16px; }
-    header h1 { font-size: 1.1rem; margin: 0; }
-    header .user { font-size: .8rem; opacity: .9; margin-top: 2px; }
-    nav { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; background: #fff;
-          border-bottom: 1px solid #e3e6ea; }
-    nav a { font-size: .85rem; text-decoration: none; color: #4a86e8;
-            border: 1px solid #cdddfb; border-radius: 999px; padding: 5px 12px; }
-    nav a:hover { background: #eef4ff; }
-    main { padding: 14px; max-width: 1100px; margin: 0 auto; }
+    :root { --main-max: 1100px; --help: #c47f00; }   /* --help = 介助（オレンジ） */
+    main { padding: 14px; }
 
-    .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
-    .toolbar label { font-size: .85rem; color: #555; }
-    select { padding: 7px 10px; font-size: .9rem; border: 1px solid #cdd3da; border-radius: 6px; background: #fff; }
-    .reset { padding: 7px 12px; font-size: .82rem; border: 1px solid #cdd3da; border-radius: 6px;
-             background: #fff; color: #555; cursor: pointer; }
-    .reset:hover { background: #f3f5f8; }
-    .legend { font-size: .76rem; color: #777; margin-left: auto; }
-    .count { font-size: .8rem; color: #666; margin-bottom: 8px; }
+    /* 絞り込みバー。項目が多いので白いカードにまとめて本文と切り分ける */
+    .filters { background: var(--surface); border: 1px solid var(--border);
+               border-radius: var(--radius); box-shadow: var(--shadow-1);
+               padding: 11px 14px; margin-bottom: 12px; }
+    .filterbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+    .toolbar label { font-size: .82rem; color: var(--text-muted); font-weight: 600; }
+    .toolbar select { padding: 7px 10px; font-size: .88rem; }
+    .legend { font-size: .76rem; color: var(--text-faint); margin-left: auto; }
 
-    /* コマのカード（ボタン式・PC/スマホ共通） */
-    .cd { display: block; width: 100%; text-align: left; font-family: inherit; cursor: pointer;
-          border: 1px solid #e3e6ea; border-left: 4px solid #bbb; border-radius: 7px;
-          padding: 8px 9px; margin: 5px 0; font-size: .95rem; line-height: 1.5;
-          background: #fafbfc; color: #222; }
-    .cd:hover { background: #eef4ff; }
+    /* 「絞り込み」開閉ボタン。PCでは絞り込みを常に出すので隠す */
+    .ftoggle { display: none; gap: 5px; }
+    .ftoggle .caret { font-size: .7rem; transition: transform .15s ease; }
+    .filters.open .ftoggle .caret { transform: rotate(180deg); }
+    /* 折りたたんでいても「何件絞り込み中か」が分かるようにバッジを出す */
+    .fbadge { display: inline-flex; align-items: center; justify-content: center;
+              min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-pill);
+              background: var(--brand); color: #fff; font-size: .72rem; font-weight: 700; }
+    .fbadge[hidden] { display: none; }
+    .mv-short { display: none; }
+    .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+                margin-right: 3px; vertical-align: 0; }
+    .count { font-size: .8rem; color: var(--text-muted); margin-bottom: 8px; }
+
+    /* コマのカード（ボタン式・PC/スマホ共通）。左の色帯で種別と状態を出す */
+    .cd { display: block; width: 100%; text-align: left; cursor: pointer;
+          border: 1px solid var(--border); border-left: 4px solid var(--border-strong);
+          border-radius: var(--radius-sm);
+          padding: 8px 10px; margin: 5px 0; font-size: .95rem; line-height: 1.5;
+          background: var(--surface-alt); color: var(--text);
+          transition: background .12s ease, box-shadow .12s ease; }
+    .cd:hover { background: var(--brand-soft); }
     .cd:active { background: #e3edfc; }
-    .cd.take { border-left-color: #2a63c0; }
-    .cd.help { border-left-color: #d98a00; }
-    .cd.open { border-left-color: #2e9e54; background: #f1faf3; }
-    .cd.open:hover { background: #e6f6ea; }
-    .cd.mine { border-left-color: #2a63c0; background: #eef4ff; }
-    .cd.mine-open { border-left-color: #2e9e54; background: #e3f7ea; box-shadow: 0 0 0 2px #b6e6c4 inset; }
-    .cd.mine-open:hover { background: #d6f2e0; }
-    .myview { display: inline-flex; align-items: center; gap: 5px; font-size: .85rem; color: #444;
-              border: 1px solid #cdddfb; border-radius: 999px; padding: 5px 12px; cursor: pointer; }
+    .cd.take { border-left-color: var(--brand); }
+    .cd.help { border-left-color: var(--help); }
+    .cd.open { border-left-color: var(--ok); background: #f2faf5; }
+    .cd.open:hover { background: #e7f6ed; }
+    .cd.mine { border-left-color: var(--brand); background: var(--brand-soft); }
+    .cd.mine-open { border-left-color: var(--ok); background: #e4f7eb;
+                    box-shadow: 0 0 0 2px #b6e6c4 inset; }
+    .cd.mine-open:hover { background: #d7f2e1; }
+    .myview { display: inline-flex; align-items: center; gap: 6px; font-size: .85rem;
+              color: var(--brand-ink); font-weight: 600;
+              border: 1px solid var(--brand-border); border-radius: var(--radius-pill);
+              padding: 6px 13px; cursor: pointer; }
+    .myview:hover { background: var(--brand-soft); }
     .myview input { margin: 0; }
-    .cd-staff { display: block; color: #1e7a3d; margin-top: 3px; }
-    .cd-room { display: block; color: #444; margin-top: 1px; }
-    .cd-more { float: right; color: #9aa3ad; font-size: .82rem; }
-    .tag { display: inline-block; font-size: .8rem; padding: 1px 8px; border-radius: 999px;
-           color: #fff; margin-right: 4px; vertical-align: 1px; }
-    .tag.take { background: #2a63c0; }
-    .tag.help { background: #d98a00; }
-    .st { display: inline-block; font-size: .82rem; padding: 1px 8px; border-radius: 999px; margin-top: 4px; }
-    .st-normal { background: #e7f6ec; color: #1e7a3d; }
-    .st-open { background: #d8f1e0; color: #1e7a3d; font-weight: 600; }
-    .st-myopen { background: #2e9e54; color: #fff; font-weight: 600; }
-    .st-mine { background: #e7f0fd; color: #2a63c0; font-weight: 600; }
-    .st-vacant { background: #fdecea; color: #c0392b; }
-    .st-filled { background: #e7f0fd; color: #2a63c0; }
-    .st-other  { background: #f0f0f0; color: #555; }
-    .sub-name { color: #2a63c0; }
+    .cd-staff { display: block; color: var(--ok); margin-top: 3px; }
+    .cd-room { display: block; color: var(--text-muted); margin-top: 1px; font-size: .88rem; }
+    .cd-more { float: right; color: var(--text-faint); font-size: .82rem; }
+    .tag { display: inline-block; font-size: .78rem; font-weight: 600; padding: 1px 9px;
+           border-radius: var(--radius-pill); color: #fff; margin-right: 4px; vertical-align: 1px; }
+    .tag.take { background: var(--brand); }
+    .tag.help { background: var(--help); }
+    .st { display: inline-block; font-size: .8rem; padding: 1px 9px;
+          border-radius: var(--radius-pill); margin-top: 5px; }
+    .st-open   { background: #d9f1e2; color: var(--ok); font-weight: 700; }
+    .st-myopen { background: var(--ok); color: #fff; font-weight: 700; }
+    .st-mine   { background: var(--brand-soft); color: var(--brand-ink); font-weight: 700; }
+    .st-vacant { background: var(--danger-bg); color: var(--danger); font-weight: 700; }
+    .st-filled { background: var(--brand-soft); color: var(--brand-ink); }
+    .st-other  { background: #f1f3f6; color: var(--text-muted); }
+    .sub-name { color: var(--brand-ink); font-weight: 700; }
 
     /* ===== 詳細モーダル ===== */
     .modal { display: none; position: fixed; inset: 0; z-index: 50; padding: 16px;
-             background: rgba(0,0,0,.42); align-items: center; justify-content: center; }
+             background: rgba(16,24,40,.45); align-items: center; justify-content: center; }
     .modal.show { display: flex; }
-    .sheet { position: relative; background: #fff; border-radius: 12px; width: 100%; max-width: 420px;
-             max-height: 90vh; overflow: auto; padding: 18px 18px 22px;
-             box-shadow: 0 8px 30px rgba(0,0,0,.25); }
+    .sheet { position: relative; background: var(--surface); border-radius: 14px; width: 100%;
+             max-width: 420px; max-height: 90vh; overflow: auto; padding: 18px 18px 22px;
+             box-shadow: 0 12px 40px rgba(16,24,40,.28); }
     .sheet .x { position: absolute; top: 6px; right: 10px; border: none; background: none;
-                font-size: 1.5rem; line-height: 1; color: #999; cursor: pointer; }
+                font-size: 1.5rem; line-height: 1; color: var(--text-faint); cursor: pointer; }
     .m-title { margin: 0 0 16px; font-size: 1.2rem; }
-    .m-dl { display: grid; grid-template-columns: 92px 1fr; gap: 9px 12px; margin: 0; font-size: 1.02rem; }
-    .m-dl dt { color: #888; }
+    .m-dl { display: grid; grid-template-columns: 92px 1fr; gap: 10px 12px; margin: 0; font-size: 1.02rem; }
+    .m-dl dt { color: var(--text-muted); font-size: .92rem; }
     .m-dl dd { margin: 0; }
-    .m-status { margin-top: 16px; font-size: .98rem; color: #555; }
+    .m-status { margin-top: 16px; font-size: .98rem; color: var(--text-muted); }
     @media (max-width: 760px) {
       .modal { align-items: flex-end; padding: 0; }
       .sheet { max-width: none; border-radius: 14px 14px 0 0; max-height: 85vh; }
     }
 
     /* ===== PC：時間割グリッド ===== */
-    .pc table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px;
-                overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.08); table-layout: fixed; }
-    .pc th, .pc td { border: 1px solid #d7dde4; vertical-align: top; }
-    .pc thead th { background: #4a86e8; color: #fff; padding: 9px; font-size: .98rem; }
-    .pc .ph { background: #f0f3f7; width: 88px; text-align: center; font-size: .92rem; padding: 7px; color: #333; }
-    .pc .ph small { display: block; color: #888; font-weight: normal; font-size: .74rem; margin-top: 2px; }
+    .pc table { width: 100%; border-collapse: separate; border-spacing: 0;
+                background: var(--surface); border-radius: var(--radius);
+                overflow: hidden; box-shadow: var(--shadow-1); table-layout: fixed; }
+    .pc th, .pc td { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
+                     vertical-align: top; }
+    .pc tr > *:last-child { border-right: none; }
+    .pc thead th { background: var(--brand); color: #fff; padding: 10px; font-size: .95rem;
+                   border-color: var(--brand-dark); font-weight: 600; }
+    .pc .ph { background: var(--surface-alt); width: 88px; text-align: center; font-size: .9rem;
+              padding: 8px; color: var(--text); font-weight: 600; }
+    .pc .ph small { display: block; color: var(--text-faint); font-weight: normal;
+                    font-size: .72rem; margin-top: 2px; }
     .pc td.cell, .pc td.empty { padding: 5px; height: 56px; }
-    .pc td.empty { background: #f7f9fb; }
+    .pc td.empty { background: #fbfcfd; }
 
     /* ===== スマホ：曜日タブ＋その日のカード ===== */
     .mb { display: none; }
-    .tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; }
-    .tabs button { flex: 0 0 auto; border: 1px solid #cdddfb; background: #fff; color: #4a86e8;
-                   border-radius: 999px; padding: 7px 16px; font-size: .95rem; cursor: pointer; }
-    .tabs button.on { background: #4a86e8; color: #fff; border-color: #4a86e8; }
-    .per { background: #fff; border-radius: 8px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-    .per-h { background: #f0f3f7; padding: 8px 11px; font-size: .98rem; font-weight: 600; color: #333;
-             border-radius: 8px 8px 0 0; }
-    .per-h small { color: #888; font-weight: normal; margin-left: 6px; }
+    .tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 10px; }
+    .tabs button { flex: 0 0 auto; border: 1px solid var(--brand-border); background: var(--surface);
+                   color: var(--brand-ink); border-radius: var(--radius-pill);
+                   padding: 7px 16px; font-size: .95rem; cursor: pointer; }
+    .tabs button.on { background: var(--brand); color: #fff; border-color: var(--brand); font-weight: 600; }
+    .per { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+           margin-bottom: 10px; box-shadow: var(--shadow-1); overflow: hidden; }
+    .per-h { background: var(--surface-alt); padding: 8px 12px; font-size: .95rem; font-weight: 700;
+             color: var(--text); border-bottom: 1px solid var(--border); }
+    .per-h small { color: var(--text-faint); font-weight: normal; margin-left: 6px; }
     .per-b { padding: 6px 8px; }
-    .per-empty { color: #b3b9c0; font-size: .85rem; padding: 6px 2px; }
-
-    .state { padding: 24px; text-align: center; color: #888; }
+    .per-empty { color: var(--text-faint); font-size: .85rem; padding: 6px 2px; }
 
     @media (max-width: 760px) {
       .pc { display: none; }
       .mb { display: block; }
       .legend { display: none; }
+
+      /* スマホは時間割を優先し、絞り込みは既定で閉じておく（.open で開く）。
+         マイビューは折りたたみの外なので、閉じていても1タップで切り替えられる。 */
+      .ftoggle { display: inline-flex; }
+      .toolbar { display: none; }
+      .filters.open .toolbar { display: flex; }
+      .mv-long { display: none; }
+      .mv-short { display: inline; }
+      /* 開いたときは1項目1行にして、ラベルと選択肢が横に潰れないようにする */
+      .filters.open .toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
+      .toolbar label { margin-bottom: -4px; }
+      .toolbar select { width: 100%; font-size: .95rem; padding: 9px 11px; }
+      .toolbar .btn { width: 100%; }
     }
   </style>
 </head>
 <body>
-  <header>
-    <h1>シフト確認（時間割）</h1>
-    <div class="user"><?= user.name ?> さん（<?= user.role ?>）</div>
-  </header>
-
-  <nav>
-    <a href="<?= appUrl ?>?page=home">シフト確認</a>
-    <a href="<?= appUrl ?>?page=absence">欠勤連絡</a>
-    <? if (user.role === '職員') { ?>
-      <a href="<?= appUrl ?>?page=input">シフト入力</a>
-      <a href="<?= appUrl ?>?page=manage">欠員補充管理</a>
-      <a href="<?= appUrl ?>?page=check">整合性チェック</a>
-    <? } ?>
-  </nav>
+  <?!= chrome ?>
 
   <main>
-    <div class="toolbar">
-      <label for="q">クォーター</label>
-      <select id="q" onchange="onQuarter()"></select>
-      <label for="fUser">利用者</label>
-      <select id="fUser" onchange="applyFilters()"></select>
-      <label for="fStaff">スタッフ</label>
-      <select id="fStaff" onchange="applyFilters()"></select>
-      <label for="fType">内容</label>
-      <select id="fType" onchange="applyFilters()">
-        <option value="__all__">すべて</option>
-        <option value="テイク">テイク</option>
-        <option value="介助">介助</option>
-      </select>
-      <button class="reset" onclick="resetFilters()" type="button">クリア</button>
-      <label class="myview" id="myviewLabel" style="display:none">
-        <input type="checkbox" id="fMine" onchange="applyFilters()">
-        マイビュー（自分の担当＋入れる募集中）
-      </label>
-      <span class="legend">■テイク（2名）　■介助（1名）</span>
+    <div class="filters">
+      <!-- 常に見えている行。スマホでは「絞り込み」ボタンで下の toolbar を開閉する。
+           マイビューは1タップで切り替えたいので、折りたたみの外に置く。 -->
+      <div class="filterbar">
+        <button type="button" class="btn sm ftoggle" id="fToggle" onclick="toggleFilters()"
+                aria-expanded="false" aria-controls="toolbar">
+          絞り込み<span class="fbadge" id="fBadge" hidden></span><span class="caret">▾</span>
+        </button>
+        <label class="myview" id="myviewLabel" style="display:none">
+          <input type="checkbox" id="fMine" onchange="applyFilters()">
+          <span class="mv-long">マイビュー（自分の担当＋入れる募集中）</span>
+          <span class="mv-short">マイビュー</span>
+        </label>
+        <span class="legend">
+          <i style="background:var(--brand)"></i>テイク（2名）
+          　<i style="background:var(--help)"></i>介助（1名）
+          　<i style="background:var(--ok)"></i>募集中
+        </span>
+      </div>
+
+      <div class="toolbar" id="toolbar">
+        <label for="q">クォーター</label>
+        <select id="q" onchange="onQuarter()"></select>
+        <label for="fUser">利用者</label>
+        <select id="fUser" onchange="applyFilters()"></select>
+        <label for="fStaff">スタッフ</label>
+        <select id="fStaff" onchange="applyFilters()"></select>
+        <label for="fType">内容</label>
+        <select id="fType" onchange="applyFilters()">
+          <option value="__all__">すべて</option>
+          <option value="テイク">テイク</option>
+          <option value="介助">介助</option>
+        </select>
+        <button class="btn sm" onclick="resetFilters()" type="button">クリア</button>
+      </div>
     </div>
     <div id="count" class="count"></div>
     <div id="content" class="state">読み込み中…</div>
@@ -375,6 +409,7 @@
           return true;
         });
       }
+      updateFilterBadge();
       VIEW = buildView(courses);
       render();
     }
@@ -384,6 +419,30 @@
       ['fUser', 'fStaff', 'fType'].forEach(function (id) {
         document.getElementById(id).disabled = disabled;
       });
+    }
+
+    // ===== 絞り込みの開閉（スマホ） =====
+    // スマホは画面が狭く、絞り込みが常時開いていると時間割が下へ押し下げられるため
+    // 既定は閉じておく。PCではCSSで常に開いた状態にしている。
+    function toggleFilters() {
+      var open = document.querySelector('.filters').classList.toggle('open');
+      document.getElementById('fToggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+
+    // 閉じていても絞り込み中だと分かるように、効いている条件の数をバッジに出す
+    function updateFilterBadge() {
+      var n = 0;
+      // マイビュー中は利用者/スタッフ/内容の絞り込みが効かないので数えない
+      if (!MYVIEW) {
+        if (val('fUser') !== '__all__') n++;
+        if (val('fStaff') !== '__all__') n++;
+        if (val('fType') !== '__all__') n++;
+      }
+      // クォーターは既定が「現在（開講中）」＝空文字。別の学期を選んでいれば1件と数える
+      if (document.getElementById('q').value) n++;
+      var badge = document.getElementById('fBadge');
+      badge.textContent = n;
+      badge.hidden = (n === 0);
     }
 
     function resetFilters() {

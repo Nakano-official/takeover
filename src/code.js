@@ -10,15 +10,25 @@
  */
 
 // 画面定義：page パラメータ → HTMLファイル名・タイトル・職員限定フラグ
+//
+// hideInStaffNav: 職員のナビには出さない画面。アクセス自体は禁止しない
+//   （staffOnly とは別の概念。URLで開けば従来どおり動く）。
 const PAGES = {
   home:    { file: 'home',    title: 'シフト確認',         staffOnly: false },
   input:   { file: 'input',   title: 'シフト入力',         staffOnly: true  },
-  absence: { file: 'absence', title: '欠勤連絡',           staffOnly: false },
+  // 欠勤連絡は「学生スタッフが自分の担当コマの欠勤を出す」画面。職員には担当コマが
+  // 無く常に空になるため、職員のナビには並べない。
+  absence: { file: 'absence', title: '欠勤連絡',           staffOnly: false, hideInStaffNav: true },
   respond: { file: 'respond', title: '代行依頼への回答',   staffOnly: false },
   manage:  { file: 'manage',  title: '欠員補充管理',       staffOnly: true  },
   check:   { file: 'check',   title: '整合性チェック',     staffOnly: true  },
   terms:   { file: 'terms',   title: '学期設定',           staffOnly: true  },
 };
+
+// ナビに並べる画面（この順で表示する）。
+// respond は通知リンクから ?vacancy= 付きで開く画面なので、ナビには出さない。
+// ここに足せば全画面のナビに一斉に反映される（staffOnly は PAGES 側で自動判定）。
+const NAV_PAGES = ['home', 'absence', 'input', 'manage', 'check', 'terms'];
 
 const DEFAULT_PAGE = 'home';
 const ROLE_STAFF = '職員';
@@ -121,6 +131,9 @@ function renderPage_(config, pageKey, user, params) {
   template.pageKey = pageKey;
   template.params = params;
   template.appUrl = getAppUrl_();
+  // ヘッダー＋ナビはここで組み立て、各画面は <?!= chrome ?> で貼るだけにする。
+  // 画面ごとに手書きしないので、ナビの抜け漏れ（学期設定リンクが無い等）が起きない。
+  template.chrome = renderChrome_(config, pageKey, user);
 
   return template
     .evaluate()
@@ -129,17 +142,67 @@ function renderPage_(config, pageKey, user, params) {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
 }
 
+/**
+ * 全画面共通のヘッダー＋ナビHTMLを組み立てる。
+ *
+ * ナビの中身は PAGES / NAV_PAGES から生成するので、画面を1つ足せば全画面のナビに載る。
+ * 学生には staffOnly の画面を出さない（サーバー側のアクセス制御 doGet と同じ判定を使う）。
+ * 見た目のCSSは shared-styles.html 側（.appbar / .appnav）にある。
+ *
+ * @param {Object} config  表示中の画面定義（PAGES の値）
+ * @param {string} pageKey 表示中の page キー（現在地のハイライト用）
+ * @param {Object} user    ログイン中ユーザー（role でナビを出し分ける）
+ * @return {string} ヘッダー＋ナビのHTML
+ */
+function renderChrome_(config, pageKey, user) {
+  const appUrl = getAppUrl_();
+  const isStaff = user && user.role === ROLE_STAFF;
+
+  const visible = NAV_PAGES.filter(function (key) {
+    const p = PAGES[key];
+    if (!p) return false;
+    if (p.staffOnly && !isStaff) return false;       // 職員限定画面は学生に出さない
+    if (p.hideInStaffNav && isStaff) return false;   // 学生専用の画面は職員に出さない
+    return true;
+  });
+
+  const links = visible.map(function (key) {
+    const current = key === pageKey;
+    return '<a' + (current ? ' class="on" aria-current="page"' : '') +
+      ' href="' + escapeHtml_(appUrl) + '?page=' + encodeURIComponent(key) + '">' +
+      escapeHtml_(PAGES[key].title) + '</a>';
+  }).join('');
+
+  // 画面数が少ないとき（学生＝シフト確認・欠勤連絡の2つ）は、ナビを
+  // 「画面いっぱいの切り替えボタン」にして押しやすくする（.few）。
+  // 職員のように項目が多いときは、従来どおり横スクロールのピル並びにする。
+  const few = visible.length <= 3 ? ' few' : '';
+
+  return '' +
+    '<header class="appbar">' +
+      '<h1>' + escapeHtml_(config.title) + '</h1>' +
+      '<div class="user">' + escapeHtml_(user && user.name ? user.name : '') + ' さん（' +
+        escapeHtml_(user && user.role ? user.role : '') + '）</div>' +
+    '</header>' +
+    '<nav class="appnav' + few + '">' + links + '</nav>';
+}
+
 // 簡易メッセージ画面（エラー・準備中など）
 function renderMessage_(heading, message) {
   const safeHeading = escapeHtml_(heading);
   const safeMessage = escapeHtml_(message);
+  // 共通スタイル（shared-styles）はテンプレート外なので、ここだけは最小限のCSSを直書きする。
+  // トークンの値は shared-styles.html の :root と揃えておくこと。
   const html =
-    '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+    '<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
-    '<style>body{font-family:sans-serif;margin:0;padding:2rem;background:#f5f5f5;color:#333;}' +
-    '.box{max-width:480px;margin:3rem auto;background:#fff;border-radius:8px;padding:2rem;' +
-    'box-shadow:0 1px 4px rgba(0,0,0,.1);}h1{font-size:1.2rem;margin:0 0 1rem;}' +
-    'p{line-height:1.7;margin:0;}</style></head>' +
+    '<style>body{font-family:"Helvetica Neue",Arial,"Hiragino Sans","Noto Sans JP",' +
+    '"Yu Gothic",sans-serif;margin:0;padding:1.5rem;background:#f4f6fa;color:#1b2430;' +
+    'line-height:1.7;-webkit-font-smoothing:antialiased;}' +
+    '.box{max-width:480px;margin:3rem auto;background:#fff;border:1px solid #e3e8ef;' +
+    'border-radius:10px;padding:2rem;box-shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.07);}' +
+    'h1{font-size:1.15rem;margin:0 0 .75rem;color:#1f47a8;}' +
+    'p{margin:0;color:#667281;}</style></head>' +
     '<body><div class="box"><h1>' + safeHeading + '</h1><p>' + safeMessage + '</p></div></body></html>';
   return HtmlService.createHtmlOutput(html)
     .setTitle(heading + ' | 支援室シフト管理')

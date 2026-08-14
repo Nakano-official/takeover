@@ -37,6 +37,13 @@ const ANSWER = {
   DECLINE: '辞退',
 };
 
+// 代行者なしで自動決着した理由（notifyAutoResolved が職員への文面を出し分けるために使う）。
+// シートには記録しない（画面と通知の文言を変えるためだけの内部区分）。
+const AUTO_RESOLVE_REASON = {
+  NO_CANDIDATES: 'no_candidates',  // その時限に空きのある候補が1人もいなかった（D10）
+  PAST_DEADLINE: 'past_deadline',  // 授業開始が近く、代行募集を行わなかった（直前欠勤）
+};
+
 // 決着済みの欠員をさらに決着させようとしたときのユーザー向けメッセージ（職員パス共通）。
 // 先着確定と職員操作が競合したときに、黙って上書きせず画面更新を促す（backlog 10-1）。
 const MSG_VACANCY_SETTLED =
@@ -60,3 +67,13 @@ const WORK_DAYS = ['月', '火', '水', '木', '金'];
 // 空きコマ収集フォームの曜日別設問タイトルの接尾辞（day + この文字列 = 設問名）。
 // 実フォームの設問名とパーサ（Forms.gs buildSlots_）で共有する唯一の出所。
 const WORK_DAY_SLOT_Q_SUFFIX = '曜の空きコマ';
+
+// 代行募集の締切（授業開始の何分前か）。この時刻を過ぎた欠勤連絡は「直前欠勤」として扱い、
+// 代行候補への依頼を送らずに自動決着させる（submitAbsence・requirements §8）。
+//
+// この値は**開発者が変更する定数**として置く（職員が運用中に触る想定ではない）。
+// 変更するときはこの1箇所を書き換えて clasp push すればよく、既存の未解決欠員にも即反映される
+// （締切は欠員行に保存せず、date + periods.start_time から毎回算出しているため）。
+//
+// ※ Constants.gs 冒頭の注意どおり、この定数は**関数内から参照**すること。
+const RECRUIT_DEADLINE_MIN_BEFORE = 30;

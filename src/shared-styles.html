@@ -1,0 +1,213 @@
+<!--
+  共通スタイル（全画面）
+
+  各画面の <head> で <?!= include('shared-styles') ?> として読み込む。
+  必ず画面固有の <style> より「前」に置くこと（後に書いたものが勝つため、
+  画面固有の指定で共通スタイルを上書きできる）。
+
+  色・余白・角丸・影は :root の変数（デザイントークン）に集約している。
+  全体の見た目を変えたいときは、まずここの :root を触る。
+-->
+<style>
+  :root {
+    /* ブランド（青） */
+    --brand:        #2b5fd9;
+    --brand-dark:   #1f47a8;
+    --brand-ink:    #21489f;  /* 白背景に置く文字色 */
+    --brand-soft:   #eef3fe;  /* 淡い背景（hover・チップ） */
+    --brand-border: #c9d9f8;
+
+    /* 下地・文字 */
+    --bg:           #f4f6fa;
+    --surface:      #ffffff;
+    --surface-alt:  #f8fafc;
+    --text:         #1b2430;
+    --text-muted:   #667281;
+    --text-faint:   #98a2b0;
+    --border:       #e3e8ef;
+    --border-strong:#cbd3de;
+
+    /* 状態色（成功・注意・危険）。バッジや通知の配色はこの3組から作る */
+    --ok:        #1c7a45;  --ok-bg:     #e9f6ee;  --ok-border:     #bde3cb;
+    --warn:      #9a6a00;  --warn-bg:   #fff6e5;  --warn-border:   #f3daa0;
+    --danger:    #c0392b;  --danger-bg: #fdecea;  --danger-border: #f4c7c1;
+    --info:      #21489f;  --info-bg:   #eef3fe;  --info-border:   #c9d9f8;
+
+    /* 形 */
+    --radius:      10px;
+    --radius-sm:    7px;
+    --radius-pill: 999px;
+    --shadow-1: 0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.07);
+    --shadow-2: 0 4px 14px rgba(16,24,40,.10);
+
+    /* 本文の最大幅。画面ごとに自分の <style> で上書きする（例： :root { --main-max: 1100px; }） */
+    --main-max: 760px;
+
+    --font: "Helvetica Neue", Arial, "Hiragino Sans", "Noto Sans JP",
+            "Yu Gothic", "Meiryo", sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* ===== 画面共通のヘッダー・ナビ（code.js の renderChrome_ が出力する） ===== */
+
+  .appbar {
+    background: linear-gradient(180deg, var(--brand) 0%, var(--brand-dark) 100%);
+    color: #fff;
+    padding: 14px 16px 15px;
+  }
+  .appbar h1 { font-size: 1.12rem; margin: 0; font-weight: 700; letter-spacing: .01em; }
+  .appbar .user { font-size: .78rem; opacity: .88; margin-top: 3px; }
+
+  /* スクロールしてもナビは上に残す（時間割など縦に長い画面で効く） */
+  .appnav {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; gap: 8px;
+    padding: 10px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;              /* 狭い画面では横スクロール（折り返しで背が伸びない） */
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .appnav::-webkit-scrollbar { display: none; }
+  .appnav a {
+    flex: 0 0 auto;
+    font-size: .85rem; text-decoration: none; color: var(--brand-ink);
+    border: 1px solid var(--brand-border); border-radius: var(--radius-pill);
+    padding: 6px 14px; white-space: nowrap;
+    transition: background .12s ease, color .12s ease;
+  }
+  .appnav a:hover { background: var(--brand-soft); }
+  /* 現在開いている画面 */
+  .appnav a.on {
+    background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600;
+  }
+  .appnav a.on:hover { background: var(--brand-dark); }
+
+  /* 画面が少ないとき（学生＝2画面）は、横幅いっぱいの切り替えボタンにする。
+     学生はスマホ利用が中心なので、指で押せる高さ（48px）を確保する。 */
+  .appnav.few {
+    gap: 10px; padding: 10px 14px 12px;
+    justify-content: center;    /* PCの広い画面で間延びしないよう中央に寄せる */
+    overflow-x: visible;
+  }
+  .appnav.few a {
+    flex: 1 1 0; max-width: 300px; min-height: 48px;
+    display: flex; align-items: center; justify-content: center;
+    padding: 10px 12px; font-size: 1rem; font-weight: 600;
+    border-radius: var(--radius); background: var(--surface-alt);
+  }
+  .appnav.few a:hover { background: var(--brand-soft); }
+  .appnav.few a.on { background: var(--brand); }
+  .appnav.few a.on:hover { background: var(--brand-dark); }
+
+  /* PC幅では項目が多くても（職員＝5画面）大きな切り替えボタンにする。
+     職員の利用はPC中心で横幅に余裕があるため。スマホ幅は上のピル並びのまま。 */
+  @media (min-width: 761px) {
+    .appnav {
+      gap: 10px; padding: 10px 16px 12px;
+      justify-content: center; overflow-x: visible;
+    }
+    .appnav a {
+      flex: 1 1 0; max-width: 200px; min-height: 46px;
+      display: flex; align-items: center; justify-content: center;
+      padding: 10px 12px; font-size: .95rem; font-weight: 600;
+      border-radius: var(--radius); background: var(--surface-alt);
+    }
+    .appnav a:hover { background: var(--brand-soft); }
+    .appnav a.on { background: var(--brand); }
+    .appnav a.on:hover { background: var(--brand-dark); }
+  }
+
+  main {
+    padding: 16px;
+    max-width: var(--main-max);
+    margin: 0 auto;
+  }
+
+  /* ===== 共通パーツ ===== */
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    box-shadow: var(--shadow-1);
+    margin-bottom: 16px;
+  }
+  .card h2 { font-size: 1rem; margin: 0 0 12px; font-weight: 700; }
+
+  /* 読み込み中・該当なしなどの中央表示 */
+  .state { padding: 24px; text-align: center; color: var(--text-muted); font-size: .9rem; }
+
+  .hint  { font-size: .78rem; color: var(--text-muted); margin: 6px 0 0; line-height: 1.65; }
+  .muted { color: var(--text-faint); }
+
+  /* フォーム部品は「見た目だけ」を揃える。
+     幅や display は画面ごとに事情が違うので、ここでは指定しない。
+     チェックボックス・ラジオは枠や余白を付けると崩れるので対象外にする。 */
+  input:not([type=checkbox]):not([type=radio]), select, textarea {
+    font-family: inherit; font-size: .95rem; color: var(--text);
+    padding: 9px 11px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+  }
+  input:not([type=checkbox]):not([type=radio]):hover, select:hover, textarea:hover {
+    border-color: var(--brand-border);
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none; border-color: var(--brand);
+    box-shadow: 0 0 0 3px rgba(43,95,217,.15);
+  }
+  input:disabled, select:disabled, textarea:disabled {
+    background: var(--surface-alt); color: var(--text-faint); cursor: not-allowed;
+  }
+  input[type=checkbox], input[type=radio] { accent-color: var(--brand); cursor: pointer; }
+  button { font-family: inherit; }
+
+  /* キーボード操作時だけフォーカスリングを出す（マウス操作の見た目は変えない） */
+  :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+  /* ボタン（.btn 単体＝白ボタン。色は修飾クラスで足す） */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 9px 16px; font-size: .9rem; font-weight: 600; line-height: 1.4;
+    border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+    background: var(--surface); color: var(--text-muted);
+    cursor: pointer; transition: background .12s ease, border-color .12s ease;
+  }
+  .btn:hover:not(:disabled) { background: var(--surface-alt); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.primary { background: var(--brand);  border-color: var(--brand);  color: #fff; }
+  .btn.primary:hover:not(:disabled) { background: var(--brand-dark); border-color: var(--brand-dark); }
+  .btn.ok      { background: var(--ok);     border-color: var(--ok);     color: #fff; }
+  .btn.danger  { background: var(--danger); border-color: var(--danger); color: #fff; }
+  .btn.block   { display: flex; width: 100%; padding: 12px; font-size: 1rem; }
+  .btn.sm      { padding: 6px 12px; font-size: .82rem; }   /* 一覧の行内に置く小さいボタン */
+
+  /* 通知帯（成功／注意／エラー／情報） */
+  .notice {
+    padding: 12px 14px; border-radius: var(--radius-sm);
+    font-size: .9rem; line-height: 1.7; border: 1px solid transparent;
+  }
+  .notice.ok   { background: var(--ok-bg);     border-color: var(--ok-border);     color: var(--ok); }
+  .notice.warn { background: var(--warn-bg);   border-color: var(--warn-border);   color: var(--warn); }
+  .notice.err  { background: var(--danger-bg); border-color: var(--danger-border); color: var(--danger); }
+  .notice.info { background: var(--info-bg);   border-color: var(--info-border);   color: var(--info); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>

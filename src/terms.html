@@ -4,72 +4,39 @@
   <base target="_top">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('shared-styles') ?>
   <style>
-    * { box-sizing: border-box; }
-    body { font-family: "Helvetica Neue", Arial, "Hiragino Sans", "Yu Gothic", sans-serif;
-           margin: 0; background: #f5f6f8; color: #222; }
-    header { background: #4a86e8; color: #fff; padding: 14px 16px; }
-    header h1 { font-size: 1.1rem; margin: 0; }
-    header .user { font-size: .8rem; opacity: .9; margin-top: 2px; }
-    nav { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; background: #fff;
-          border-bottom: 1px solid #e3e6ea; }
-    nav a { font-size: .85rem; text-decoration: none; color: #4a86e8;
-            border: 1px solid #cdddfb; border-radius: 999px; padding: 5px 12px; }
-    nav a:hover { background: #eef4ff; }
-    main { padding: 16px; max-width: 760px; margin: 0 auto; }
-    .card { background: #fff; border-radius: 8px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08);
-            margin-bottom: 16px; }
-    .card h2 { font-size: 1rem; margin: 0 0 12px; }
-    .hint { font-size: .78rem; color: #888; margin: 6px 0 0; line-height: 1.6; }
+    :root { --main-max: 760px; }
 
-    label { display: block; font-size: .8rem; font-weight: 600; margin: 0 0 4px; }
-    input { padding: 8px 10px; font-size: .95rem; border: 1px solid #cdd3da; border-radius: 6px;
-            background: #fff; font-family: inherit; }
+    label { display: block; font-size: .8rem; font-weight: 700; margin: 0 0 4px; }
+    input { padding: 8px 10px; }   /* 日付入力は横並びなので幅は指定しない */
     .addbar { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
-    .btn2 { padding: 9px 16px; font-size: .9rem; font-weight: 600; color: #fff; background: #2a63c0;
-            border: none; border-radius: 6px; cursor: pointer; }
-    .btn2:disabled { background: #9db8e3; cursor: default; }
-    .btn-save { padding: 7px 14px; font-size: .82rem; font-weight: 600; color: #fff; background: #1e7a3d;
-                border: none; border-radius: 6px; cursor: pointer; }
-    .btn-save:disabled { background: #a9cdb6; cursor: default; }
+    /* 行の削除ボタン（赤の枠線。授業が登録済みの学期では disabled になる） */
+    .btn.del { color: var(--danger); border-color: var(--danger-border); }
+    .btn.del:hover:not(:disabled) { background: var(--danger-bg); }
 
-    .status { padding: 12px 14px; border-radius: 8px; font-size: .9rem; line-height: 1.6; }
-    .status.ok { background: #eaf7ee; border: 1px solid #bfe6cb; color: #1e7a3d; }
-    .status.warn { background: #fff5e6; border: 1px solid #f2d69a; color: #9a6a00; }
+    .status { padding: 12px 14px; border-radius: var(--radius-sm); font-size: .9rem; line-height: 1.6; }
+    .toast { margin-top: 12px; display: none; }
+    .toast.ok, .toast.err { display: block; }
 
-    .toast { margin-top: 12px; padding: 12px 14px; border-radius: 8px; font-size: .9rem; display: none; }
-    .toast.ok { display: block; background: #eaf7ee; border: 1px solid #bfe6cb; color: #1e7a3d; }
-    .toast.err { display: block; background: #fdecea; border: 1px solid #f5c6c0; color: #c0392b; }
-
-    .trow { padding: 12px 0; border-top: 1px solid #eef1f4; }
+    .trow { padding: 12px 0; border-top: 1px solid var(--border); }
     .trow:first-child { border-top: none; }
     .trow .tid { font-size: .92rem; margin-bottom: 8px; }
-    .trow .tid b { color: #2a63c0; }
-    .sys { display: inline-block; font-size: .7rem; padding: 1px 8px; border-radius: 999px;
-           background: #eef1f4; color: #555; margin-left: 6px; }
-    .cur { display: inline-block; font-size: .7rem; padding: 1px 8px; border-radius: 999px;
-           background: #2a63c0; color: #fff; margin-left: 6px; }
+    .trow .tid b { color: var(--brand-ink); }
+    .sys { display: inline-block; font-size: .7rem; padding: 1px 8px; border-radius: var(--radius-pill);
+           background: #eef1f4; color: var(--text-muted); margin-left: 6px; }
+    /* 今日を含む学期（＝いま開講中）に付けるバッジ */
+    .cur { display: inline-block; font-size: .7rem; padding: 1px 8px; border-radius: var(--radius-pill);
+           background: var(--brand); color: #fff; margin-left: 6px; font-weight: 600; }
     .dates { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
-    .yhead { font-size: .82rem; font-weight: 700; color: #444; margin: 14px 0 2px; }
-    .state { padding: 18px; text-align: center; color: #888; }
+    .yhead { font-size: .82rem; font-weight: 700; color: var(--text); margin: 14px 0 2px; }
     .rtoast { font-size: .78rem; margin-left: 4px; }
-    .rtoast.ok { color: #1e7a3d; }
-    .rtoast.err { color: #c0392b; }
+    .rtoast.ok { color: var(--ok); }
+    .rtoast.err { color: var(--danger); }
   </style>
 </head>
 <body>
-  <header>
-    <h1>学期設定</h1>
-    <div class="user"><?= user.name ?> さん（<?= user.role ?>）</div>
-  </header>
-
-  <nav>
-    <a href="<?= appUrl ?>?page=home">シフト確認</a>
-    <a href="<?= appUrl ?>?page=input">シフト入力</a>
-    <a href="<?= appUrl ?>?page=manage">欠員補充管理</a>
-    <a href="<?= appUrl ?>?page=check">整合性チェック</a>
-    <a href="<?= appUrl ?>?page=terms">学期設定</a>
-  </nav>
+  <?!= chrome ?>
 
   <main>
     <div class="card">
@@ -93,7 +60,7 @@
           <label for="year">年度（西暦）</label>
           <input id="year" type="number" min="2020" max="2099" style="max-width:140px">
         </div>
-        <button class="btn2" id="addBtn" onclick="addYear()">この年度を追加</button>
+        <button class="btn primary" id="addBtn" onclick="addYear()">この年度を追加</button>
       </div>
       <div id="addToast" class="toast"></div>
     </div>
@@ -133,11 +100,11 @@
     function renderStatus() {
       var el = document.getElementById('status');
       if (DATA.hasCurrent) {
-        el.className = 'status ok';
+        el.className = 'notice status ok';
         el.innerHTML = '✅ 本日（' + escapeHtml(DATA.today) + '）を含む学期が設定されています。'
           + 'シフト確認は現在の学期として正しく表示されます。';
       } else {
-        el.className = 'status warn';
+        el.className = 'notice status warn';
         el.innerHTML = '⚠️ 本日（' + escapeHtml(DATA.today) + '）を含む学期がありません。'
           + 'このままだと「現在」の判定ができず、シフト確認が過去の学期のまま表示される場合があります。'
           + '下で今年度の日付を設定してください。';
@@ -175,7 +142,8 @@
                 '<input type="date" class="st" value="' + escapeHtml(t.start_date) + '"></div>' +
               '<div><label>終了日</label>' +
                 '<input type="date" class="en" value="' + escapeHtml(t.end_date) + '"></div>' +
-              '<button class="btn-save" onclick="saveRow(this)">保存</button>' +
+              '<button class="btn sm ok" onclick="saveRow(this)">保存</button>' +
+              '<button class="btn sm del" onclick="delRow(this)"' + (t.used ? ' disabled title="授業が登録されているため削除できません"' : '') + '>削除</button>' +
               '<span class="rtoast"></span>' +
             '</div>' +
           '</div>';
@@ -204,6 +172,24 @@
           rowMsg(msg, err.message, false);
         })
         .updateTermDates(termId, start, end);
+    }
+
+    function delRow(btn) {
+      var row = btn.closest('.trow');
+      var termId = row.getAttribute('data-tid');
+      var msg = row.querySelector('.rtoast');
+      if (!confirm(termId + ' を削除しますか？（授業が登録されている学期は削除できません）')) return;
+      btn.disabled = true; btn.textContent = '削除中…';
+      google.script.run
+        .withSuccessHandler(function () {
+          rowMsg(msg, '削除しました。', true);
+          load(); // 一覧を更新
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false; btn.textContent = '削除';
+          rowMsg(msg, err.message, false);
+        })
+        .deleteTerm(termId);
     }
 
     function rowMsg(el, text, ok) {
@@ -237,7 +223,7 @@
     }
 
     function showToast(el, msg, ok) {
-      el.className = 'toast ' + (ok ? 'ok' : 'err');
+      el.className = 'notice toast ' + (ok ? 'ok' : 'err');
       el.textContent = msg;
     }
 
