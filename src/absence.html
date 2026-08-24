@@ -17,6 +17,9 @@
               font-size: .9rem; line-height: 1.7; }
     .result.warn { background: var(--warn-bg); border-color: var(--warn-border); }
     .result h2 { font-size: 1rem; margin: 0 0 8px; }
+    /* 学期境界の但し書き（terms は曜日ごとのズレを表現できない・D23） */
+    .termnote { font-size: .8rem; color: var(--text-muted); line-height: 1.6;
+                margin: 18px 0 0; padding-top: 12px; border-top: 1px solid var(--border); }
     .cand { display: inline-block; background: var(--brand-soft); color: var(--brand-ink);
             border: 1px solid var(--brand-border); border-radius: var(--radius-pill);
             padding: 2px 10px; margin: 2px 4px 2px 0; font-size: .85rem; }
@@ -28,6 +31,9 @@
   <main>
     <div class="card">
       <div id="form" class="state">担当コマを読み込み中…</div>
+      <!-- 欠勤日の候補は terms の開講期間から機械的に列挙しているだけで、
+           曜日ごとの学期境界のズレや振替は反映できない（Constants.gs の定数と同じ但し書き）。 -->
+      <p class="termnote">※ <?= TERM_BOUNDARY_NOTICE ?></p>
     </div>
     <div id="result"></div>
   </main>

@@ -280,7 +280,13 @@ function getDashboardData() {
  * 時間割ビュー（home）用データ。利用者中心の courses（D8）に
  * 担当氏名・時限の時刻・欠員状況を結合して返す。
  * クォーターで絞り込み（未指定なら最新クォーター）。
- * @param {string} [quarter] 表示するクォーター（省略可）
+ *
+ * 欠員（vacancies）は**特定の日付**に紐づくのに対し、courses は曜日×時限の
+ * 週パターンなので、表示する「週」を決めないと日付を捨てることになる（D23）。
+ * ここでは週を決め打ちせず、欠員を「course_id|日付」の索引（vacancy）として渡し、
+ * どの週を表示するかはクライアントに任せる。週送りでサーバーへ往復しないで済む。
+ *
+ * @param {string} [quarter] 表示する学期（省略可）
  */
 function getTimetable(quarter) {
   const user = getCurrentUser_();
@@ -333,20 +339,6 @@ function getTimetable(quarter) {
     .filter(function (c) { return filterSet[String(c.quarter).trim()]; })
     .map(function (c) {
       const courseId = String(c.course_id).trim();
-      const related = vacancies.filter(function (v) {
-        return String(v.course_id).trim() === courseId;
-      });
-      var status = COURSE_VACANCY_STATUS.NORMAL;
-      var substitute = '';
-      const open = related.filter(function (v) { return !String(v.result).trim(); });
-      if (open.length > 0) {
-        status = COURSE_VACANCY_STATUS.OPEN;
-      } else if (related.length > 0) {
-        const latest = related[related.length - 1];
-        status = String(latest.result).trim(); // 補充済 / 1人テイク / 職員対応
-        const subId = String(latest.substitute_staff_id || '').trim();
-        if (subId) substitute = nameById[subId] || subId;
-      }
       const term = String(c.quarter).trim();
       return {
         course_id: courseId,
@@ -362,17 +354,62 @@ function getTimetable(quarter) {
         staffA: nameById[String(c.staff_a_id).trim()] || String(c.staff_a_id || '').trim(),
         staffB: nameById[String(c.staff_b_id).trim()] || String(c.staff_b_id || '').trim(),
         note: String(c.note || '').trim(),
-        status: status,
-        substitute: substitute,
+        // status / substitute / absent / date は週によって変わるのでサーバーでは埋めない。
+        // 下の vacancy（course_id|日付 の索引）から、クライアントが表示中の週ぶんだけ組み立てる。
       };
     });
 
-  // 軸は「時間割の枠」として固定する。標準曜日（月〜金）と時限マスタの全時限を
-  // 常に並べ、コマが無い曜日・時限も空欄の枠として残す（土日や課外時限は登場時のみ追加）。
+  // 欠員の重ね合わせを「course_id|日付」で表示対象ぶんまとめて返す（D23）。
+  //
+  // 週を送るたびに getTimetable を呼び直すと、変わらない courses/staffs/periods/terms まで
+  // 毎回読み直して往復1回ぶん待たされる。週で変わるのはこの重ね合わせだけなので、
+  // 先に全部渡してクライアント側で週を切り替える（往復ゼロ）。
+  // 件数は欠勤の発生回数ぶんで、コマ数に比べて十分小さい。
+  const courseIdSet = {};
+  courses.forEach(function (c) { courseIdSet[c.course_id] = true; });
+
+  const byCourseDate = {};
+  vacancies.forEach(function (v) {
+    const cid = String(v.course_id).trim();
+    if (!courseIdSet[cid]) return; // 表示対象外のコマ（別学期など）は返さない
+    const key = cid + '|' + dateToStr_(v.date);
+    if (!byCourseDate[key]) byCourseDate[key] = [];
+    byCourseDate[key].push(v);
+  });
+
+  const vacancy = {};
+  Object.keys(byCourseDate).forEach(function (key) {
+    const related = byCourseDate[key];
+    const absent = [];
+    related.forEach(function (v) {
+      const a = String(v.absent_staff_id).trim();
+      if (a) absent.push(nameById[a] || a);
+    });
+
+    var status = COURSE_VACANCY_STATUS.NORMAL;
+    var substitute = '';
+    const open = related.filter(function (v) { return !String(v.result).trim(); });
+    if (open.length > 0) {
+      status = COURSE_VACANCY_STATUS.OPEN;
+    } else {
+      // 同じ日に複数件（A・B両方欠勤など）あるときは最後の行を代表にする。
+      // 日付が同一なので「いつの話か分からない」問題は起きない。
+      const latest = related[related.length - 1];
+      status = String(latest.result).trim(); // 補充済 / 1人テイク / 職員対応
+      const subId = String(latest.substitute_staff_id || '').trim();
+      if (subId) substitute = nameById[subId] || subId;
+    }
+    vacancy[key] = { status: status, substitute: substitute, absent: absent };
+  });
+
+  // 軸は「時間割の枠」として固定する。月〜日の全曜日と時限マスタの全時限を常に並べ、
+  // コマが無い曜日・時限も空欄の枠として残す。
+  // 週表示にした以上、週の途中の曜日が抜けている方が不自然なので土日も枠として出す
+  // （日曜に授業が入ることはほぼ無いが、枠としては置く）。
+  // ※ シフト入力の選択肢は WORK_DAYS（月〜金・D17）のままで、ここは表示の枠だけの話。
   const DAY_ORDER = ['月', '火', '水', '木', '金', '土', '日'];
-  const STANDARD_DAYS = ['月', '火', '水', '木', '金'];
   const daySet = {};
-  STANDARD_DAYS.forEach(function (d) { daySet[d] = true; });
+  DAY_ORDER.forEach(function (d) { daySet[d] = true; });
   const periodSet = {};
   Object.keys(periodIndex).forEach(function (p) { periodSet[p] = true; }); // 時限マスタ全件
   courses.forEach(function (c) { daySet[c.day] = true; periodSet[c.period] = true; });
@@ -385,9 +422,23 @@ function getTimetable(quarter) {
     })
     .map(function (p) { return { period: p, time: periodTime[p] || '' }; });
 
+  // 学期の開講期間（term_id → {start, end}）。
+  // 週表示では「その週のその日が学期の期間内か」をコマ単位で判定する必要がある。
+  // これが無いと、後期の終了後の週へ送っても後期のコマが並び続ける（授業が無い日に
+  // 授業があるように見える）。期間が未設定の学期は判定せず従来どおり表示する（D16 と同じ後方互換）。
+  const termRange = {};
+  readTerms_().forEach(function (t) {
+    if (t.start_date && t.end_date) {
+      termRange[t.term_id] = { start: t.start_date, end: t.end_date };
+    }
+  });
+
   return {
     quarters: sel.options, quarter: sel.selected,
     days: days, periods: periods, courses: courses, me: me,
+    vacancy: vacancy,   // 'course_id|yyyy-MM-dd' → {status, substitute, absent[]}
+    termRange: termRange, // term_id → {start, end}（週が開講期間内かの判定用）
+    today: todayJst_(), // 「今週」の基準（端末の時計ではなくサーバーのJSTで判定する）
   };
 }
 

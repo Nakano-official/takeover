@@ -73,6 +73,19 @@
     .st-other  { background: #f1f3f6; color: var(--text-muted); }
     .sub-name { color: var(--brand-ink); font-weight: 700; }
 
+    /* ===== 週ナビ（欠員は日付に紐づくので、表示する週を必ず1つに決める・D23）===== */
+    .weekbar { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; flex-wrap: wrap; }
+    .weekbar .wk-range { font-weight: 700; font-size: 1rem; min-width: 12.5em; text-align: center; }
+    .weekbar .wk-now { background: var(--brand-soft); color: var(--brand-ink);
+                       border-color: var(--brand-border); font-weight: 700; }
+    .weekbar .wk-tag { font-size: .78rem; color: var(--text-muted); }
+    /* 曜日見出しの日付（PC表・スマホタブ共通の見た目） */
+    .pc thead th small { display: block; font-weight: normal; font-size: .74rem; opacity: .85; margin-top: 2px; }
+    .tabs button small { display: block; font-size: .72rem; opacity: .8; }
+    .tabs button.today, .pc thead th.today { outline: 2px solid var(--ok); outline-offset: -2px; }
+    /* 学期境界の但し書き（terms は曜日ごとのズレを表現できないため・D23） */
+    .termnote { font-size: .8rem; color: var(--text-muted); line-height: 1.6; margin: 0 0 10px; }
+
     /* ===== 詳細モーダル ===== */
     .modal { display: none; position: fixed; inset: 0; z-index: 50; padding: 16px;
              background: rgba(16,24,40,.45); align-items: center; justify-content: center; }
@@ -183,6 +196,14 @@
         <button class="btn sm" onclick="resetFilters()" type="button">クリア</button>
       </div>
     </div>
+    <div class="weekbar">
+      <button type="button" class="btn sm" onclick="shiftWeek(-1)" aria-label="前の週">◀ 前の週</button>
+      <span class="wk-range" id="wkRange">—</span>
+      <button type="button" class="btn sm" onclick="shiftWeek(1)" aria-label="次の週">次の週 ▶</button>
+      <button type="button" class="btn sm wk-now" id="wkNow" onclick="goThisWeek()">今週へ</button>
+      <span class="wk-tag" id="wkTag"></span>
+    </div>
+    <p class="termnote">※ <?= TERM_BOUNDARY_NOTICE ?></p>
     <div id="count" class="count"></div>
     <div id="content" class="state">読み込み中…</div>
   </main>
@@ -197,6 +218,8 @@
   <script>
     var DATA = null;          // サーバーから来た全データ
     var VIEW = null;          // 絞り込み後の { courses, days, periods }
+    var WEEK = null;          // 表示中の週 { start, end, isThisWeek, dateByDay, labelByDay }
+    var WEEK_COURSE_COUNT = 0; // 表示中の週に「授業がある」コマ数（開講期間で絞った後）
     var curDay = null;
     var MYVIEW = false;       // マイビュー（自分の担当＋入れる募集中）モードか
     var ME = '<?= user.name ?>';  // ログイン中スタッフの氏名（自分絞り込み用）
@@ -251,9 +274,15 @@
       if (!c.status || c.status === '通常') return '';
       var cls = c.status === '欠員対応中' ? 'st-vacant'
               : c.status === '補充済' ? 'st-filled' : 'st-other';
+      // 欠勤者が分かるなら「誰の代わりか」を必ず添える。
+      // 週表示になったので、この状態は「表示中の週のその日」の話に限定される（D23）。
+      var who = (c.absent && c.absent.length) ? c.absent.join('・') : '';
       var txt = escapeHtml(c.status);
       if (c.status === '補充済' && c.substitute) {
-        txt = '補充済 → <span class="sub-name">' + escapeHtml(c.substitute) + '</span>';
+        txt = (who ? escapeHtml(who) + ' → ' : '補充済 → ') +
+              '<span class="sub-name">' + escapeHtml(c.substitute) + '</span>';
+      } else if (who) {
+        txt = escapeHtml(c.status) + '（' + escapeHtml(who) + '）';
       }
       return '<span class="st ' + cls + '">' + txt + '</span>';
     }
@@ -296,12 +325,17 @@
         ['学期', termLabel(c)],
         ['日時', escapeHtml(c.day) + '曜 ' + escapeHtml(c.period) + '限' +
           (pt ? '（' + escapeHtml(pt) + '）' : '')],
+        // 表示中の週における実施日。欠員の状態はこの日付に対するもの（D23）
+        ['この週の日付', escapeHtml(c.date || '—')],
         ['利用者', escapeHtml(c.user_student || '—')],
         ['科目', escapeHtml(c.subject || '—')],
         ['担当教員', escapeHtml(c.instructor || '—')],
         ['教室', escapeHtml(c.room || '—')],
         ['担当スタッフ', escapeHtml(c.staffA || '—') + (c.staffB ? ' ・ ' + escapeHtml(c.staffB) : '')],
       ];
+      // その日に欠勤・代行があれば、元の担当とは別に明示する
+      if (c.absent && c.absent.length) rows.push(['この日の欠勤', escapeHtml(c.absent.join('・'))]);
+      if (c.substitute) rows.push(['この日の代行', escapeHtml(c.substitute)]);
       if (c.note) rows.push(['備考', escapeHtml(c.note)]);
 
       var tagCls = c.support_type === 'テイク' ? 'take' : 'help';
@@ -331,11 +365,23 @@
       return VIEW.courses.filter(function (c) { return c.day === day && c.period === period; });
     }
 
+    // その曜日が「表示中の週で何月何日か」／今日かどうか
+    function dayLabel(day) {
+      return (WEEK && WEEK.labelByDay[day]) || '';
+    }
+    // 「今日」はサーバーのJST（DATA.today）で判定する。端末の時計やタイムゾーンに依存させない
+    function isToday(day) {
+      return !!(WEEK && DATA && WEEK.dateByDay[day] === DATA.today);
+    }
+
     // ===== PC：グリッド =====
     function renderPC() {
       var d = VIEW;
       var h = '<div class="pc"><table><thead><tr><th class="ph">時限</th>';
-      d.days.forEach(function (day) { h += '<th>' + escapeHtml(day) + '</th>'; });
+      d.days.forEach(function (day) {
+        h += '<th' + (isToday(day) ? ' class="today"' : '') + '>' + escapeHtml(day) +
+             '<small>' + escapeHtml(dayLabel(day)) + '</small></th>';
+      });
       h += '</tr></thead><tbody>';
       d.periods.forEach(function (p) {
         h += '<tr><th class="ph">' + escapeHtml(p.period) + '限' +
@@ -355,8 +401,11 @@
     function renderMobile() {
       var h = '<div class="mb"><div class="tabs" id="tabs">';
       VIEW.days.forEach(function (day) {
-        h += '<button class="' + (day === curDay ? 'on' : '') + '" onclick="selDay(\'' +
-             day + '\')">' + escapeHtml(day) + '</button>';
+        // data-day で曜日を持つ（ラベルに日付を足したので textContent 比較では判定できない）
+        var cls = (day === curDay ? 'on' : '') + (isToday(day) ? ' today' : '');
+        h += '<button class="' + cls + '" data-day="' + escapeAttr(day) + '" onclick="selDay(\'' +
+             day + '\')">' + escapeHtml(day) +
+             '<small>' + escapeHtml(dayLabel(day)) + '</small></button>';
       });
       h += '</div><div id="dayView"></div></div>';
       return h;
@@ -380,7 +429,8 @@
     function selDay(day) {
       curDay = day;
       var tabs = document.querySelectorAll('#tabs button');
-      tabs.forEach(function (b) { b.classList.toggle('on', b.textContent === day); });
+      // ラベルには日付も入るので、textContent ではなく data-day で判定する
+      tabs.forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-day') === day); });
       renderDayView();
     }
 
@@ -393,15 +443,19 @@
     // 絞り込みを適用して再描画
     function applyFilters() {
       MYVIEW = document.getElementById('fMine').checked;
+      // 表示中の週で「授業がある」コマだけを土台にする。
+      // 学期の期間外（終了後・開始前）の週では、その学期のコマは空欄になる。
+      var base = DATA.courses.filter(function (c) { return c.inTerm; });
+      WEEK_COURSE_COUNT = base.length;
       var courses;
       if (MYVIEW) {
         // 自分の担当コマ ＋ 自分が入れる募集中だけに絞る
-        courses = DATA.courses.filter(function (c) { return isMine(c) || isMyOpen(c); });
+        courses = base.filter(function (c) { return isMine(c) || isMyOpen(c); });
         setFiltersDisabled(true);
       } else {
         setFiltersDisabled(false);
         var u = val('fUser'), s = val('fStaff'), t = val('fType');
-        courses = DATA.courses.filter(function (c) {
+        courses = base.filter(function (c) {
           if (u !== '__all__' && c.user_student !== u) return false;
           if (t !== '__all__' && c.support_type !== t) return false;
           if (s === '__me__') { if (c.staffA !== ME && c.staffB !== ME) return false; }
@@ -467,18 +521,31 @@
         var openN = VIEW.courses.filter(isMyOpen).length;
         countEl.textContent = 'あなたの担当 ' + mineN + ' コマ ／ 入れる募集中 ' + openN + ' 枠';
       } else {
-        countEl.textContent = '表示中: ' + VIEW.courses.length + ' / ' + DATA.courses.length + ' コマ';
+        // 分母は「この週に授業があるコマ数」。学期の期間外の週では 0 になる
+        countEl.textContent = '表示中: ' + VIEW.courses.length + ' / ' + WEEK_COURSE_COUNT + ' コマ';
       }
       if (VIEW.courses.length === 0) {
         content.className = 'state';
-        content.textContent = MYVIEW
-          ? '担当コマも、いま入れる募集中もありません。'
-          : '条件に合うコマがありません。「クリア」で絞り込みを解除できます。';
+        // この週に授業があるコマが1つも無い＝開講期間の外（学期の前後・長期休暇中）。
+        // 絞り込みのせいで空になったのと区別できないと「壊れている」ように見えるため文言を分ける。
+        content.textContent = WEEK_COURSE_COUNT === 0
+          ? 'この週は授業期間外です（' + WEEK.labelByDay['月'] + '〜' + WEEK.labelByDay['日'] +
+            '）。「今週へ」または前後の週をご確認ください。'
+          : (MYVIEW
+              ? '担当コマも、いま入れる募集中もありません。'
+              : '条件に合うコマがありません。「クリア」で絞り込みを解除できます。');
         return;
       }
-      // スマホ初期表示曜日：今日の曜日があればそれ、なければ先頭
-      var today = ['日', '月', '火', '水', '木', '金', '土'][new Date().getDay()];
-      curDay = VIEW.days.indexOf(today) !== -1 ? today : VIEW.days[0];
+      // スマホ初期表示曜日：今週を見ているなら今日、別の週なら週頭（月）。
+      // 週を送っても選択中の曜日は保つ（同じ曜日で前後の週を見比べられるように）。
+      var todayDay = null;
+      if (WEEK) {
+        ['月', '火', '水', '木', '金', '土', '日'].forEach(function (d) {
+          if (isToday(d)) todayDay = d;
+        });
+      }
+      var wantDay = curDay || (WEEK && WEEK.isThisWeek && todayDay) || '月';
+      curDay = VIEW.days.indexOf(wantDay) !== -1 ? wantDay : VIEW.days[0];
 
       content.className = '';
       content.innerHTML = renderPC() + renderMobile();
@@ -534,8 +601,99 @@
     }
 
     function onQuarter() {
-      var q = document.getElementById('q').value;
-      load(q);
+      // 学期を変えても、見ている週は保つ（週はクライアント側の状態なので再取得不要）
+      load(document.getElementById('q').value);
+    }
+
+    // ===== 週の移動（D23）=====
+    //
+    // 欠員は日付に紐づくので表示する週を1つに決める必要があるが、週で変わるのは
+    // 「欠員の重ね合わせ」だけで、コマ・スタッフ・時限・学期は変わらない。
+    // サーバーは DATA.vacancy（course_id|日付 の索引）を全部くれているので、
+    // 週送りはここだけで完結する（サーバーへの往復ゼロ＝待ち時間なし）。
+
+    var ISO = function (d) {
+      return d.getFullYear() + '-' +
+        ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+    };
+    var parseISO = function (s) { var p = String(s).split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); };
+
+    // 日付を含む週の月曜（getDay: 日=0 なので日曜は6日戻す）
+    function mondayOf(d) {
+      var m = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      m.setDate(m.getDate() - ((m.getDay() + 6) % 7));
+      return m;
+    }
+
+    // 週の情報を組み立てる。基準日（today）はサーバーのJSTを使う（端末の時計に依存しない）
+    function buildWeek(startISO) {
+      var monday = mondayOf(startISO ? parseISO(startISO) : parseISO(DATA.today));
+      var dateByDay = {}, labelByDay = {};
+      ['月', '火', '水', '木', '金', '土', '日'].forEach(function (name, i) {
+        var d = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
+        dateByDay[name] = ISO(d);
+        labelByDay[name] = (d.getMonth() + 1) + '/' + d.getDate();
+      });
+      return {
+        start: dateByDay['月'],
+        end: dateByDay['日'],
+        isThisWeek: dateByDay['月'] === ISO(mondayOf(parseISO(DATA.today))),
+        dateByDay: dateByDay,
+        labelByDay: labelByDay,
+      };
+    }
+
+    // 1コマについて「表示中の週での状態」を求める。
+    // 週表示の中核なので、DOM にも大域変数にも触らない純関数として切り出してある
+    // （scratchpad の検証ハーネスがこの関数を取り出して直接テストする）。
+    //   date   … その週における実施日
+    //   inTerm … その日が学期の開講期間内か（期間未設定の学期は判定せず true＝従来どおり表示）
+    //   status/substitute/absent … その日の欠員の状態
+    function weekStateOf(course, week, termRange, vacancy) {
+      var date = week.dateByDay[course.day] || '';
+      var r = termRange && termRange[course.term];
+      var o = (date && vacancy && vacancy[course.course_id + '|' + date]) || null;
+      return {
+        date: date,
+        inTerm: !r || (!!date && date >= r.start && date <= r.end),
+        status: o ? o.status : '通常',
+        substitute: o ? o.substitute : '',
+        absent: o ? o.absent : [],
+      };
+    }
+
+    // 表示中の週に合わせて、各コマへ状態を載せ直してから再描画する
+    function applyWeek(startISO) {
+      WEEK = buildWeek(startISO);
+      DATA.courses.forEach(function (c) {
+        var s = weekStateOf(c, WEEK, DATA.termRange, DATA.vacancy);
+        c.date = s.date;
+        c.inTerm = s.inTerm;
+        c.status = s.status;
+        c.substitute = s.substitute;
+        c.absent = s.absent;
+      });
+      renderWeekBar();
+      applyFilters();
+    }
+
+    function shiftWeek(deltaWeeks) {
+      if (!WEEK) return;
+      var d = parseISO(WEEK.start);
+      d.setDate(d.getDate() + deltaWeeks * 7);
+      applyWeek(ISO(d));
+    }
+
+    function goThisWeek() { applyWeek(null); }
+
+    // 週の範囲表示と「今週へ」ボタンの出し分け
+    function renderWeekBar() {
+      if (!WEEK) return;
+      document.getElementById('wkRange').textContent =
+        WEEK.labelByDay['月'] + '(月) 〜 ' + WEEK.labelByDay['日'] + '(日)';
+      // 今週を見ているときは「今週へ」を出さない（押しても何も変わらないため）
+      document.getElementById('wkNow').style.display = WEEK.isThisWeek ? 'none' : '';
+      document.getElementById('wkTag').textContent = WEEK.isThisWeek ? '今週' : '';
     }
 
     function onError(err) {
@@ -545,6 +703,8 @@
     }
 
     function load(quarter) {
+      // 学期を変えたときも見ている週は保つ（週はクライアント側の状態）
+      var keepWeek = WEEK ? WEEK.start : null;
       document.getElementById('content').className = 'state';
       document.getElementById('content').textContent = '読み込み中…';
       google.script.run
@@ -552,7 +712,7 @@
           DATA = data;
           fillQuarters();
           fillFilters();
-          applyFilters(); // VIEW を作って描画
+          applyWeek(keepWeek); // 週を載せて VIEW を作り描画
         })
         .withFailureHandler(onError)
         .getTimetable(quarter || null);
