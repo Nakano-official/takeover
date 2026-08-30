@@ -100,6 +100,9 @@
     .m-dl dt { color: var(--text-muted); font-size: .92rem; }
     .m-dl dd { margin: 0; }
     .m-status { margin-top: 16px; font-size: .98rem; color: var(--text-muted); }
+    /* モーダル下部の操作（欠勤連絡への導線・D24）。情報表示と視覚的に区切る */
+    .m-act { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+    .m-act .hint { text-align: center; }
     @media (max-width: 760px) {
       .modal { align-items: flex-end; padding: 0; }
       .sheet { max-width: none; border-radius: 14px 14px 0 0; max-height: 85vh; }
@@ -223,6 +226,7 @@
     var curDay = null;
     var MYVIEW = false;       // マイビュー（自分の担当＋入れる募集中）モードか
     var ME = '<?= user.name ?>';  // ログイン中スタッフの氏名（自分絞り込み用）
+    var APP_URL = '<?= appUrl ?>';  // 画面間リンクの組み立て用（欠勤連絡への受け渡し・D24）
 
     // 自分が担当しているコマか
     function isMine(c) { return c.staffA === ME || c.staffB === ME; }
@@ -316,6 +320,39 @@
       return escapeHtml(t) + (s ? '（' + s + '）' : '');
     }
 
+    // 詳細モーダルの下部に「この日の欠勤を連絡」への導線を出す（D24）。
+    //
+    // ここでは登録せず、コマと日付を選んだ状態で欠勤連絡（absence）画面を開くだけにする。
+    // 欠勤登録は候補者全員へ Chat 通知が飛ぶ取り消しにくい操作なので、時間割のセルから
+    // 2タップで確定できる形にはしない。送信ボタンは absence 画面の1つに保つ
+    // （締切超過の案内・候補0人の自動決着・通知結果の要約もあちらに集約されている）。
+    function absenceAction(c) {
+      if (!isMine(c)) return '';            // 自分の担当コマ以外には出さない
+      if (!c.date || !c.inTerm) return '';  // その週に授業が無い（学期の期間外）
+
+      var note = function (cls, text) {
+        return '<div class="m-act"><div class="notice ' + cls + '">' +
+               escapeHtml(text) + '</div></div>';
+      };
+      // 既に自分の欠勤が登録済みの日（二重登録はサーバーも弾く）
+      if (c.absent && c.absent.indexOf(ME) !== -1) {
+        return note('info', 'この日はあなたの欠勤を登録済みです。');
+      }
+      // 過去日には登録できない（サーバーの検証と同じ条件を先に画面で示す）
+      if (DATA && c.date < DATA.today) {
+        return note('warn', '過ぎた日には欠勤を登録できません。');
+      }
+
+      var url = APP_URL + '?page=absence&course=' + encodeURIComponent(c.course_id) +
+                '&date=' + encodeURIComponent(c.date);
+      var label = ((WEEK && WEEK.labelByDay[c.day]) || c.date) + '（' + c.day + '）';
+      return '<div class="m-act">' +
+        '<a class="btn danger block" href="' + escapeAttr(url) + '">' +
+          escapeHtml(label) + ' の欠勤を連絡する</a>' +
+        '<p class="hint">欠勤連絡の画面が、このコマと日付を選んだ状態で開きます。</p>' +
+      '</div>';
+    }
+
     function openDetail(courseId) {
       var c = courseById(courseId);
       if (!c) return;
@@ -346,6 +383,7 @@
       }).join('') + '</dl>';
       var sb = statusBadge(c);
       if (sb) body += '<div class="m-status">状態 ' + sb + '</div>';
+      body += absenceAction(c);
 
       document.getElementById('modalBody').innerHTML = body;
       document.getElementById('modal').classList.add('show');

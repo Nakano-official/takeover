@@ -29,6 +29,7 @@
   <?!= chrome ?>
 
   <main>
+    <div id="prenote"></div>
     <div class="card">
       <div id="form" class="state">担当コマを読み込み中…</div>
       <!-- 欠勤日の候補は terms の開講期間から機械的に列挙しているだけで、
@@ -45,6 +46,13 @@
     }
 
     var COURSES = [];  // getMyCourses の戻り（学期範囲つき）を保持
+
+    // 時間割（home）の詳細モーダル「この日の欠勤を連絡する」から来たときの初期選択（D24）。
+    // 選ぶ手間を省くだけで、登録の可否はこれまでどおりサーバーが検証する。
+    var PRE_COURSE = '<?= params.course || "" ?>';
+    var PRE_DATE = '<?= params.date || "" ?>';
+    var PRE_PENDING = true;   // 初期選択は最初の組み立てのときだけ適用する
+    var PRE_MSG = null;       // 初期選択が効かなかったときの説明 { cls, text }
 
     function todayISO() {
       var t = new Date();
@@ -87,6 +95,7 @@
         // 学期日程が未設定のコマ → 日付直接入力にフォールバック（サーバーが曜日を検証）
         var iso = todayISO();
         wrap.innerHTML = '<input type="date" id="date" min="' + iso + '" value="' + iso + '">';
+        applyPreDate();
         btn.disabled = false;
         hint.textContent = 'この授業は学期日程が未設定のため日付を直接選べます（' + c.day + '曜のみ有効）。学期設定への登録を推奨します。';
         return;
@@ -94,6 +103,7 @@
       var dates = classDates(c.day, c.termStart, c.termEnd);
       if (dates.length === 0) {
         wrap.innerHTML = '<select id="date"><option value="">（選べる日がありません）</option></select>';
+        applyPreDate();   // この経路でも初期選択は消費する（後でコマを変えたときに誤って当たらないように）
         btn.disabled = true;
         hint.textContent = 'この学期（' + c.termStart + '〜' + c.termEnd + '）に残りの' + c.day + '曜がありません。';
         return;
@@ -101,8 +111,36 @@
       wrap.innerHTML = '<select id="date">' + dates.map(function (d) {
         return '<option value="' + d + '">' + d + '（' + c.day + '）</option>';
       }).join('') + '</select>';
+      applyPreDate();
       btn.disabled = false;
       hint.textContent = 'この学期に授業のある' + c.day + '曜だけが選べます。';
+    }
+
+    // 時間割から渡された日付を選択済みにする（最初の1回だけ）。
+    // 授業日の一覧に無い日付（学期末より先・過ぎた日など）は当てずに理由を出す。
+    function applyPreDate() {
+      if (!PRE_PENDING) return;
+      PRE_PENDING = false;
+      if (!PRE_DATE) return;
+      var el = document.getElementById('date');
+      if (!el) return;
+      if (el.tagName === 'INPUT') { el.value = PRE_DATE; return; }  // 日付直接入力へのフォールバック
+      var ok = Array.prototype.some.call(el.options, function (o) { return o.value === PRE_DATE; });
+      if (ok) el.value = PRE_DATE;
+      else PRE_MSG = { cls: 'warn', text: '時間割で選んだ日付（' + PRE_DATE +
+        '）は、このコマで選べる授業日に含まれていませんでした。日付を選び直してください。' };
+    }
+
+    // 初期選択が効いたか／効かなかったかをフォームの上に出す
+    function renderPreNote() {
+      var el = document.getElementById('prenote');
+      if (PRE_MSG) {
+        el.innerHTML = '<div class="notice ' + PRE_MSG.cls + '" style="margin-bottom:14px">' +
+          escapeHtml(PRE_MSG.text) + '</div>';
+      } else if (PRE_COURSE || PRE_DATE) {
+        el.innerHTML = '<div class="notice info" style="margin-bottom:14px">' +
+          '時間割から選びました。内容を確認して、下のボタンを押してください。</div>';
+      }
     }
 
     // 担当コマを読み込んでフォームを組み立てる
@@ -129,7 +167,17 @@
         '<div id="dateWrap"></div>' +
         '<button id="submit" class="btn danger block" onclick="submit()">欠勤を登録して代行候補を探す</button>' +
         '<p class="hint" id="datehint"></p>';
-      rebuildDates();
+
+      // 時間割から来ていれば、そのコマを選んだ状態にする。
+      // 担当コマ一覧（現在の学期のみ）に無ければ当てず、理由を出して既定のコマのままにする。
+      if (PRE_COURSE) {
+        var found = COURSES.some(function (x) { return x.course_id === PRE_COURSE; });
+        if (found) document.getElementById('course').value = PRE_COURSE;
+        else PRE_MSG = { cls: 'warn', text: '時間割で選んだコマが、いまの担当コマ一覧に見つかりませんでした。' +
+          'コマと日付を選び直してください。' };
+      }
+      rebuildDates();   // この中で applyPreDate が日付を当てる
+      renderPreNote();
     }
 
     function submit() {
