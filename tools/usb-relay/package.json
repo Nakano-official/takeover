@@ -1,0 +1,6 @@
+{
+  "name": "shift-usb-relay",
+  "private": true,
+  "scripts": { "start": "node relay.js", "test": "node --test relay.test.js" },
+  "dependencies": { "playwright": "^1.58.0" }
+}

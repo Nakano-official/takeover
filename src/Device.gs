@@ -24,9 +24,6 @@
 const PROP_DEVICE_TOKEN = 'DEVICE_TOKEN';
 
 // 大学ログイン済みのPC専用。呼び出しのたびに職員権限を確認する。
-// USB中継（別担当）が device-relay 画面から google.script.run で呼ぶ。
-// トークン方式（handleDevicePoll_）と違い、こちらは**ログイン済み職員**であることが認可の根拠なので、
-// Web App のアクセス範囲を「全員」に開く必要がない。
 function getDeviceRelaySummary() {
   requireStaff_();
   return getOpenVacancySummary_();

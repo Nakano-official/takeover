@@ -12,7 +12,11 @@ window.readShiftUsbSummary = function () {
   document.getElementById('status').textContent = '欠員情報を確認中…';
   return new Promise(function (resolve, reject) {
     var finished = false;
-    var timer = setTimeout(function () { finished = true; reject(new Error('GAS timeout')); }, 20000);
+    var timer = setTimeout(function () {
+      finished = true;
+      document.getElementById('status').textContent = 'GASの応答がありません。次回再確認します。';
+      reject(new Error('GAS timeout'));
+    }, 20000);
     google.script.run.withSuccessHandler(function (data) {
       if (finished) return;
       clearTimeout(timer);
