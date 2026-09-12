@@ -63,6 +63,8 @@
            border-radius: var(--radius-pill); color: #fff; margin-right: 4px; vertical-align: 1px; }
     .tag.take { background: var(--brand); }
     .tag.help { background: var(--help); }
+    /* 単発コマ（D27）＝その日1回だけ。毎週のコマと見分けが付くよう別色にする */
+    .tag.once { background: var(--warn); }
     .st { display: inline-block; font-size: .8rem; padding: 1px 9px;
           border-radius: var(--radius-pill); margin-top: 5px; }
     .st-open   { background: #d9f1e2; color: var(--ok); font-weight: 700; }
@@ -209,6 +211,9 @@
     <p class="termnote">※ <?= TERM_BOUNDARY_NOTICE ?></p>
     <div id="count" class="count"></div>
     <div id="content" class="state">読み込み中…</div>
+    <pre id="dbg" style="display:none;white-space:pre-wrap;font-size:.75rem;line-height:1.6;
+      background:#1b2430;color:#e8edf5;padding:12px 14px;border-radius:8px;margin-top:16px;
+      overflow-x:auto"></pre>
   </main>
 
   <div id="modal" class="modal" onclick="closeDetail(event)">
@@ -229,6 +234,14 @@
     var APP_URL = '<?= appUrl ?>';  // 画面間リンクの組み立て用（欠勤連絡への受け渡し・D24）
 
     // 自分が担当しているコマか
+    // ?page=home&debug=1 で開いたときだけ、画面下に診断を出す。
+    // 「サーバーは返しているのに画面に出ない」を切り分けるための窓（通常の表示には影響しない）。
+    //
+    // ※ この枠が**出ないこと自体**が「古いコードが配信されている」の合図になる
+    //   （2026-09-12：/exec が古いバージョンに固定されていて、push した変更が
+    //    一切反映されていなかった。setup.md「反映されないとき」を参照）。
+    var DEBUG = String('<?= params.debug || "" ?>') === '1';
+
     function isMine(c) { return c.staffA === ME || c.staffB === ME; }
 
     // 自分が「入れる」募集中の空き枠か（テイク1名・スキル一致・その時限が自分の空き）
@@ -261,6 +274,7 @@
         escapeAttr(c.course_id) + '\')">' +
         '<span class="cd-more">詳細 ›</span>' +
         '<span class="tag ' + cls + '">' + escapeHtml(c.support_type || 'コマ') + '</span>' +
+        (c.oneOffDate ? '<span class="tag once">単発</span>' : '') +
         '<span class="cd-staff">' + staff + '</span>';
       if (c.room) html += '<span class="cd-room">教室: ' + escapeHtml(c.room) + '</span>';
       if (myOpen) html += '<span class="st st-myopen">✅ あなたが入れます</span>';
@@ -358,12 +372,13 @@
       if (!c) return;
       var pt = periodTime(c.period);
       var rows = [
-        ['内容', escapeHtml(c.support_type || '—')],
+        ['内容', escapeHtml(c.support_type || '—') +
+          (c.oneOffDate ? '<span class="tag once" style="margin-left:6px">この日だけ</span>' : '')],
         ['学期', termLabel(c)],
         ['日時', escapeHtml(c.day) + '曜 ' + escapeHtml(c.period) + '限' +
           (pt ? '（' + escapeHtml(pt) + '）' : '')],
         // 表示中の週における実施日。欠員の状態はこの日付に対するもの（D23）
-        ['この週の日付', escapeHtml(c.date || '—')],
+        [c.oneOffDate ? '実施日（1回限り）' : 'この週の日付', escapeHtml(c.date || '—')],
         ['利用者', escapeHtml(c.user_student || '—')],
         ['科目', escapeHtml(c.subject || '—')],
         ['担当教員', escapeHtml(c.instructor || '—')],
@@ -588,6 +603,35 @@
       content.className = '';
       content.innerHTML = renderPC() + renderMobile();
       renderDayView();
+      renderDebug();
+    }
+
+    // 画面が実際に何を持っているかを出す（?debug=1 のときだけ）
+    function renderDebug() {
+      var host = document.getElementById('dbg');
+      if (!host) return;
+      if (!DEBUG) { host.style.display = 'none'; return; }
+      var lines = [];
+      lines.push('DATA.today = ' + DATA.today);
+      lines.push('WEEK = ' + (WEEK ? JSON.stringify(WEEK.dateByDay) : '(なし)'));
+      lines.push('学期セレクタ = "' + val('q') + '" / マイビュー = ' + MYVIEW);
+      lines.push('絞り込み 利用者=' + val('fUser') + ' スタッフ=' + val('fStaff') + ' 内容=' + val('fType'));
+      lines.push('DATA.courses = ' + DATA.courses.length + ' 件 / この週にあるコマ = ' + WEEK_COURSE_COUNT
+        + ' / 表示中 = ' + VIEW.courses.length);
+      var once = DATA.courses.filter(function (c) { return c.oneOffDate; });
+      lines.push('単発コマ = ' + once.length + ' 件');
+      once.forEach(function (c) {
+        lines.push('  ・' + c.course_id + ' ' + c.day + c.period + '限'
+          + ' | oneOffDate=' + JSON.stringify(c.oneOffDate)
+          + ' | この週の日付=' + JSON.stringify(c.date)
+          + ' | inTerm=' + c.inTerm
+          + ' | VIEWに含まれる=' + VIEW.courses.some(function (x) { return x.course_id === c.course_id; }));
+      });
+      if (once.length === 0) {
+        lines.push('  → サーバーが oneOffDate を返していません（古いJSか、古いサーバーコード）。');
+      }
+      host.style.display = '';
+      host.textContent = lines.join(String.fromCharCode(10));
     }
 
     function fillQuarters() {
@@ -685,15 +729,22 @@
     // 週表示の中核なので、DOM にも大域変数にも触らない純関数として切り出してある
     // （scratchpad の検証ハーネスがこの関数を取り出して直接テストする）。
     //   date   … その週における実施日
-    //   inTerm … その日が学期の開講期間内か（期間未設定の学期は判定せず true＝従来どおり表示）
+    //   inTerm … その日にこのコマが実際にあるか
+    //            （毎週コマ＝学期の開講期間内か。期間未設定の学期は判定せず true＝従来どおり表示）
+    //            （単発コマ＝その週のその曜日が実施日そのものか・D27）
     //   status/substitute/absent … その日の欠員の状態
     function weekStateOf(course, week, termRange, vacancy) {
       var date = week.dateByDay[course.day] || '';
       var r = termRange && termRange[course.term];
       var o = (date && vacancy && vacancy[course.course_id + '|' + date]) || null;
+      // 単発コマ（D27）は学期の期間を見ない。その日1回しか無いので、
+      // 表示中の週のその曜日が実施日と一致する週にだけ出す。
+      var inTerm = course.oneOffDate
+        ? (!!date && date === course.oneOffDate)
+        : (!r || (!!date && date >= r.start && date <= r.end));
       return {
         date: date,
-        inTerm: !r || (!!date && date >= r.start && date <= r.end),
+        inTerm: inTerm,
         status: o ? o.status : '通常',
         substitute: o ? o.substitute : '',
         absent: o ? o.absent : [],

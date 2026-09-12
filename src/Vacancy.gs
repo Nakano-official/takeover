@@ -40,9 +40,15 @@ function getMyCourses() {
   const termById = {};
   readTerms_().forEach(function (t) { termById[t.term_id] = t; });
 
+  // 単発コマ（D27）は学期の「現在」判定に載せない。学期外の説明会などもありうるため、
+  // 「実施日が今日以降か」だけで出す。毎週のコマは従来どおり現在の学期で絞る。
+  const today = todayJst_();
   return allCourses
     .filter(function (c) {
-      return activeSet[String(c.quarter).trim()] && isAssigned_(c, user.staff_id);
+      if (!isAssigned_(c, user.staff_id)) return false;
+      const d = courseDate_(c);
+      if (d) return d >= today;
+      return !!activeSet[String(c.quarter).trim()];
     })
     .map(function (c) {
       const partnerId = String(c.staff_a_id).trim() === user.staff_id ? c.staff_b_id : c.staff_a_id;
@@ -55,6 +61,7 @@ function getMyCourses() {
         period: String(c.period).trim(),
         time: p.start_time ? p.start_time + '〜' + p.end_time : '',
         partner: nameById[String(partnerId).trim()] || partnerId || '',
+        oneOffDate: courseDate_(c),      // 単発コマの実施日（空＝毎週・D27）
         termStart: term.start_date || '',
         termEnd: term.end_date || '',
       };
@@ -95,17 +102,26 @@ function submitAbsence(courseId, date) {
     throw new Error('欠勤日（' + dateStr + '・' + wd + '曜）が、このコマの曜日（' + courseDay + '曜）と一致しません。');
   }
 
-  // 学期期間チェック：欠勤日はコマの学期（terms）の開講期間内であること。
-  // 曜日が合っていても、長期休暇中や学期外・翌年など「授業が無い日」の登録を防ぐ（重大バグ修正）。
-  // terms 未整備／該当学期に日付が無い場合はスキップ（後方互換）。
-  const courseTerm = readTerms_().filter(function (t) {
-    return t.term_id === String(course.quarter).trim();
-  })[0];
-  if (courseTerm && courseTerm.start_date && courseTerm.end_date) {
-    if (dateStr < courseTerm.start_date || dateStr > courseTerm.end_date) {
-      throw new Error('欠勤日（' + dateStr + '）は、このコマの学期「' + courseTerm.term_id +
-        '」の開講期間（' + courseTerm.start_date + '〜' + courseTerm.end_date + '）外です。' +
-        '授業のある日を選んでください。');
+  // 単発コマ（D27）はその日1回しか無いので、実施日と一致するかだけを見る。
+  // 学期の開講期間チェックはしない（学期外の説明会・行事もありうるため）。
+  const oneOffDate = courseDate_(course);
+  if (oneOffDate) {
+    if (dateStr !== oneOffDate) {
+      throw new Error('このコマは ' + oneOffDate + ' の1回限りです（指定：' + dateStr + '）。');
+    }
+  } else {
+    // 毎週のコマ：欠勤日はコマの学期（terms）の開講期間内であること。
+    // 曜日が合っていても、長期休暇中や学期外・翌年など「授業が無い日」の登録を防ぐ（重大バグ修正）。
+    // terms 未整備／該当学期に日付が無い場合はスキップ（後方互換）。
+    const courseTerm = readTerms_().filter(function (t) {
+      return t.term_id === String(course.quarter).trim();
+    })[0];
+    if (courseTerm && courseTerm.start_date && courseTerm.end_date) {
+      if (dateStr < courseTerm.start_date || dateStr > courseTerm.end_date) {
+        throw new Error('欠勤日（' + dateStr + '）は、このコマの学期「' + courseTerm.term_id +
+          '」の開講期間（' + courseTerm.start_date + '〜' + courseTerm.end_date + '）外です。' +
+          '授業のある日を選んでください。');
+      }
     }
   }
 
@@ -135,24 +151,33 @@ function submitAbsence(courseId, date) {
     period: String(course.period).trim(),
   };
 
-  // 代行者なしで決着させる共通処理（候補0人・締切超過の両方から使う）。
-  // 決着書き込みは状態機械（settle 遷移）に通す。作成直後で競合は無いが、
-  // 全ての result 書き込みを1経路に揃える（backlog 11-2）。
-  const settleWithoutSubstitute_ = function (reason) {
-    const autoResult = autoSettleResult_(course, dateStr, user.staff_id);
-    transitionVacancyOrThrow_(vacancyId, 'settle', { result: autoResult });
-    var autoNotify;
+  // 代行を募集せずに閉じる共通処理（候補0人・締切超過の両方から使う）。
+  //
+  // D22 でここは「自動決着」から「募集クローズ」に変わった。**result は書かない**。
+  // 1人テイクで回すか職員が入るかは人員配置の判断であり、システムには決められない。
+  // result を書いてしまうと欠員一覧から落ち、最も人手を要する欠員が最も見えなくなる。
+  // システムがやるのは「募集しないと決めたことを記録し、職員へ決着を要求する」ところまで。
+  const closeRecruitWithoutSubstitute_ = function (reason) {
+    // 職員が決着させるときの手がかり（相方が残るか）。あくまで提案で、書き込みはしない。
+    const suggestion = suggestSettleResult_(course, dateStr, user.staff_id);
+    // 締切到達を処理済みとしてマークし、時間トリガーが同じ欠員をもう一度拾わないようにする。
     try {
-      autoNotify = notifyAutoResolved(vacancyId, autoResult, reason);
+      updateRow(SHEET.VACANCIES, 'vacancy_id', vacancyId, { close_notified_at: nowString_() });
+    } catch (e) { /* マークに失敗してもトリガー側が拾い直すだけなので握りつぶす */ }
+    var closeNotify;
+    try {
+      closeNotify = notifyRecruitClosed(vacancyId, reason, suggestion);
     } catch (e) {
-      autoNotify = { error: e.message };
+      closeNotify = { error: e.message };
     }
     return {
       vacancy_id: vacancyId,
       course: courseInfo,
       candidates: [],
-      autoResult: autoResult,
-      notify: autoNotify,
+      recruitClosed: true,
+      closeReason: reason,
+      suggestion: suggestion,
+      notify: closeNotify,
     };
   };
 
@@ -161,7 +186,7 @@ function submitAbsence(courseId, date) {
   // 職員スペースには「直前欠勤（代行募集なし）」を通知し、画面では学生に
   // Google Classroom への欠勤連絡を案内する（従来の人力フローへ戻す）。
   if (isPastRecruitDeadline_(dateStr, course.period)) {
-    const late = settleWithoutSubstitute_(AUTO_RESOLVE_REASON.PAST_DEADLINE);
+    const late = closeRecruitWithoutSubstitute_(RECRUIT_CLOSE_REASON.PAST_DEADLINE);
     late.lateAbsence = true;
     late.deadlineMinutes = RECRUIT_DEADLINE_MIN_BEFORE;
     return late;
@@ -170,10 +195,10 @@ function submitAbsence(courseId, date) {
   // 代行候補を抽出（欠勤者と相方＋当日のダブルブッキングを除外）
   const candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id], dateStr);
 
-  // 補充候補が0人 → 自動決着（review #4・CLAUDE.md ドメイン）。
-  // 相方が残るコマ（2名テイク等）は「1人テイク」、残らない1名コマは「職員対応」。
+  // 補充候補が0人 → 募集せずに閉じ、職員へ決着を要求する（review #4・D22）。
+  // 以前はここで「1人テイク／職員対応」まで自動で書き込んでいた（D10）が、その判断は職員が行う。
   if (candidates.length === 0) {
-    return settleWithoutSubstitute_(AUTO_RESOLVE_REASON.NO_CANDIDATES);
+    return closeRecruitWithoutSubstitute_(RECRUIT_CLOSE_REASON.NO_CANDIDATES);
   }
 
   // 職員スペース＋候補者へ通知（失敗しても欠員登録は確定させる）
@@ -224,6 +249,7 @@ function getVacancyForRespond(vacancyId) {
     time: p.start_time ? p.start_time + '〜' + p.end_time : '',
     absentName: nameById[String(vacancy.absent_staff_id).trim()] || vacancy.absent_staff_id,
     closed: !!String(vacancy.result).trim(),       // 対応確定済みなら true
+    deadlineClosed: course ? isRecruitClosed_(vacancy, course) : false, // 締切で募集終了（D22）
     eligible: course ? isCandidate_(course, user.staff_id, vacancy.date) : false,
     myAnswer: mine.length ? mine[0].answer : '',
   };
@@ -264,6 +290,13 @@ function respondToVacancy(vacancyId, answer) {
   // 早期判定：既に確定済みなら受け付けない（権威ある判定は後段の claimIfEmpty）
   if (String(vacancy.result).trim()) {
     return { ok: false, filled: true, closed: true };
+  }
+
+  // 締切（授業開始 RECRUIT_DEADLINE_MIN_BEFORE 分前）を過ぎた募集は受け付けない（D22）。
+  // ここを開けたままにすると、職員が決着に動き出した後に承諾が入って二重手配になる。
+  // 「他の人で埋まった」とは理由が違うので、画面の文言も分ける（deadline フラグ）。
+  if (isRecruitClosed_(vacancy, course)) {
+    return { ok: false, closed: true, deadline: true, message: MSG_RECRUIT_CLOSED };
   }
 
   // 回答そのものは記録しておく（先着で負けても「承諾した事実」はログに残す）
@@ -382,18 +415,45 @@ function isPastRecruitDeadline_(dateStr, period) {
 }
 
 /**
- * 代行者なしで決着させるときの結果を決める（D10）。
+ * この欠員の代行募集が「クローズ済み」か（D22）。
+ *
+ * クローズ状態は**保存しない**。締切そのものと同じく date + periods.start_time から毎回算出する
+ * （isPastRecruitDeadline_ と同じ理由：定数を変えたときに既存の欠員へも即反映される）。
+ * シートに保存するのは close_notified_at＝「締切到達を処理して職員へ通知したか」だけで、
+ * これは状態ではなく副作用の記録（二重通知の防止）。
+ *
+ * 「決着済み（result あり）」とは別物。クローズ済みかつ未決着＝**職員の決着待ち**で、
+ * これが manage 画面で最優先に見せるべき状態になる。
+ *
+ * @param {Object} vacancy vacancies の1行
+ * @param {Object} course  対応する courses の1行（無ければ判定不能として false）
+ * @return {boolean}
+ */
+function isRecruitClosed_(vacancy, course) {
+  if (!vacancy || !course) return false;
+  if (String(vacancy.result || '').trim()) return false;   // 決着済みは「募集中/クローズ」の軸の外
+  return isPastRecruitDeadline_(dateToStr_(vacancy.date), course.period);
+}
+
+/**
+ * 代行者なしで閉じた欠員について、職員へ示す**決着の提案**を組み立てる（D22）。
+ *
  * 欠勤者本人と、同コマ・同日に既に欠勤登録している人（相方も欠勤しているケース）を除いて、
  * 担当が残るなら「1人テイク」、誰も残らないなら「職員対応」。
  *
- * 補充候補0人のときと、締切超過の直前欠勤のときの**両方**から使う。
+ * ※ D22 以前はこの戻り値をそのまま `result` に書き込んで自動決着させていた（autoSettleResult_）。
+ *   現在は**書き込まない**。相方が残るかどうかは分かるが、その日を実際に1人で回してよいかは
+ *   人員配置の判断であり、システムには決められない。職員が manage 画面で決める際の
+ *   手がかりとして、通知文面と管理画面に「〜が妥当そう」と添えるだけに留める。
+ *
+ * 補充候補0人のとき・締切超過の直前欠勤のとき・募集中に締切へ到達したときの**3経路**から使う。
  *
  * @param {Object} course
  * @param {string} dateStr        'yyyy-MM-dd'
  * @param {string} absentStaffId  欠勤者
  * @return {string} VACANCY_RESULT.SOLO / VACANCY_RESULT.STAFF
  */
-function autoSettleResult_(course, dateStr, absentStaffId) {
+function suggestSettleResult_(course, dateStr, absentStaffId) {
   const courseId = String(course.course_id).trim();
   const absentId = String(absentStaffId).trim();
 
@@ -478,6 +538,10 @@ function getVacanciesForManage() {
     const subId = String(v.substitute_staff_id || '').trim();
     const resolved = !!String(v.result || '').trim();
 
+    // 募集がクローズ済みで未決着＝**職員の決着待ち**（D22）。この画面で最優先に見せる状態。
+    // システムは result を書かないので、放っておくと誰も動かないまま授業開始を迎える。
+    const closed = !resolved && isRecruitClosed_(v, course);
+
     // 未解決のみ、電話フロー用に「候補（空きコマ学生）＋電話＋回答状況」を付ける。
     // 返信が来ないとき、職員がこの電話番号に直接連絡して口頭で決めるための導線。
     var candidates = [];
@@ -485,11 +549,15 @@ function getVacanciesForManage() {
       candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id], v.date, ctx)
         .map(function (cand) {
           const sid = String(cand.staff_id).trim();
+          const answer = (answerByVacancy[vid] && answerByVacancy[vid][sid]) || '';
           return {
             staff_id: cand.staff_id,
             name: cand.name,
-            phone: phoneById[sid] || '',
-            answer: (answerByVacancy[vid] && answerByVacancy[vid][sid]) || '',
+            // 辞退した候補には電話番号を出さない（e2eテストでの指摘）。
+            // 全員に番号が並んでいると「まだ反応していないのは誰か」が読めず、
+            // 断った相手にもう一度かけてしまう。電話をかける先＝未回答の候補だけに絞る。
+            phone: answer === ANSWER.DECLINE ? '' : (phoneById[sid] || ''),
+            answer: answer,
           };
         });
     }
@@ -503,6 +571,12 @@ function getVacanciesForManage() {
       absentName: nameById[String(v.absent_staff_id).trim()] || v.absent_staff_id,
       result: String(v.result || '').trim(),
       substituteName: subId ? (nameById[subId] || subId) : '',
+      // 募集は終わったが決着していない（＝職員が「1人テイク／職員対応」を決める番）
+      awaitingDecision: closed,
+      // 決着の手がかり（相方が残るか）。提案であって、システムは書き込まない（D22）
+      suggestion: closed
+        ? suggestSettleResult_(course, dateToStr_(v.date), String(v.absent_staff_id).trim())
+        : '',
       responses: responsesByVacancy[vid] || [],
       candidates: candidates,
     };
@@ -563,11 +637,24 @@ function setVacancyResult(vacancyId, result) {
 function reopenVacancy(vacancyId) {
   requireStaff_();
 
+  // 締切を過ぎてから開き直すのか、まだ募集できる時間帯なのかで挙動が変わる（D22）。
+  // 判定に使うコマは、reopen の書き込み前に引いておく（ロックの中で別シートを読まない）。
+  const cur = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+  const curCourse = cur ? findRow(SHEET.COURSES, 'course_id', cur.course_id) : null;
+  const pastDeadline = cur && curCourse
+    ? isPastRecruitDeadline_(dateToStr_(cur.date), curCourse.period)
+    : false;
+
   // result が非空（決着済み）のときだけ atomically 開き直す（reopen 遷移）。
   // 「旧確定者の控え」と「クリア」を同一ロックで行い、確定処理との競合で
   // 解除通知の宛先がずれるのを防ぐ（backlog 10-1）。旧値は current（書き込み前）から読む。
-  const res = transitionVacancyOrThrow_(vacancyId, 'reopen',
-    { result: '', substitute_staff_id: '', notify_status: NOTIFY_STATUS_PENDING });
+  //
+  // 締切前に戻すなら close_notified_at も消す（もう一度きちんと募集し、締切に達したら
+  // 改めて職員へ決着を要求できる状態に戻す）。締切後の再オープンでは消さない
+  // ＝トリガーが同じ欠員を拾って職員へ二度目の「決着してください」を投げるのを防ぐ。
+  const updates = { result: '', substitute_staff_id: '', notify_status: NOTIFY_STATUS_PENDING };
+  if (!pastDeadline) updates.close_notified_at = '';
+  const res = transitionVacancyOrThrow_(vacancyId, 'reopen', updates);
 
   // 書き込み前スナップショットから「補充済で確定していた代行者」を控える（解除通知のため）
   const prevSub = String(res.current.result).trim() === VACANCY_RESULT.FILLED
@@ -587,13 +674,108 @@ function reopenVacancy(vacancyId) {
   // 候補者へ再募集を送る（backlog 10-4）。
   // 従来は notify_status を戻すだけで再送経路が無く、全候補が「募集終了」を受信済みのまま
   // 誰にも再依頼が届かず無人で当日を迎える恐れがあった。notifyNewVacancy を再利用する。
-  var reNotify;
-  try {
-    reNotify = notifyNewVacancy(vacancyId, true);
-  } catch (e) {
-    reNotify = { error: e.message };
+  //
+  // ただし締切を過ぎているなら再募集はしない（D22）。respondToVacancy が締切超過の回答を
+  // 弾くため、依頼を送っても候補は答えられず「押せないボタン」を配るだけになる。
+  // この場合の再オープンは「職員が決着をやり直すために開く」操作として扱う。
+  var reNotify = null;
+  if (pastDeadline) {
+    reNotify = { skipped: true, reason: '締切を過ぎているため再募集は行いません（職員が決着します）。' };
+  } else {
+    try {
+      reNotify = notifyNewVacancy(vacancyId, true);
+    } catch (e) {
+      reNotify = { error: e.message };
+    }
   }
-  return { ok: true, notify: { released: released, reopened: reNotify } };
+  return { ok: true, pastDeadline: pastDeadline, notify: { released: released, reopened: reNotify } };
+}
+
+// ─── 締切到達の検知（時間トリガー・D22）───────────────────────
+
+/**
+ * 締切に到達した代行募集をクローズし、職員へ決着を要求する（時間トリガーの入口）。
+ *
+ * **この関数は result を書かない。** 締切（授業開始 RECRUIT_DEADLINE_MIN_BEFORE 分前）に
+ * 達したら募集を閉じる＝もう候補は増えない、というところまでがシステムの責務で、
+ * 「1人テイクで回すのか職員が入るのか」は人員配置の判断なので職員が manage 画面で決める（D22）。
+ *
+ * なぜトリガーが要るか：締切判定は従来 submitAbsence の1回しか走らなかったため、
+ * 「締切前に登録され、誰も承諾しないまま締切に達した」欠員を閉じる契機が存在しなかった。
+ * 補充できずに当日を迎える欠員こそ職員が最も早く知る必要があるのに、通知が一切出なかった。
+ *
+ * 二重通知の防止：close_notified_at が空のときだけ処理者になる（claimIfEmpty の CAS）。
+ * マークしてから通知するので、通知の途中で実行が落ちたときは「通知が届かない」側に倒れる。
+ * 逆順（通知→マーク）にすると落ちるたびに全員へ再送されるため、こちらを選ぶ。
+ *
+ * @param {boolean} [verbose] true のときだけログを出す（GASエディタから手で実行するとき用）。
+ *   時間トリガーは第1引数にイベントオブジェクトを渡してくるため、=== true で厳密に判定する。
+ * @param {Array<string>} [onlyVacancyIds] 対象をこの欠員IDだけに限定する（e2e 検証用）。
+ *   省略時は全欠員を走査する＝トリガーからの通常動作。テストが実データの欠員を
+ *   「通知済み」にしてしまわないよう、e2e からは必ず指定する。
+ * @return {{scanned:number, notified:Array, marked:Array, errors:Array}}
+ */
+function closeExpiredRecruits(verbose, onlyVacancyIds) {
+  const out = { scanned: 0, notified: [], marked: [], errors: [] };
+  const say = function (m) { if (verbose === true) Logger.log(m); };
+  const only = onlyVacancyIds
+    ? onlyVacancyIds.map(function (x) { return String(x).trim(); })
+    : null;
+
+  // close_notified_at 列が無いDB（マイグレーション未実行）では CAS のガード列が引けない。
+  // 例外で落ちるとトリガーの失敗メールが毎回飛ぶだけなので、理由を出して静かに戻る。
+  if (getHeaders_(SHEET.VACANCIES).indexOf('close_notified_at') === -1) {
+    const msg = 'vacancies に close_notified_at 列がありません。' +
+      'Setup.js の migrateAddVacancyCloseNotifiedAt() を1回実行してください。';
+    out.errors.push(msg);
+    say('❌ ' + msg);
+    return out;
+  }
+
+  const today = todayJst_();
+  const courseById = {};
+  readRows(SHEET.COURSES).forEach(function (c) {
+    courseById[String(c.course_id).trim()] = c;
+  });
+
+  readRows(SHEET.VACANCIES).forEach(function (v) {
+    const vid = String(v.vacancy_id).trim();
+    if (!vid) return;
+    if (only && only.indexOf(vid) === -1) return;             // e2e で対象を限定しているとき
+    if (String(v.result || '').trim()) return;                // 決着済み（募集の軸の外）
+    if (String(v.close_notified_at || '').trim()) return;     // この欠員は処理済み
+    const course = courseById[String(v.course_id).trim()];
+    if (!course) return;                                      // コマが消えている＝判定不能
+    const dateStr = dateToStr_(v.date);
+    if (!isPastRecruitDeadline_(dateStr, course.period)) return; // まだ募集中
+    out.scanned++;
+
+    const claim = claimIfEmpty(SHEET.VACANCIES, 'vacancy_id', vid, 'close_notified_at',
+      { close_notified_at: nowString_() });
+    if (!claim.ok || !claim.claimed) return;  // 別の実行が先に処理した
+
+    // 導入前から未決着で残っている過去日の欠員は、マークするだけで通知しない。
+    // 初回実行で古い欠員ぶんの通知が一斉に流れるのを防ぐ（授業はもう終わっている）。
+    if (dateStr && dateStr < today) {
+      out.marked.push(vid);
+      say('・' + vid + '（' + dateStr + '）は過去日のため通知せずマークのみ');
+      return;
+    }
+
+    try {
+      notifyRecruitClosed(vid, RECRUIT_CLOSE_REASON.DEADLINE_REACHED,
+        suggestSettleResult_(course, dateStr, String(v.absent_staff_id).trim()));
+      out.notified.push(vid);
+      say('・' + vid + '（' + dateStr + ' ' + course.day + course.period + '限）の募集をクローズ、職員へ通知');
+    } catch (e) {
+      out.errors.push(vid + ': ' + e.message);
+      say('・' + vid + ' の通知に失敗: ' + e.message);
+    }
+  });
+
+  say('締切チェック完了: 対象 ' + out.scanned + '件 / 通知 ' + out.notified.length +
+    '件 / 過去分マーク ' + out.marked.length + '件 / エラー ' + out.errors.length + '件');
+  return out;
 }
 
 // ─── 候補スクリーニング ──────────────────────────────────────
@@ -628,9 +810,11 @@ function findCandidates_(course, excludeStaffIds, date, ctx) {
   allCourses.forEach(function (c) {
     const cid = String(c.course_id).trim();
     slotOf[cid] = String(c.day).trim() + String(c.period).trim();
+    // 単発コマ（date あり）は、同じ曜日・時限でも別の日なら競合しない（D27）
     if (cid !== courseId &&
         String(c.quarter).trim() === quarter &&
-        slotOf[cid] === slotKey) {
+        slotOf[cid] === slotKey &&
+        occurrencesOverlap_(courseDate_(course), courseDate_(c))) {
       [c.staff_a_id, c.staff_b_id].forEach(function (id) {
         id = String(id).trim();
         if (id) busy[id] = true;
@@ -675,6 +859,39 @@ function findCandidates_(course, excludeStaffIds, date, ctx) {
 // ─── 内部ヘルパー ────────────────────────────────────────────
 
 // スタッフが指定コマの担当（A or B）か
+function courseDate_(course) {
+  // セルがテキスト書式でないシートでは '2026-09-12' が**日付値**として保存され、
+  // readRows が Date を返す。生の String() を掛けると
+  // 'Sat Sep 12 2026 00:00:00 GMT+0900 (Japan Standard Time)' になり、
+  // 時間割の照合（date === oneOffDate）が絶対に一致せず**そのコマが消える**。
+  // エラーにならないので気づけない。10-6b（periods の時刻）と同じパターンなので、
+  // 同じく「読む側で吸収する」形にしておく（dateToStr_ は Date も ISO 文字列も受ける）。
+  if (!course || course.date === '' || course.date == null) return '';
+  return dateToStr_(course.date).trim();
+}
+
+/**
+ * 2つのコマの「開催回」が重なりうるか（D27・単発コマ）。
+ *
+ * courses は本来「毎週その曜日・その時限」の週パターンだが、date 列が入っていると
+ * **その日1回だけ**の単発コマになる。同じ曜日・時限でも、別の日付の単発同士は
+ * 実際には一度もぶつからない。二重起用チェックと候補抽出の busy 判定で、
+ * これを取り違えると「ぶつかっていないのに登録できない／候補から外れる」が起きる。
+ *
+ *   毎週 × 毎週   → 毎週ぶつかる         → true
+ *   毎週 × 単発   → その単発の日にぶつかる → true
+ *   単発 × 単発   → 同じ日付のときだけ     → date が一致すれば true
+ *
+ * @param {string} dateA 空＝毎週 / 'yyyy-MM-dd'＝単発
+ * @param {string} dateB 同上
+ */
+function occurrencesOverlap_(dateA, dateB) {
+  const a = String(dateA || '').trim();
+  const b = String(dateB || '').trim();
+  if (a && b) return a === b;
+  return true;   // 片方でも毎週なら必ず重なる
+}
+
 function isAssigned_(course, staffId) {
   return String(course.staff_a_id).trim() === String(staffId).trim() ||
          String(course.staff_b_id).trim() === String(staffId).trim();
@@ -748,328 +965,4 @@ function buildPeriodMap_() {
     map[String(p.period).trim()] = p;
   });
   return map;
-}
-
-// ─── デバッグ用 ──────────────────────────────────────────────
-
-/**
- * 回答画面サーバー関数の動作確認。最新の欠員に対して getVacancyForRespond を実行しログ出力。
- * 「読み込み中で固まる」原因（サーバー側エラー）を切り分けるために使う。
- */
-function testRespond() {
-  const vacancies = readRows(SHEET.VACANCIES);
-  if (vacancies.length === 0) {
-    Logger.log('vacancies が空です。先に欠勤連絡で欠員を作ってください。');
-    return;
-  }
-  const vid = vacancies[vacancies.length - 1].vacancy_id;
-  Logger.log('実行ユーザー: ' + Session.getActiveUser().getEmail());
-  const me = getCurrentUser_();
-  Logger.log('→ staff_id: ' + (me ? me.staff_id + '（' + me.role + '）' : '未登録'));
-  Logger.log('対象 vacancy_id: ' + vid);
-  try {
-    const res = getVacancyForRespond(vid);
-    Logger.log('結果: ' + JSON.stringify(res));
-  } catch (e) {
-    Logger.log('❌ エラー: ' + e.message);
-    Logger.log(e.stack);
-  }
-}
-
-/**
- * 候補スクリーニングの動作確認。GASエディタから実行してログを見る。
- * 実データは変更しない。
- */
-function testVacancy() {
-  Logger.log('===== Vacancy 候補スクリーニング確認 =====');
-
-  const courses = readRows(SHEET.COURSES);
-  if (courses.length === 0) {
-    Logger.log('courses が空です。Setup を確認してください。');
-    return;
-  }
-
-  courses.forEach(function (c) {
-    const slotKey = String(c.day).trim() + String(c.period).trim();
-    Logger.log('--- コマ ' + c.course_id + '（' + slotKey + '限）担当=' +
-      c.staff_a_id + '/' + c.staff_b_id + ' ---');
-
-    // 全学生のスロットを可視化（なぜ候補になる/ならないかを確認できる）
-    readRows(SHEET.STAFFS).forEach(function (s) {
-      if (String(s.role).trim() !== '学生') return;
-      const slots = String(s.available_slots).split(',').map(function (x) { return x.trim(); });
-      const hit = slots.indexOf(slotKey) !== -1;
-      Logger.log('   ' + s.staff_id + ' ' + s.name + ' [' + s.available_slots + ']' +
-        (hit ? ' ← スロット一致' : ''));
-    });
-
-    const candidates = findCandidates_(c, [c.staff_a_id, c.staff_b_id]);
-    Logger.log('   → 代行候補: ' +
-      (candidates.length ? candidates.map(function (x) { return x.name; }).join('、') : 'なし'));
-  });
-
-  Logger.log('（候補が「なし」の場合、その曜日時限に空きのある別の学生を staffs に足すと候補に出ます）');
-  Logger.log('===== 確認終了 =====');
-}
-
-// ─── 実機e2e（Tier A・backlog 9-5）──────────────────────────────
-//
-// 実 LockService・実スプレッドシート（ダミーDB前提）に対して、機能Aの中核
-// （欠員登録 → 候補抽出 → 先着競合 → 再オープン）を内部関数で駆動し状態を検証する。
-// 公開関数（submitAbsence 等）は Session 依存で1人では役を演じ分けにくいため、
-// ここでは内部関数を直接叩く（UI/ロール判定/通知配線はブラウザ walkthrough で確認する）。
-// 作成した欠員は最後に削除して後片付けする（ダミーDBを汚さない）。
-
-/**
- * 機能Aの実機e2e。GASエディタから実行しログを見る。
- * @param {{notify?:boolean}} [opts] notify=true で確定・再募集の実通知も送る（既定 false）。
- */
-function e2eVacancyFlow(opts) {
-  opts = opts || {};
-  const notify = !!opts.notify;
-  const say = function (m) { Logger.log(m); };
-  const assert = function (cond, m) {
-    if (!cond) throw new Error('❌ ASSERT失敗: ' + m);
-    say('  ✅ ' + m);
-  };
-
-  say('===== 機能A 実機e2e（内部関数駆動・ダミーDB / 通知=' + (notify ? 'ON' : 'OFF') + '）=====');
-
-  const courses = readRows(SHEET.COURSES);
-  if (!courses.length) throw new Error('courses が空です。setupSpreadsheets を実行してください。');
-
-  // 先着競合を実際に試すため「候補が2人以上」のコマを探す（無ければ候補最多のコマ）。
-  var course = null, cands = [];
-  for (var i = 0; i < courses.length; i++) {
-    const c = courses[i];
-    const cc = findCandidates_(c, [c.staff_a_id, c.staff_b_id]);
-    if (cc.length > cands.length) { course = c; cands = cc; }
-    if (cc.length >= 2) break;
-  }
-  course = course || courses[0];
-  const courseId = String(course.course_id).trim();
-  const absentId = String(course.staff_a_id).trim() || String(course.staff_b_id).trim();
-  const date = nextDateForWeekday_(String(course.day).trim());
-  say('対象コマ: ' + courseId + '（' + course.day + course.period + '限 / ' + course.quarter +
-    ' / ' + course.user_student + '）欠勤=' + absentId + ' 対象日=' + date);
-
-  // 欠員を登録（submitAbsence の書き込み相当）
-  const vacancyId = appendRowWithId(SHEET.VACANCIES, 'vacancy_id', 'V', {
-    date: date, course_id: courseId, absent_staff_id: absentId,
-    notify_status: NOTIFY_STATUS_PENDING, result: '',
-  });
-  say('欠員登録: ' + vacancyId);
-
-  try {
-    // 候補抽出（当日分）
-    const cds = findCandidates_(course, [course.staff_a_id, course.staff_b_id], date);
-    say('候補: ' + (cds.length ? cds.map(function (x) { return x.staff_id + '/' + x.name; }).join('、') : 'なし'));
-
-    if (cds.length >= 2) {
-      // 先着競合：2人が同時承諾 → 実 LockService 下で1人だけ確定（D1）
-      const A = String(cds[0].staff_id).trim(), B = String(cds[1].staff_id).trim();
-      const r1 = tryTransitionVacancy_(vacancyId, 'settle', { result: VACANCY_RESULT.FILLED, substitute_staff_id: A });
-      const r2 = tryTransitionVacancy_(vacancyId, 'settle', { result: VACANCY_RESULT.FILLED, substitute_staff_id: B });
-      assert(r1.applied === true, '先着A（' + A + '）が確定');
-      assert(r2.applied === false, '後着B（' + B + '）は確定不可（受付終了）');
-      const v = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
-      assert(String(v.result).trim() === VACANCY_RESULT.FILLED, 'result=補充済');
-      assert(String(v.substitute_staff_id).trim() === A, '代行者=先着A（後着で上書きされない）');
-      if (notify) { notifyVacancyFilled(vacancyId, A); say('  （確定通知を送信）'); }
-    } else if (cds.length === 1) {
-      const A2 = String(cds[0].staff_id).trim();
-      const r = tryTransitionVacancy_(vacancyId, 'settle', { result: VACANCY_RESULT.FILLED, substitute_staff_id: A2 });
-      assert(r.applied === true, '唯一候補A（' + A2 + '）が確定');
-      if (notify) { notifyVacancyFilled(vacancyId, A2); }
-    } else {
-      // 候補0人 → 自動決着の分岐（相方が残るか）。ここでは相方の有無だけ確認。
-      say('  候補0人。自動決着（1人テイク/職員対応）の分岐は submitAbsence 経由で確認する。');
-      tryTransitionVacancy_(vacancyId, 'settle', { result: VACANCY_RESULT.STAFF, substitute_staff_id: '' });
-    }
-
-    // 再オープン（決着 → 未決着）。旧値が current から読めること。
-    const re = transitionVacancyOrThrow_(vacancyId, 'reopen',
-      { result: '', substitute_staff_id: '', notify_status: NOTIFY_STATUS_PENDING });
-    const v2 = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
-    assert(String(v2.result).trim() === '', '再オープンで result がクリアされる');
-    assert(re.current && !!String(re.current.result).trim(), '再オープンの current から旧決着値が読める');
-    if (notify) { notifyNewVacancy(vacancyId, true); say('  （再募集通知を送信）'); }
-
-    // 二重再オープンは弾かれる（未決着への reopen は throw）
-    var threw = false;
-    try {
-      transitionVacancyOrThrow_(vacancyId, 'reopen', { result: '' });
-    } catch (e) { threw = true; }
-    assert(threw, '未決着への再オープンは throw（二重再オープン防止）');
-
-    say('===== e2e 成功：実 LockService・実 Sheets で機能A中核を確認 =====');
-  } finally {
-    // 後片付け：作った欠員と紐づく回答を削除
-    const dv = deleteRowByKey(SHEET.VACANCIES, 'vacancy_id', vacancyId);
-    const dr = deleteRowByKey(SHEET.RESPONSES, 'vacancy_id', vacancyId);
-    say('後片付け: 欠員 ' + dv + ' 行 / 回答 ' + dr + ' 行を削除（' + vacancyId + '）');
-  }
-}
-
-// ─── D21 実機確認用（一時的・確認できたら削除してよい）─────────
-//
-// 「授業開始30分前を過ぎた欠勤連絡」の挙動を実機で確認するための関数。
-// 本物の授業時刻を待つのは非現実的なので、**時計ではなく授業時刻の方を動かす**：
-// 一時的な時限（開始時刻＝今から+N分）を作り、その時限のコマに対して submitAbsence を実行する。
-// 実行アカウント自身を担当スタッフにするので、GASエディタから1人で全経路を通せる。
-//
-// 作成する一時データ（すべて末尾で削除する）：
-//   staffs  ZTEST1（代行候補役）/ ZTEST2（相方役）
-//   periods ZT（開始時刻を書き換えながら使い回す）
-//   courses ZC1（締切超過の検証）/ ZC2（締切前の検証）
-//   vacancies / responses … 上記コマに紐づく行
-//
-// 既定では Chat を実際に送らない（スクリプトプロパティ CHAT_WEBHOOK_URL を一時的に外す）。
-// 職員スペースへの実際の文面を見たい場合は e2eDeadlineFlow({notify:true}) で実行する。
-
-/**
- * D21（代行募集の締切）の実機e2e。GASエディタから実行してログを見る。
- * @param {{notify?:boolean}} [opts] notify=true で職員スペースへ実際に通知する（既定 false）
- */
-function e2eDeadlineFlow(opts) {
-  opts = opts || {};
-  const notify = !!opts.notify;
-  const say = function (m) { Logger.log(m); };
-  var pass = 0, fail = 0;
-  const assert = function (cond, m) {
-    if (cond) { pass++; say('  ✅ ' + m); } else { fail++; say('  ❌ ' + m); }
-  };
-
-  const me = getCurrentUser_();
-  if (!me) throw new Error('実行アカウントが連絡先DB（contacts）に登録されていません。先に登録してください。');
-
-  const now = new Date();
-  const today = Utilities.formatDate(now, 'Asia/Tokyo', 'yyyy-MM-dd');
-  const hourNow = Number(Utilities.formatDate(now, 'Asia/Tokyo', 'HH'));
-  if (hourNow < 2 || hourNow >= 21) {
-    throw new Error('この確認は 02:00〜21:00 の間に実行してください（前後の時刻が日付をまたぐと判定が意味を持たないため）。');
-  }
-
-  const dayJp = weekdayOf_(today);
-  const TEST_Q = '__TEST_D21__';
-  const PERIOD = 'ZT';
-  const SLOT = dayJp + PERIOD;
-
-  // 「今から offsetMin 分後」の HH:mm
-  const at = function (offsetMin) {
-    return Utilities.formatDate(new Date(new Date().getTime() + offsetMin * 60000), 'Asia/Tokyo', 'HH:mm');
-  };
-  // 一時時限の開始時刻を書き換える（＝授業時刻を動かす）
-  const setStart = function (offsetMin) {
-    updateRow(SHEET.PERIODS, 'period', PERIOD, { start_time: at(offsetMin), end_time: at(offsetMin + 90) });
-    return at(offsetMin);
-  };
-
-  say('===== D21 締切（授業開始' + RECRUIT_DEADLINE_MIN_BEFORE + '分前）実機e2e / 通知=' +
-    (notify ? 'ON' : 'OFF') + ' =====');
-  say('実行者: ' + me.name + '（' + me.staff_id + '・' + me.role + '） 対象日: ' + today + '（' + dayJp + '曜）');
-
-  const props = PropertiesService.getScriptProperties();
-  const savedWebhook = props.getProperty(PROP_STAFF_WEBHOOK);
-  if (!notify && savedWebhook) props.deleteProperty(PROP_STAFF_WEBHOOK); // 実送信を止める
-
-  try {
-    // ── 一時データを作る ──
-    appendRow(SHEET.PERIODS, { period: PERIOD, start_time: at(60), end_time: at(150) });
-    appendRow(SHEET.STAFFS, {
-      staff_id: 'ZTEST1', name: 'テスト候補', role: '学生', skills: 'テイク,介助', available_slots: SLOT,
-    });
-    appendRow(SHEET.STAFFS, {
-      staff_id: 'ZTEST2', name: 'テスト相方', role: '学生', skills: 'テイク,介助', available_slots: '',
-    });
-    ['ZC1', 'ZC2'].forEach(function (cid) {
-      appendRow(SHEET.COURSES, {
-        course_id: cid, quarter: TEST_Q, day: dayJp, period: PERIOD,
-        support_type: 'テイク', user_student: 'テスト利用学生', subject: 'D21確認用',
-        staff_a_id: me.staff_id, staff_b_id: 'ZTEST2', note: '★一時データ（e2eDeadlineFlow）',
-      });
-    });
-    say('一時データを作成（periods ' + PERIOD + ' / staffs ZTEST1・ZTEST2 / courses ZC1・ZC2）');
-
-    // ── 0) 時刻セルの型を確認（Date化していると締切判定も時刻表示も壊れる）──
-    // periods のテキスト書式が既定7行ぶんしか無かった問題（migratePeriodsTextFormat）の確認も兼ねる。
-    say('--- periods の時刻セルの型 ---');
-    readRows(SHEET.PERIODS).forEach(function (p) {
-      const t = p.start_time;
-      say('   ' + p.period + '限: ' + t + ' 〜 ' + p.end_time +
-        '（型: ' + (t instanceof Date ? '⚠️Date' : typeof t) + ' → ' + periodStartMinutes_(t) + '分）');
-    });
-
-    // ── 1) 締切判定そのものを、開始時刻をずらしながら確認 ──
-    say('--- 締切判定（授業開始' + RECRUIT_DEADLINE_MIN_BEFORE + '分前が締切）---');
-    [-30, -5, 25, 35, 90].forEach(function (off) {
-      const start = setStart(off);
-      const past = isPastRecruitDeadline_(today, PERIOD);
-      const expected = off < RECRUIT_DEADLINE_MIN_BEFORE; // 開始が「今+30分」より手前なら締切超過
-      say('   開始 ' + start + '（今から' + (off >= 0 ? '+' : '') + off + '分）→ ' +
-        (past ? '締切超過＝募集しない' : '締切前＝募集する') + (past === expected ? '' : '  ← ⚠️想定と違う'));
-      assert(past === expected, '今から' + off + '分後開始 → ' + (expected ? '募集しない' : '募集する'));
-    });
-
-    // ── 2) 締切超過の欠勤連絡（授業が10分後に始まる）──
-    say('--- 締切超過ケース（授業が10分後に開始）---');
-    setStart(10);
-    const late = submitAbsence('ZC1', today);
-    say('   戻り: ' + JSON.stringify(late));
-    assert(late.lateAbsence === true, '直前欠勤として扱われる（lateAbsence=true）');
-    assert(late.deadlineMinutes === RECRUIT_DEADLINE_MIN_BEFORE, '締切の分数を画面へ返す');
-    assert(late.candidates.length === 0, '代行候補への依頼を出さない');
-    assert(late.autoResult === VACANCY_RESULT.SOLO, '相方 ZTEST2 が残るので「1人テイク」で自動決着');
-    const vLate = findRow(SHEET.VACANCIES, 'vacancy_id', late.vacancy_id);
-    assert(!!vLate, '欠勤の記録自体は残る（登録はさせる）');
-    assert(vLate && String(vLate.result).trim() === VACANCY_RESULT.SOLO, 'シートにも決着結果が入る');
-
-    // ── 3) 締切前の欠勤連絡（授業が90分後に始まる）──
-    say('--- 締切前ケース（授業が90分後に開始）---');
-    setStart(90);
-    const early = submitAbsence('ZC2', today);
-    say('   戻り: ' + JSON.stringify(early));
-    assert(!early.lateAbsence, '従来どおり代行募集が走る（lateAbsence が立たない）');
-    assert(early.candidates.length === 1 && String(early.candidates[0].staff_id).trim() === 'ZTEST1',
-      '代行候補 ZTEST1 を抽出する');
-    const vEarly = findRow(SHEET.VACANCIES, 'vacancy_id', early.vacancy_id);
-    assert(vEarly && !String(vEarly.result).trim(), '未解決のまま（回答待ち）になる');
-
-    say(fail === 0
-      ? '===== ✅ 全' + pass + '件成功：D21 の挙動を実機で確認しました ====='
-      : '===== ❌ ' + fail + '件失敗（成功 ' + pass + '件）。上のログを確認してください =====');
-  } finally {
-    // ── 後片付け（作った一時データを必ず消す）──
-    if (!notify && savedWebhook) props.setProperty(PROP_STAFF_WEBHOOK, savedWebhook);
-    var removed = [];
-    ['ZC1', 'ZC2'].forEach(function (cid) {
-      readRows(SHEET.VACANCIES)
-        .filter(function (v) { return String(v.course_id).trim() === cid; })
-        .forEach(function (v) {
-          deleteRowByKey(SHEET.RESPONSES, 'vacancy_id', v.vacancy_id);
-          deleteRowByKey(SHEET.VACANCIES, 'vacancy_id', v.vacancy_id);
-          removed.push(v.vacancy_id);
-        });
-      deleteRowByKey(SHEET.COURSES, 'course_id', cid);
-    });
-    deleteRowByKey(SHEET.STAFFS, 'staff_id', 'ZTEST1');
-    deleteRowByKey(SHEET.STAFFS, 'staff_id', 'ZTEST2');
-    deleteRowByKey(SHEET.PERIODS, 'period', PERIOD);
-    say('後片付け: 一時データを削除しました（欠員 ' + (removed.join('・') || 'なし') +
-      ' / courses ZC1・ZC2 / staffs ZTEST1・ZTEST2 / periods ' + PERIOD + '）');
-    say('   ※ 残っていたら、上記のIDでシートから手動削除してください。');
-  }
-}
-
-// 指定曜日（月〜日）の直近の未来日（明日以降）を 'yyyy-MM-dd' で返す。過去日ガード回避用。
-function nextDateForWeekday_(dayJp) {
-  const names = ['日', '月', '火', '水', '木', '金', '土'];
-  const target = names.indexOf(dayJp);
-  const d = new Date();
-  d.setDate(d.getDate() + 1); // 明日から探す
-  for (var i = 0; i < 7; i++) {
-    if (target === -1 || d.getDay() === target) break;
-    d.setDate(d.getDate() + 1);
-  }
-  return Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy-MM-dd');
 }

@@ -14,12 +14,18 @@
            padding: 16px 18px; margin-bottom: 14px; box-shadow: var(--shadow-1); }
     .vac.open { border-left-color: var(--danger); }
     .vac.done { border-left-color: var(--brand); }
+    /* 募集は終わったが決着していない＝職員が決めるまで誰も動かない。最も目立たせる */
+    .vac.await { border-left-color: var(--warn); border-left-width: 6px; background: var(--warn-bg); }
     .vac h2 { font-size: 1rem; margin: 0 0 4px; font-weight: 700; }
     .vac .meta { font-size: .82rem; color: var(--text-muted); margin-bottom: 10px; }
     .badge { display: inline-block; padding: 2px 10px; border-radius: var(--radius-pill);
              font-size: .78rem; font-weight: 600; }
     .b-open { background: var(--danger-bg); color: var(--danger); }
     .b-done { background: var(--info-bg); color: var(--info); }
+    .b-await { background: var(--warn); color: #fff; }
+    .await-why { font-size: .85rem; font-weight: 700; color: var(--warn); margin: 8px 0 2px; }
+    .await-hint { font-size: .82rem; color: var(--text-muted); margin-bottom: 4px; }
+    .declined { font-size: .8rem; color: var(--text-faint); white-space: nowrap; }
     .resp { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
     .resp-row { display: flex; align-items: center; justify-content: space-between;
                 gap: 10px; padding: 7px 0; font-size: .9rem; }
@@ -57,11 +63,18 @@
         content.textContent = '欠員はありません。';
         return;
       }
-      // 未解決を上に並べる
-      list.sort(function (a, b) { return (a.result ? 1 : 0) - (b.result ? 1 : 0); });
+      // 決着待ち（募集は終わったのに result が空）→ 対応中 → 確定 の順に並べる。
+      // 決着待ちが一番上に来るのが D22 の肝：補充できなかった欠員こそ職員の判断が要る。
+      list.sort(function (a, b) { return rank(a) - rank(b); });
 
       content.className = '';
       content.innerHTML = list.map(renderVacancy).join('');
+    }
+
+    // 0=決着待ち / 1=対応中（募集中）/ 2=確定済み
+    function rank(v) {
+      if (v.result) return 2;
+      return v.awaitingDecision ? 0 : 1;
     }
 
     function renderVacancy(v) {
@@ -94,9 +107,16 @@
           v.candidates.map(function (c) {
             var st = c.answer === '承諾' ? '承諾' : (c.answer === '辞退' ? '辞退' : '未回答');
             var stCls = c.answer === '承諾' ? 'ans-ok' : (c.answer === '辞退' ? 'ans-no' : 'ans-wait');
-            var phone = c.phone
-              ? '<a class="tel" href="tel:' + escapeHtml(c.phone) + '">📞 ' + escapeHtml(c.phone) + '</a>'
-              : '<span class="nophone">電話未登録</span>';
+            // 辞退した候補は電話の対象から外す（サーバーが phone を空にして返す）。
+            // 「電話未登録」と紛らわしいので、断られたことが読める表示に分ける。
+            var phone;
+            if (c.answer === '辞退') {
+              phone = '<span class="declined">連絡済み（辞退）</span>';
+            } else if (c.phone) {
+              phone = '<a class="tel" href="tel:' + escapeHtml(c.phone) + '">📞 ' + escapeHtml(c.phone) + '</a>';
+            } else {
+              phone = '<span class="nophone">電話未登録</span>';
+            }
             return '<div class="resp-row">' +
               '<div>' + escapeHtml(c.name) + '<span class="ans ' + stCls + '">' + st + '</span></div>' +
               '<div class="cand-right">' + phone +
@@ -106,11 +126,24 @@
           }).join('');
       }
 
+      // 決着待ちのときは「1人テイク／職員対応」を主ボタンにする（これが求められている操作）
+      var primary = v.awaitingDecision ? ' primary' : '';
       var alt =
         '<div class="alt">' +
-        '<button class="btn sm" onclick="setResult(\'' + v.vacancy_id + '\',\'1人テイク\',this)">1人テイクにする</button>' +
-        '<button class="btn sm" onclick="setResult(\'' + v.vacancy_id + '\',\'職員対応\',this)">職員対応にする</button>' +
+        '<button class="btn sm' + primary + '" onclick="setResult(\'' + v.vacancy_id + '\',\'1人テイク\',this)">1人テイクにする</button>' +
+        '<button class="btn sm' + primary + '" onclick="setResult(\'' + v.vacancy_id + '\',\'職員対応\',this)">職員対応にする</button>' +
         '</div>';
+
+      if (v.awaitingDecision) {
+        // 募集は締め切られている。システムは result を書かないので、ここで職員が決めない限り
+        // この欠員は誰にも引き取られないまま授業開始を迎える（D22）。
+        var why = '<div class="await-why">⏰ 代行が決まらないまま募集を締め切りました。決着してください。</div>' +
+          (v.suggestion
+            ? '<div class="await-hint">担当の残り方から見て「' + escapeHtml(v.suggestion) + '」が妥当そうです（提案）。</div>'
+            : '');
+        return '<div class="vac await"><span class="badge b-await">決着待ち</span>' + head + why +
+          '<div class="resp">' + respHtml + '</div>' + alt + '</div>';
+      }
 
       return '<div class="vac open"><span class="badge b-open">対応中</span>' + head +
         '<div class="resp">' + respHtml + '</div>' + alt + '</div>';
@@ -139,7 +172,11 @@
     }
 
     function reopen(vacancyId, btn) {
-      if (!confirm('この欠員を未確定に戻し、候補者へ代行を再募集します。代行者の充て直しや結果の変更ができます。よろしいですか？')) return;
+      // 締切後の再オープンでは再募集は走らない（候補は回答できないため・D22）。
+      // 「送られるつもりで押したのに送られない」を防ぐため、確認文でその条件を明示する。
+      if (!confirm('この欠員を未確定に戻します。代行者の充て直しや結果の変更ができます。\n'
+        + '締切（授業開始<?= RECRUIT_DEADLINE_MIN_BEFORE ?>分前）より前なら候補者へ代行を再募集します。過ぎている場合は再募集せず、職員の決着待ちに戻ります。\n'
+        + 'よろしいですか？')) return;
       disableAll(btn);
       google.script.run
         .withSuccessHandler(reload)

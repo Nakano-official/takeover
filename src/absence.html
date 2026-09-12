@@ -91,6 +91,18 @@
       var wrap = document.getElementById('dateWrap');
       var btn = document.getElementById('submit');
       var hint = document.getElementById('datehint');
+
+      // 単発コマ（D27）は実施日が1つしか無い。学期の開講期間からは日付を組み立てず、
+      // その日だけを候補にする（サーバー側 submitAbsence も実施日との一致だけを見る）。
+      if (c.oneOffDate) {
+        wrap.innerHTML = '<select id="date"><option value="' + escapeHtml(c.oneOffDate) + '">'
+          + escapeHtml(c.oneOffDate) + '</option></select>';
+        applyPreDate();
+        btn.disabled = false;
+        hint.textContent = 'このコマは ' + c.oneOffDate + ' の1回限りです（特別授業・イベント）。';
+        return;
+      }
+
       if (!c.termEnd) {
         // 学期日程が未設定のコマ → 日付直接入力にフォールバック（サーバーが曜日を検証）
         var iso = todayISO();
@@ -153,7 +165,7 @@
         return;
       }
       var opts = courses.map(function (c) {
-        var label = c.day + c.period + '限'
+        var label = (c.oneOffDate ? '【' + c.oneOffDate + '】' : '') + c.day + c.period + '限'
           + (c.time ? '（' + c.time + '）' : '')
           + '　相方: ' + (c.partner || '—');
         return '<option value="' + escapeHtml(c.course_id) + '">' + escapeHtml(label) + '</option>';
@@ -209,7 +221,7 @@
           + '<div>欠員ID: ' + escapeHtml(res.vacancy_id) + '（' + escapeHtml(c.day + c.period) + '限）</div>'
           + '<div style="margin-top:8px;">授業開始が近いため（' + escapeHtml(res.deadlineMinutes)
           + '分前を過ぎています）、代行候補者への依頼は送っていません。'
-          + '自動で <b>「' + escapeHtml(res.autoResult) + '」</b> として処理しました。</div>'
+          + '<b>職員へ連絡済みです。この後の対応（1人テイク／職員対応）は職員が決めます。</b></div>'
           + '<div style="margin-top:8px;"><b>お手数ですが、Google Classroom にも欠勤の連絡を投稿してください。</b></div>'
           + notifyHtml(res.notify);
       } else if (res.candidates && res.candidates.length > 0) {
@@ -219,11 +231,12 @@
         box.className = 'result';
         box.innerHTML = head + '<div style="margin-top:8px;">代行候補（' + res.candidates.length + '名）:<br>' + chips + '</div>'
           + notifyHtml(res.notify);
-      } else if (res.autoResult) {
-        // 補充候補が0人 → 自動決着（1人テイク / 職員対応）
+      } else if (res.recruitClosed) {
+        // 補充候補が0人 → 募集はせず、職員へ決着を要求する（D22）。
+        // 以前はここで「1人テイク／職員対応」まで自動で決めていたが、その判断は職員が行う。
         box.className = 'result warn';
         box.innerHTML = head + '<div style="margin-top:8px;">空きのある代行候補がいませんでした。'
-          + '自動で <b>「' + escapeHtml(res.autoResult) + '」</b> として処理し、職員へ連絡しました。</div>'
+          + '<b>職員へ連絡済みです。この後の対応は職員が決めます。</b></div>'
           + notifyHtml(res.notify);
       } else {
         box.className = 'result warn';

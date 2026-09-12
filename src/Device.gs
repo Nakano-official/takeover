@@ -72,28 +72,3 @@ function deviceJson_(obj) {
     .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
 }
-
-// ─── デバッグ用 ──────────────────────────────────────────────
-
-/**
- * GASエディタから実行して端末エンドポイントの応答を確認する。
- * 実トークンは使わず集計ロジックだけ検証する（ネットワーク不要）。
- */
-function testDevicePoll() {
-  Logger.log('===== 端末エンドポイント 動作確認 =====');
-
-  const tokenSet = !!PropertiesService.getScriptProperties().getProperty(PROP_DEVICE_TOKEN);
-  Logger.log('[プロパティ] DEVICE_TOKEN = ' + (tokenSet ? '設定済み' : '⚠️ 未設定（端末は unauthorized になる）'));
-
-  const summary = getOpenVacancySummary_();
-  Logger.log('未対応件数(count): ' + summary.count);
-  Logger.log('最新の欠員連番(latest): ' + summary.latest);
-  Logger.log('→ 端末への応答例: ' + JSON.stringify({ ok: true, count: summary.count, latest: summary.latest }));
-
-  // 認証分岐の確認（誤トークンは弾かれること）
-  const wrong = handleDevicePoll_({ token: '__wrong__' });
-  Logger.log('誤トークン応答: ' + wrong.getContent());
-
-  Logger.log('===== 確認終了 =====');
-  Logger.log('※ 実際のHTTP確認は、ブラウザで <Web AppのURL>?device=alert&token=<DEVICE_TOKEN> を開く。');
-}

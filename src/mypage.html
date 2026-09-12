@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('shared-styles') ?>
+  <style>
+    :root { --main-max: 720px; }
+
+    label { display: block; font-size: .85rem; font-weight: 700; margin: 0 0 6px; }
+    input { width: 100%; }
+
+    h2 { font-size: 1rem; margin: 0 0 4px; }
+    .lead { font-size: .85rem; color: var(--text-muted); margin: 0 0 14px; line-height: 1.7; }
+
+    /* 職員が管理する項目。編集できないことが見て分かるよう、入力欄ではなく定義リストで出す */
+    .ro { display: grid; grid-template-columns: 108px 1fr; gap: 8px 12px; margin: 0; font-size: .95rem; }
+    .ro dt { color: var(--text-muted); font-size: .85rem; }
+    .ro dd { margin: 0; }
+    .ro dd.empty { color: var(--text-faint); }
+
+    .field { margin-bottom: 16px; }
+
+    /* 空きコマの格子（曜日 × 時限）。自由入力にすると存在しないスロットが入りうるので選択式にする */
+    .grid-wrap { overflow-x: auto; }
+    table.slots { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 380px; }
+    table.slots th, table.slots td { border-right: 1px solid var(--border);
+                                     border-bottom: 1px solid var(--border); text-align: center; }
+    table.slots tr > *:last-child { border-right: none; }
+    table.slots thead th { background: var(--brand); color: #fff; padding: 7px 4px;
+                           font-size: .88rem; font-weight: 600; border-color: var(--brand-dark); }
+    table.slots .ph { background: var(--surface-alt); font-size: .82rem; font-weight: 600;
+                      padding: 6px 8px; white-space: nowrap; text-align: right; }
+    table.slots .ph small { display: block; color: var(--text-faint); font-weight: normal; font-size: .7rem; }
+    table.slots td { padding: 0; }
+    /* セル全体を押せるようにする（チェックボックスだけだと指で狙いにくい） */
+    table.slots td label { display: block; margin: 0; padding: 10px 4px; cursor: pointer; }
+    table.slots td label:hover { background: var(--brand-soft); }
+    table.slots input { width: auto; }
+
+    .slotops { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .updated { font-size: .82rem; color: var(--text-muted); margin-top: 10px; }
+    .toast { margin-top: 14px; display: none; }
+    .toast.ok, .toast.err { display: block; }
+    #save { margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <?!= chrome ?>
+
+  <main>
+    <div id="body" class="state">読み込み中…</div>
+  </main>
+
+  <script>
+    var P = null;   // getMyProfile の戻り
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    function escapeAttr(s) {
+      return escapeHtml(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+    }
+    function val(id) { var el = document.getElementById(id); return el ? el.value : ''; }
+
+    function render(p) {
+      P = p;
+      var host = document.getElementById('body');
+
+      // ── 職員が管理する項目（読み取り専用）──
+      var ro = function (label, value, note) {
+        var v = value
+          ? escapeHtml(value)
+          : '<span class="empty">（未設定' + (note ? '・' + note : '') + '）</span>';
+        return '<dt>' + label + '</dt><dd' + (value ? '' : ' class="empty"') + '>' + v + '</dd>';
+      };
+      var readOnly =
+        '<div class="card">' +
+        '<h2>あなたの情報</h2>' +
+        '<p class="lead">ここは職員が管理します。変更が必要なときは職員へお伝えください。' +
+        '（氏名は勤怠の照合に使うため、対応できる業務は依頼の振り分けに関わるため、本人では変更できません）</p>' +
+        '<dl class="ro">' +
+          ro('氏名', p.name) +
+          ro('区分', p.role) +
+          ro('メール', p.email) +
+          (p.isStudent ? ro('対応できる業務', p.skills, '空欄は全対応として扱われます') : '') +
+          (p.isStudent ? ro('個人コード', p.personal_code, '勤怠の照合に必要です') : '') +
+        '</dl></div>';
+
+      // ── 連絡先（本人が変更できる）──
+      var contact =
+        '<div class="card">' +
+        '<h2>連絡先</h2>' +
+        '<p class="lead">この2つは自分で変更できます。</p>' +
+        '<div class="field"><label for="phone">電話番号</label>' +
+          '<input id="phone" type="tel" placeholder="090-1234-5678" value="' + escapeAttr(p.phone) + '">' +
+          '<p class="hint">返信が無いときに職員から連絡することがあります。</p></div>' +
+        '<div class="field"><label for="webhook">Google Chat の通知先URL</label>' +
+          '<input id="webhook" type="url" placeholder="https://chat.googleapis.com/..." value="'
+            + escapeAttr(p.webhook_url) + '">' +
+          '<p class="hint">代行依頼はここへ届きます。空にすると通知が届きません。' +
+          '作り方は職員から配られた案内を参照してください。</p></div>' +
+        '</div>';
+
+      // ── 空きコマ（学生のみ）──
+      var slots = p.isStudent ? renderSlots(p) : '';
+
+      host.className = '';
+      host.innerHTML = readOnly + contact + slots +
+        '<button class="btn primary block" id="save" onclick="save()">この内容で保存する</button>' +
+        '<div id="toast" class="toast"></div>';
+    }
+
+    function renderSlots(p) {
+      var chosen = {};
+      (p.slots || []).forEach(function (s) { chosen[s] = true; });
+
+      var h = '<div class="card"><h2>空きコマ</h2>' +
+        '<p class="lead">授業が入っていない＝<b>代行に入れる可能性がある</b>コマにチェックしてください。' +
+        'ここにチェックが無いコマの代行依頼は届きません。学期が変わったら出し直してください。</p>' +
+        '<div class="grid-wrap"><table class="slots"><thead><tr><th class="ph"></th>';
+      p.days.forEach(function (d) { h += '<th>' + escapeHtml(d) + '</th>'; });
+      h += '</tr></thead><tbody>';
+      p.periods.forEach(function (per) {
+        h += '<tr><th class="ph">' + escapeHtml(per.period) + '限'
+          + (per.time ? '<small>' + escapeHtml(per.time) + '</small>' : '') + '</th>';
+        p.days.forEach(function (d) {
+          var key = d + per.period;
+          h += '<td><label><input type="checkbox" data-slot="' + escapeAttr(key) + '"'
+            + (chosen[key] ? ' checked' : '') + '></label></td>';
+        });
+        h += '</tr>';
+      });
+      h += '</tbody></table></div>' +
+        '<div class="slotops">' +
+        '<button class="btn sm" type="button" onclick="setAll(true)">すべて選ぶ</button>' +
+        '<button class="btn sm" type="button" onclick="setAll(false)">すべて外す</button>' +
+        '</div>' +
+        '<div class="updated" id="updated">' + updatedText(p.slots_updated_at) + '</div>' +
+        '</div>';
+      return h;
+    }
+
+    function updatedText(at) {
+      return at
+        ? '最終更新: ' + escapeHtml(at)
+        : 'まだ一度も更新されていません（職員が入力した内容のままです）。';
+    }
+
+    function setAll(on) {
+      document.querySelectorAll('input[data-slot]').forEach(function (b) { b.checked = on; });
+    }
+
+    function pickedSlots() {
+      var out = [];
+      document.querySelectorAll('input[data-slot]').forEach(function (b) {
+        if (b.checked) out.push(b.getAttribute('data-slot'));
+      });
+      return out;
+    }
+
+    function save() {
+      var btn = document.getElementById('save');
+      btn.disabled = true;
+      btn.textContent = '保存中…';
+      google.script.run
+        .withSuccessHandler(onSaved)
+        .withFailureHandler(function (err) {
+          btn.disabled = false;
+          btn.textContent = 'この内容で保存する';
+          showToast(err.message, false);
+        })
+        .updateMyProfile({
+          phone: val('phone'),
+          webhook_url: val('webhook'),
+          slots: pickedSlots(),
+        });
+    }
+
+    function onSaved(res) {
+      var btn = document.getElementById('save');
+      btn.disabled = false;
+      btn.textContent = 'この内容で保存する';
+
+      var up = document.getElementById('updated');
+      if (up && res.slots_updated_at) up.textContent = updatedText(res.slots_updated_at);
+
+      var msg = '保存しました。';
+      if (res.warnings && res.warnings.length) {
+        // 保存自体は成功しているので、止めずに注意だけ添える
+        showToast(msg + ' ただし注意があります：' + res.warnings.join(' / '), null);
+        return;
+      }
+      showToast(msg, true);
+    }
+
+    // ok=true: 成功 / ok=false: エラー / ok=null: 成功したが注意あり
+    function showToast(text, ok) {
+      var t = document.getElementById('toast');
+      t.className = 'notice toast ' + (ok === false ? 'err' : (ok === null ? 'warn' : 'ok'));
+      t.style.display = 'block';
+      t.textContent = text;
+      t.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    google.script.run
+      .withSuccessHandler(render)
+      .withFailureHandler(function (err) {
+        var host = document.getElementById('body');
+        host.className = 'state';
+        host.textContent = 'エラー: ' + err.message;
+      })
+      .getMyProfile();
+  </script>
+</body>
+</html>

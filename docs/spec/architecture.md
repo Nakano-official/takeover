@@ -157,8 +157,9 @@ erDiagram
         string course_id FK
         string absent_staff_id FK
         string notify_status
-        string result "補充済/1人テイク/職員対応"
+        string result "補充済/1人テイク/職員対応・空=未決着（書くのは職員・D22）"
         string substitute_staff_id FK
+        datetime close_notified_at "締切到達を処理し職員へ決着要求した時刻（D22）"
     }
     responses {
         string vacancy_id FK

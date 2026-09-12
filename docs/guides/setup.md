@@ -57,6 +57,44 @@
 
 > 連絡先（静的・秘密）と空きコマ（クォーター毎に変動）は**フォームを分ける**。
 
+> ### ⚠️ `clasp push` だけでは `/exec` に反映されない
+>
+> **push はコードを更新するだけで、公開URL（`/exec`）が配信するのは「デプロイしたバージョン」です。**
+> デプロイを更新しない限り、職員・学生の画面は古いままになります。エラーは出ません。
+>
+> 確認と更新はこうします。
+>
+> ```
+> npx clasp deployments        # @HEAD（テスト用）と @46 のようにバージョンが出る
+> ```
+>
+> - **検証中だけ最新を見たい** … GASエディタ「デプロイ → デプロイをテスト」の `/dev` URL。
+>   常に最新を配信します。ただし**スクリプトの編集権限があるアカウントしか開けません**
+>   （学生アカウントでの通し確認には使えません）。
+> - **本番URLを最新にする** … 「デプロイ → デプロイを管理 → 鉛筆アイコン →
+>   バージョン『新しいバージョン』→ デプロイ」。`/exec` の URL は変わりません。
+>   **新規デプロイを作らないこと**（URLが変わり、配布済みのリンクが古いコードを指したままになります）。
+>
+> 画面の変更が反映されないときは、ブラウザのキャッシュ（Ctrl+Shift+R）より先にここを疑ってください。
+> 時間割は `?page=home&debug=1` で開くと画面下に診断が出ます。**この枠が出なければ古いコードです。**
+
+---
+
+## 2.5 時間トリガーを登録する（締切検知・D22）
+
+代行が決まらないまま締切（授業開始30分前）に達した欠員を検知し、職員へ「決着してください」を
+通知する処理は**時間トリガー**で動く。これを入れないと、誰も承諾しなかった欠員について
+**通知が一切出ない**（欠勤連絡の時点でしか締切を判定できないため）。
+
+1. GASエディタで `migrateAddVacancyCloseNotifiedAt()` を1回実行する
+   （既存DBに `vacancies.close_notified_at` 列を足す。新規 `setupSpreadsheetsEmpty` なら不要）。
+2. `installTriggers()` を実行する（10分ごとに `closeExpiredRecruits` が走るようになる）。
+3. `listTriggers()` で登録内容と**実行者アカウント**を確認する。
+
+> ⚠️ **トリガーはインストールした人のアカウントで動く**。Web App の「実行するユーザー」とは
+> **別管理**なので、担当者が代わったら新しい担当者が `installTriggers()` を実行し直すこと。
+> 片方だけ引き継ぐと「画面は動くのに締切通知だけ来ない」という気づきにくい壊れ方をする。
+
 ---
 
 ## 3. 職員スペースの Webhook（全体通知用）
@@ -72,30 +110,68 @@
 
 ## 4. go-live チェックリスト
 
+> **新規DBにマイグレーションは不要です。** `setupSpreadsheetsEmpty` は最新の列構成
+> （`courses.date`・`vacancies.close_notified_at` 等）とテキスト書式を最初から作ります。
+> `migrate*` は既存シートを後から直すためのものなので、本番の新規作成では出番がありません。
+
+**土台**
 - [ ] `setupSpreadsheetsEmpty` で空DBを作成し、ID2件をプロパティに登録した
-- [ ] `CALENDAR_ID` に実カレンダーを設定した
-- [ ] 連絡先DBを**職員のみ**に共有した
-- [ ] 最初の職員を `staffs`・`contacts` に登録した
-- [ ] 職員スペースの `CHAT_WEBHOOK_URL` を設定し `testNotify` が届いた
-- [ ] フォーム（連絡先・空きコマ）を用意し、取り込み経路を確認した
 - [ ] **所有者が部署アカウント**になっている（個人アカウント所有でない）
+- [ ] 連絡先DBを**職員のみ**に共有した
+- [ ] `CALENDAR_ID` に実カレンダーを設定した
+- [ ] 職員スペースの `CHAT_WEBHOOK_URL` を設定し `testNotify` が届いた
+
+**データ投入**（この順でないと画面が空になります）
+- [ ] 最初の職員を `staffs`・`contacts` に登録した（`whoAmI` で職員と認識されるか確認）
+- [ ] **学期設定で今学期の開始日・終了日を登録した**（例：後期・3Q・4Q）
+      ※ これが無いと「現在（開講中）」が解決できず、**時間割が空になります**
+- [ ] `periods`（時限マスタ）の時刻が実際の授業時間と合っている
+- [ ] 学生スタッフを `staffs`・`contacts` に登録し、`available_slots` を入れた
+      ※ 空きコマ収集フォームは未作成（システム完成後に作る方針）なので、当面は職員が直接入力する
+- [ ] シフト入力から今学期の時間割（`courses`）を投入した
+
+**公開**
+- [ ] `installTriggers()` を実行し、`listTriggers()` に `closeExpiredRecruits` が出た（締切検知）
+      ※ `listTriggers()` に出る**実行者アカウント**が部署アカウントであることを確認する
+- [ ] **デプロイを「新しいバージョン」で更新した**（`clasp push` だけでは `/exec` に反映されません。上の⚠️参照）
 - [ ] 数名の実アカウントでログイン・通知の通しテストをした
+      （欠勤連絡 → 代行依頼が届く → 承諾で確定 → 職員へ通知、まで）
 - [ ] その後にURLを全員へ周知した
 
 ---
 
-## 5. 動作確認（GASエディタのテスト関数）
+## 5. 動作確認
 
-| 関数 | 確認できること |
-|---|---|
-| `whoAmI` | ログイン特定・ロール判定 |
-| `testSheets` | スプレッドシートの読み書き |
-| `testNotify` | 職員スペースへの Chat 送信 |
-| `testVacancy` | 欠員の候補スクリーニング（空き＋スキル） |
-| `testNotifyVacancy` | 最新の欠員で実通知（**実送信あり**） |
-| `testRespond` | 回答〜確定まわり |
-| `testDevicePoll` | M5Stack 端末エンドポイント |
-| `testCalendarConnection` | カレンダー連携（機能Bの基盤） |
+### 5.1 手元（push する前・Node）
+
+```
+node tools/run-all.js    # 構文チェック＋全ロジック検証（数秒）
+```
+
+`npm install` は不要（Node標準モジュールのみ）。`tools/` は `clasp push` の対象外なので
+本番には送られない。詳細は `tools/README.md`。
+
+### 5.2 GASエディタの確認用関数
+
+`src/Tests.gs`（疎通・診断）と `src/E2E.gs`（通し確認）にまとめてある。
+ここにあるのは **GAS でしか確かめられないもの**だけで、ロジックは 5.1 が受け持つ。
+
+| 関数 | ある場所 | 確認できること |
+|---|---|---|
+| `whoAmI` | code.js | ログイン特定・ロール判定 |
+| `testSheets` | Tests.gs | スプレッドシートの読み書き（テスト行を書いて消す） |
+| `testNotify` | Tests.gs | 職員スペースへの Chat 送信（**実送信あり**） |
+| `testNotifyVacancy` | Tests.gs | 最新の欠員で実通知（**実送信あり**） |
+| `testVacancy` | Tests.gs | 実DBでの候補スクリーニング（なぜ候補に出ないかの診断） |
+| `testRespond` | Tests.gs | 実DBの最新欠員で回答画面のサーバー関数を実行 |
+| `testDevicePoll` | Tests.gs | M5Stack 端末エンドポイント |
+| `testCalendarConnection` | Tests.gs | カレンダー連携（機能Bの基盤） |
+| `listTriggers` | Triggers.gs | 時間トリガーの登録状況と実行者アカウント |
+| `runDeadlineCheckNow` | Triggers.gs | 締切検知をその場で1回実行（**実送信あり**） |
+| `e2eVacancyFlow` | E2E.gs | 欠員補充の通し確認（先着競合・再オープン・実LockService） |
+| `e2eDeadlineFlow` | E2E.gs | 締切・募集クローズの通し確認（D21/D22） |
+
+> `e2e*` は一時データを作って `finally` で消す。**ダミーDBに向いていることを確認してから**実行する。
 
 ---
 
@@ -107,7 +183,10 @@
 3. 連絡先DB `contacts` の `S001` の `email` を自分のアドレスに変更 → 職員としてログイン。
 
 > デモと本番は**別のスプレッドシート**で運用すること。
-> 既存DBへの列追加マイグレーションは `migrateCoursesColumns()` / `migrateStaffsColumns()`。
+> 既存DBへの列追加マイグレーションは `migrateCoursesColumns()` / `migrateStaffsColumns()` /
+> `migrateStaffsPersonalCode()` / `migrateAddTermsSheet()` / `migratePeriodsTextFormat()` /
+> `migrateAddVacancyCloseNotifiedAt()`（D22）/ `migrateAddCourseDate()`（D27・単発コマ）。
+> いずれも冪等で、何度実行しても安全。
 
 ---
 
