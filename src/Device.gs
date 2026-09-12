@@ -24,6 +24,8 @@
 const PROP_DEVICE_TOKEN = 'DEVICE_TOKEN';
 
 // 大学ログイン済みのPC専用。呼び出しのたびに職員権限を確認する。
+// 認可の根拠が DEVICE_TOKEN ではなく**ログイン済み職員**である点が handleDevicePoll_ と違う。
+// そのため USB 中継方式では Web App のアクセス範囲を「全員」に開く必要がない。
 function getDeviceRelaySummary() {
   requireStaff_();
   return getOpenVacancySummary_();
