@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('shared-styles') ?>
+  <style>
+    :root { --main-max: 760px; }
+
+    .count { font-size: .82rem; color: var(--text-muted); margin-bottom: 10px; }
+
+    /* 申請1件のカード。左の色帯で「承認待ち／処理済み」が一目で分かるようにする */
+    .rg { background: var(--surface); border: 1px solid var(--border);
+          border-left: 4px solid var(--border-strong); border-radius: var(--radius);
+          padding: 16px 18px; margin-bottom: 14px; box-shadow: var(--shadow-1); }
+    .rg.pending { border-left-color: var(--warn); border-left-width: 6px; background: var(--warn-bg); }
+    .rg.done { border-left-color: var(--brand); }
+    .rg.rejected { border-left-color: var(--text-faint); }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: var(--radius-pill);
+             font-size: .78rem; font-weight: 600; }
+    .b-pending { background: var(--warn); color: #fff; }
+    .b-done { background: var(--info-bg); color: var(--info); }
+    .b-rejected { background: #f1f3f6; color: var(--text-muted); }
+
+    .rg h2 { font-size: 1.05rem; margin: 8px 0 2px; }
+    .rg .mail { font-size: .85rem; color: var(--text-muted); margin-bottom: 10px; }
+
+    .dl { display: grid; grid-template-columns: 100px 1fr; gap: 7px 12px; margin: 0 0 12px;
+          font-size: .92rem; }
+    .dl dt { color: var(--text-muted); font-size: .82rem; }
+    .dl dd { margin: 0; }
+    .dl dd.empty { color: var(--text-faint); }
+
+    .decide { border-top: 1px solid var(--border); padding-top: 12px; }
+    .decide .row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 12px; }
+    .decide label { display: block; font-size: .8rem; font-weight: 700; margin: 0 0 4px; }
+    .decide select { min-width: 130px; }
+    .checks { display: flex; gap: 14px; align-items: center; }
+    .checks label { font-weight: normal; display: inline-flex; align-items: center; gap: 5px; margin: 0; }
+    .ops { display: flex; gap: 8px; flex-wrap: wrap; }
+    .warnline { font-size: .82rem; color: var(--warn); margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <?!= chrome ?>
+
+  <main>
+    <div id="count" class="count"></div>
+    <div id="list" class="state">読み込み中…</div>
+  </main>
+
+  <script>
+    var ROWS = [];
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    function escapeAttr(s) {
+      return escapeHtml(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+    }
+
+    function render(rows) {
+      ROWS = rows || [];
+      var host = document.getElementById('list');
+      var pending = ROWS.filter(function (r) { return r.status === '申請中'; }).length;
+      document.getElementById('count').textContent =
+        '承認待ち ' + pending + ' 件 ／ 全 ' + ROWS.length + ' 件';
+
+      if (ROWS.length === 0) {
+        host.className = 'state';
+        host.textContent = '申請はありません。';
+        return;
+      }
+      host.className = '';
+      host.innerHTML = ROWS.map(card).join('');
+    }
+
+    function card(r) {
+      var kv = function (k, v, note) {
+        var empty = !v;
+        return '<dt>' + k + '</dt><dd' + (empty ? ' class="empty"' : '') + '>' +
+          (empty ? '（未入力' + (note ? '・' + note : '') + '）' : escapeHtml(v)) + '</dd>';
+      };
+      var body =
+        '<dl class="dl">' +
+          kv('電話番号', r.phone, '職員から連絡できません') +
+          kv('通知先URL', r.webhook_url ? '登録あり' : '', '代行依頼が届きません') +
+          kv('申告スキル', r.skills, '空欄は全対応扱い') +
+          kv('空きコマ', r.slots, '代行候補に出ません') +
+          kv('連絡事項', r.note) +
+          kv('申請日時', r.applied_at) +
+        '</dl>';
+
+      if (r.status === '申請中') {
+        var warn = [];
+        if (!r.webhook_url) warn.push('通知先URLが未入力です（承認後もマイページで登録できます）');
+        if (!r.slots) warn.push('空きコマが未選択です（このままだと代行候補に出ません）');
+        return '<div class="rg pending"><span class="badge b-pending">承認待ち</span>' +
+          '<h2>' + escapeHtml(r.name) + '</h2>' +
+          '<div class="mail">' + escapeHtml(r.email) + '</div>' + body +
+          (warn.length ? '<div class="warnline">⚠️ ' + warn.map(escapeHtml).join('<br>⚠️ ') + '</div>' : '') +
+          '<div class="decide">' +
+            '<div class="row">' +
+              '<div><label>区分</label>' +
+                '<select id="role-' + escapeAttr(r.registration_id) + '">' +
+                '<option value="学生">学生（既定）</option>' +
+                '<option value="職員">職員</option></select></div>' +
+              '<div><label>対応できる業務</label><div class="checks">' +
+                skillBox(r, 'テイク') + skillBox(r, '介助') +
+              '</div></div>' +
+            '</div>' +
+            '<div class="ops">' +
+              '<button class="btn primary sm" onclick="approve(\'' + escapeAttr(r.registration_id) + '\',this)">承認して名簿に追加</button>' +
+              '<button class="btn danger sm" onclick="reject(\'' + escapeAttr(r.registration_id) + '\',this)">却下</button>' +
+            '</div>' +
+            '<p class="hint">承認すると staffs と contacts に行ができ、本人が全画面を使えるようになります。' +
+            '個人コード（勤怠の照合キー）は空で作られるので、後から名簿に入れてください。</p>' +
+          '</div></div>';
+      }
+
+      if (r.status === '却下') {
+        return '<div class="rg rejected"><span class="badge b-rejected">却下</span>' +
+          '<h2>' + escapeHtml(r.name) + '</h2>' +
+          '<div class="mail">' + escapeHtml(r.email) + '</div>' + body +
+          '<p class="hint">却下日時: ' + escapeHtml(r.decided_at || '—') +
+          (r.reject_reason ? '／理由: ' + escapeHtml(r.reject_reason) : '') +
+          '　本人は申請画面から出し直せます。</p></div>';
+      }
+
+      return '<div class="rg done"><span class="badge b-done">承認済</span>' +
+        '<h2>' + escapeHtml(r.name) + '</h2>' +
+        '<div class="mail">' + escapeHtml(r.email) + '</div>' + body +
+        '<p class="hint">承認日時: ' + escapeHtml(r.decided_at || '—') +
+        '／スタッフID: <b>' + escapeHtml(r.staff_id || '—') + '</b></p></div>';
+    }
+
+    function skillBox(r, name) {
+      var on = String(r.skills || '').indexOf(name) !== -1;
+      return '<label><input type="checkbox" data-skill-of="' + escapeAttr(r.registration_id) + '"' +
+        ' value="' + escapeAttr(name) + '"' + (on ? ' checked' : '') + '>' + escapeHtml(name) + '</label>';
+    }
+
+    function pickedSkills(id) {
+      var out = [];
+      document.querySelectorAll('input[data-skill-of="' + id + '"]').forEach(function (b) {
+        if (b.checked) out.push(b.value);
+      });
+      return out.join(',');
+    }
+
+    function approve(id, btn) {
+      var role = document.getElementById('role-' + id).value;
+      var skills = pickedSkills(id);
+      if (!confirm('この申請を承認します。\n\n区分: ' + role +
+        '\n対応できる業務: ' + (skills || '（空欄＝全対応扱い）') +
+        '\n\n名簿（staffs・contacts）に行が作られ、本人が全画面を使えるようになります。\nよろしいですか？')) return;
+      disableAll(btn);
+      google.script.run
+        .withSuccessHandler(function (res) {
+          var msg = '承認しました（スタッフID: ' + res.staff_id + '）。';
+          if (res.notify && !res.notify.sent) {
+            msg += '\n\n⚠️ 本人への通知は届きませんでした：' + res.notify.reason +
+              '\n代行依頼も同じ経路なので、本人にマイページから通知先URLを登録してもらってください。';
+          }
+          alert(msg);
+          reload();
+        })
+        .withFailureHandler(function (err) { alert('エラー: ' + err.message); reload(); })
+        .approveRegistration(id, { role: role, skills: skills });
+    }
+
+    function reject(id, btn) {
+      var reason = prompt('却下の理由を入力してください（本人の申請画面に表示されます）。');
+      if (reason === null) return;
+      disableAll(btn);
+      google.script.run
+        .withSuccessHandler(reload)
+        .withFailureHandler(function (err) { alert('エラー: ' + err.message); reload(); })
+        .rejectRegistration(id, reason);
+    }
+
+    function disableAll(btn) {
+      document.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+      if (btn) btn.textContent = '処理中…';
+    }
+
+    function reload() {
+      google.script.run
+        .withSuccessHandler(render)
+        .withFailureHandler(function (err) {
+          var host = document.getElementById('list');
+          host.className = 'state';
+          host.textContent = 'エラー: ' + err.message;
+        })
+        .getRegistrations();
+    }
+
+    reload();
+  </script>
+</body>
+</html>
