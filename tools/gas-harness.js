@@ -39,7 +39,8 @@ const SRC_DIR = path.join(__dirname, '..', 'src');
 // 列が増えたらここも足す。ハーネスは「ヘッダーに無い列は書かない」という
 // writeRowUpdates_ の挙動を再現するので、ここが古いと本番と違う結果になる。
 const DEFAULT_HEADERS = {
-  staffs: ['staff_id', 'name', 'role', 'skills', 'available_slots', 'personal_code'],
+  staffs: ['staff_id', 'name', 'role', 'skills', 'available_slots', 'personal_code',
+    'slots_updated_at'],
   courses: ['course_id', 'quarter', 'day', 'period', 'support_type', 'user_student',
     'subject', 'instructor', 'room', 'staff_a_id', 'staff_b_id', 'note', 'date'],
   vacancies: ['vacancy_id', 'date', 'course_id', 'absent_staff_id', 'notify_status',

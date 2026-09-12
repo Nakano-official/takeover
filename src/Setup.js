@@ -276,6 +276,37 @@ function migrateCoursesColumns() {
 }
 
 /**
+ * 既存の staffs シートに slots_updated_at 列を追加する（D28・マイページ）。
+ *
+ * 本人がマイページで空きコマを更新した日時を記録する。available_slots は上書き運用なので、
+ * これが無いと「今学期出し直したのか、前の学期のままなのか」を職員が区別できない。
+ * 入れておくと**未更新者を一覧で見分けられ**、再収集のリマインドも時間トリガー（D22）に乗せられる。
+ *
+ * 追加した列はテキスト書式にして日時値への自動変換を防ぐ（10-6b と同じ理由）。冪等。
+ */
+function migrateAddStaffSlotsUpdatedAt() {
+  const ss = openMainDb_();
+  const sheet = ss.getSheetByName('staffs');
+  if (!sheet) { Logger.log('❌ staffs シートが見つかりません。'); return; }
+
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
+    return String(h).trim();
+  });
+  if (headers.indexOf('slots_updated_at') !== -1) {
+    Logger.log('✅ staffs には既に slots_updated_at 列があります（追加なし）。');
+    return;
+  }
+
+  const col = lastCol + 1;
+  sheet.getRange(1, col, 1, 1).setValues([['slots_updated_at']]);
+  sheet.getRange(2, col, Math.max(sheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+  invalidateSheetCache_('staffs'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
+  Logger.log('✅ staffs に slots_updated_at 列を追加しました。');
+  Logger.log('   既存行は空＝「まだ本人が更新していない」扱いになります。');
+}
+
+/**
  * 既存の courses シートに date 列を追加する（D27・単発コマ）。
  *
  * 空＝従来どおり毎週のコマ、`yyyy-MM-dd`＝その日だけの単発コマ（特別授業・説明会など）。
@@ -583,8 +614,12 @@ function setupMainDb_(ss, data) {
   // 空セットアップ（staffs 0行）でも 3行目以降に職員が直接入力するため、データ行数ではなく
   // 列全体をテキスト固定する（データ行数だけだと F2 しか保護されず 10-6 の数値化バグを踏む）。
   staffsSheet.getRange(2, 6, Math.max(staffsSheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+  // slots_updated_at（G列）は本人が空きコマを更新した日時（D28）。'yyyy-MM-dd HH:mm:ss' 文字列で
+  // 扱うためテキスト固定する（日時値に化けると readRows が Date を返す・10-6b と同じ理由）。
+  staffsSheet.getRange(2, 7, Math.max(staffsSheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
   writeTable_(staffsSheet,
-    ['staff_id', 'name', 'role', 'skills', 'available_slots', 'personal_code'], data.staffs);
+    ['staff_id', 'name', 'role', 'skills', 'available_slots', 'personal_code', 'slots_updated_at'],
+    data.staffs);
 
   // courses は「利用者中心の時間割」を表す（decisions.md D8）。
   // 1行＝1コマ（利用者×曜日×時限）。同じ曜日・時限に複数の利用者が並ぶ。

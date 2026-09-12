@@ -23,15 +23,18 @@ const PAGES = {
   manage:  { file: 'manage',  title: '欠員補充管理',       staffOnly: true  },
   check:   { file: 'check',   title: '整合性チェック',     staffOnly: true  },
   terms:   { file: 'terms',   title: '学期設定',           staffOnly: true  },
+  // マイページ（D28）。本人が自分の連絡先と空きコマを直す画面なので、職員・学生とも入れる。
+  // 編集できる項目はサーバー側（Profile.gs）で固定してあり、画面からは増やせない。
+  mypage:  { file: 'mypage',  title: 'マイページ',         staffOnly: false },
 };
 
 // ナビに並べる画面（この順で表示する）。
 // respond は通知リンクから ?vacancy= 付きで開く画面なので、ナビには出さない。
 // ここに足せば全画面のナビに一斉に反映される（staffOnly は PAGES 側で自動判定）。
-const NAV_PAGES = ['home', 'absence', 'input', 'manage', 'check', 'terms'];
+const NAV_PAGES = ['home', 'absence', 'mypage', 'input', 'manage', 'check', 'terms'];
 
 const DEFAULT_PAGE = 'home';
-const ROLE_STAFF = '職員';
+// ROLE_STAFF（'職員'）はドメイン定数なので Constants.gs にある（関数内から参照すること）。
 
 // ─── エントリポイント ────────────────────────────────────────
 
