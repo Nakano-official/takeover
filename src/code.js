@@ -31,6 +31,10 @@ const PAGES = {
   signup:  { file: 'signup',  title: '利用登録の申請',     staffOnly: false },
   // 申請の承認（D28）。ここが staffs / contacts に行を作る唯一の経路。
   approvals: { file: 'approvals', title: '利用登録の承認', staffOnly: true },
+  // M5Stack への USB 中継用（別担当）。職員がログイン済みのPCでこの画面を開いたままにし、
+  // PC側の中継プログラムが window.readShiftUsbSummary() を読んで USB で端末へ送る。
+  // ナビには出さない（人が操作する画面ではなく、中継が開きっぱなしにする画面のため）。
+  deviceRelay: { file: 'device-relay', title: 'USB欠員通知', staffOnly: true },
 };
 
 // 未登録アカウントを受け止める画面。PAGES のキーと合わせること。
