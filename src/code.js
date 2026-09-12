@@ -14,7 +14,6 @@
 // hideInStaffNav: 職員のナビには出さない画面。アクセス自体は禁止しない
 //   （staffOnly とは別の概念。URLで開けば従来どおり動く）。
 const PAGES = {
-  deviceRelay: { file: 'device-relay', title: 'USB欠員通知', staffOnly: true },
   home:    { file: 'home',    title: 'シフト確認',         staffOnly: false },
   input:   { file: 'input',   title: 'シフト入力',         staffOnly: true  },
   // 欠勤連絡は「学生スタッフが自分の担当コマの欠勤を出す」画面。職員には担当コマが
