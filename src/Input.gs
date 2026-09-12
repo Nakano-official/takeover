@@ -82,6 +82,7 @@ function getInputData(quarter) {
         quarter: String(c.quarter).trim(),
         day: String(c.day).trim(),
         period: String(c.period).trim(),
+        date: courseDate_(c),          // 単発コマの実施日（空＝毎週・D27）
         support_type: String(c.support_type || '').trim(),
         user_student: String(c.user_student || '').trim(),
         subject: String(c.subject || '').trim(),
@@ -95,6 +96,10 @@ function getInputData(quarter) {
       };
     })
     .sort(function (a, b) {
+      // 毎週のコマ（時間割）を先に、単発コマ（D27）を後ろに日付順でまとめる。
+      // 性質が違うものを曜日順に混ぜると、職員が「この日のイベント」を探しにくい。
+      if (!a.date !== !b.date) return a.date ? 1 : -1;
+      if (a.date && b.date && a.date !== b.date) return a.date < b.date ? -1 : 1;
       return (DAY_ORDER_INPUT.indexOf(a.day) - DAY_ORDER_INPUT.indexOf(b.day))
         || ((periodIndex[a.period] || 0) - (periodIndex[b.period] || 0))
         || String(a.user_student).localeCompare(b.user_student);
@@ -111,21 +116,45 @@ function getInputData(quarter) {
   };
 }
 
-// 1コマを追加する
-function addCourse(payload) {
-  requireStaff_();
-  const p = payload || {};
+/**
+ * 追加・編集で共通の入力検証（D27 で単発コマに対応）。
+ *
+ * かつて addCourse と updateCourse に同じ検証が約50行ずつ重複していた（backlog 10-10 の見送り分）。
+ * 単発コマの規則をそこへ二重に書くと必ずドリフトするので、このタイミングで1本に抽出した。
+ *
+ * 単発コマ（date あり）の扱い：
+ *  - **曜日は日付から導く**（画面が送ってくる day は使わない）。ズレようがない形にする。
+ *  - 曜日は WORK_DAYS に縛らない。日曜の行事もありうるし、日付が決まっている以上
+ *    「業務のある曜日か」を問う意味がない（WORK_DAYS は毎週コマの選択肢を決める定数）。
+ *
+ * @param {Object} p                 画面から来た入力
+ * @param {string} [excludeCourseId] 編集時に「自分自身」を二重起用チェックから外す
+ * @return {Object} courses へ書き込む正規化済みの値
+ */
+function validateCoursePayload_(p, excludeCourseId) {
   const quarter = String(p.quarter || '').trim();
-  const day = String(p.day || '').trim();
+  const dateStr = String(p.date || '').trim();
   const period = String(p.period || '').trim();
   const supportType = String(p.support_type || '').trim();
   const userStudent = String(p.user_student || '').trim();
   const staffA = String(p.staff_a_id || '').trim();
   const staffB = String(p.staff_b_id || '').trim();
 
-  // 必須チェック
-  if (!quarter) throw new Error('クォーターを入力してください。');
-  if (!day) throw new Error('曜日を選んでください。');
+  if (!quarter) throw new Error('学期を選んでください。');
+
+  // 単発コマなら曜日は日付から導出する。毎週コマは画面の選択をそのまま使う。
+  var day;
+  if (dateStr) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      throw new Error('実施日の形式が不正です（YYYY-MM-DD で指定してください）。');
+    }
+    day = weekdayOf_(dateStr);
+    if (!day) throw new Error('実施日が不正です：' + dateStr);
+  } else {
+    day = String(p.day || '').trim();
+    if (!day) throw new Error('曜日を選んでください。');
+  }
+
   if (!period) throw new Error('時限を選んでください。');
   if (supportType !== 'テイク' && supportType !== '介助') {
     throw new Error('内容（テイク / 介助）を選んでください。');
@@ -143,32 +172,43 @@ function addCourse(payload) {
     if (id && roleById[id] === undefined) throw new Error('存在しないスタッフIDです：' + id);
   });
 
-  // 二重起用チェック：同じ quarter+day+period に既に入っているスタッフは不可
+  // 二重起用チェック：同じ学期・曜日・時限で、**開催回が実際に重なる**別コマに入っていないか。
+  // 単発同士は日付が違えばぶつからない（occurrencesOverlap_・D27）。
+  const exclude = String(excludeCourseId || '').trim();
   const assigned = {};
   readRows(SHEET.COURSES).forEach(function (c) {
-    if (String(c.quarter).trim() === quarter
-      && String(c.day).trim() === day
-      && String(c.period).trim() === period) {
-      [String(c.staff_a_id).trim(), String(c.staff_b_id).trim()].forEach(function (id) {
-        if (id) assigned[id] = true;
-      });
-    }
+    if (exclude && String(c.course_id).trim() === exclude) return;
+    if (String(c.quarter).trim() !== quarter) return;
+    if (String(c.day).trim() !== day) return;
+    if (String(c.period).trim() !== period) return;
+    if (!occurrencesOverlap_(dateStr, courseDate_(c))) return;
+    [String(c.staff_a_id).trim(), String(c.staff_b_id).trim()].forEach(function (id) {
+      if (id) assigned[id] = true;
+    });
   });
+  const where = (dateStr ? dateStr + '（' + day + '）' : day) + period + '限';
   [staffA, staffB].forEach(function (id) {
     if (id && assigned[id]) {
-      throw new Error(nameOf_(id) + ' は ' + day + period + '限 に既に別のコマへ入っています。');
+      throw new Error(nameOf_(id) + ' は ' + where + ' に既に別のコマへ入っています。');
     }
   });
 
-  const id = appendRowWithId(SHEET.COURSES, 'course_id', 'C', {
-    quarter: quarter, day: day, period: period,
+  return {
+    quarter: quarter, day: day, period: period, date: dateStr,
     support_type: supportType, user_student: userStudent,
     subject: String(p.subject || '').trim(),
     instructor: String(p.instructor || '').trim(),
     room: String(p.room || '').trim(),
     staff_a_id: staffA, staff_b_id: staffB,
     note: String(p.note || '').trim(),
-  });
+  };
+}
+
+// 1コマを追加する
+function addCourse(payload) {
+  requireStaff_();
+  const row = validateCoursePayload_(payload || {}, null);
+  const id = appendRowWithId(SHEET.COURSES, 'course_id', 'C', row);
   return { ok: true, course_id: id };
 }
 
@@ -182,75 +222,26 @@ function updateCourse(payload) {
   const existing = findRow(SHEET.COURSES, 'course_id', courseId);
   if (!existing) throw new Error('対象のコマが見つかりませんでした。');
 
-  const quarter = String(p.quarter || '').trim();
-  const day = String(p.day || '').trim();
-  const period = String(p.period || '').trim();
-  const supportType = String(p.support_type || '').trim();
-  const userStudent = String(p.user_student || '').trim();
-  const staffA = String(p.staff_a_id || '').trim();
-  const staffB = String(p.staff_b_id || '').trim();
+  const row = validateCoursePayload_(p, courseId);
 
-  // 必須チェック（addCourse と同じ基準）
-  if (!quarter) throw new Error('クォーターを入力してください。');
-  if (!day) throw new Error('曜日を選んでください。');
-  if (!period) throw new Error('時限を選んでください。');
-  if (supportType !== 'テイク' && supportType !== '介助') {
-    throw new Error('内容（テイク / 介助）を選んでください。');
-  }
-  if (!userStudent) throw new Error('利用者を入力してください。');
-  if (!staffA) throw new Error('担当スタッフ（少なくとも1名）を選んでください。');
-  if (staffB && staffA === staffB) throw new Error('担当A・Bに同じスタッフは選べません。');
-
-  // 欠員記録が紐づくコマは、構造（曜日・時限・内容）を変えない（記録保全のため）。
+  // 欠員記録が紐づくコマは、構造（曜日・時限・内容・実施日）を変えない（記録保全のため）。
   // 科目・教室・担当・備考などの修正は許可する。
+  // 実施日を含めるのは、単発コマ（D27）の日付を後から動かすと、その日に紐づいた欠員
+  //（vacancies.date）と食い違い、どの回の欠員だったのか分からなくなるため。
   const hasVacancy = readRows(SHEET.VACANCIES).some(function (v) {
     return String(v.course_id).trim() === courseId;
   });
   if (hasVacancy) {
-    if (String(existing.day).trim() !== day
-      || String(existing.period).trim() !== period
-      || String(existing.support_type).trim() !== supportType) {
-      throw new Error('このコマには欠員記録が紐づいているため、曜日・時限・内容は変更できません'
+    if (String(existing.day).trim() !== row.day
+      || String(existing.period).trim() !== row.period
+      || String(existing.support_type).trim() !== row.support_type
+      || courseDate_(existing) !== row.date) {
+      throw new Error('このコマには欠員記録が紐づいているため、曜日・時限・内容・実施日は変更できません'
         + '（科目・教室・担当などの修正は可能です）。');
     }
   }
 
-  // スタッフ実在チェック
-  const roleById = {};
-  readRows(SHEET.STAFFS).forEach(function (s) {
-    roleById[String(s.staff_id).trim()] = String(s.role).trim();
-  });
-  [staffA, staffB].forEach(function (id) {
-    if (id && roleById[id] === undefined) throw new Error('存在しないスタッフIDです：' + id);
-  });
-
-  // 二重起用チェック：同じ quarter+day+period の別コマに入っているスタッフは不可（自分自身のコマは除外）
-  const assigned = {};
-  readRows(SHEET.COURSES).forEach(function (c) {
-    if (String(c.course_id).trim() === courseId) return;
-    if (String(c.quarter).trim() === quarter
-      && String(c.day).trim() === day
-      && String(c.period).trim() === period) {
-      [String(c.staff_a_id).trim(), String(c.staff_b_id).trim()].forEach(function (id) {
-        if (id) assigned[id] = true;
-      });
-    }
-  });
-  [staffA, staffB].forEach(function (id) {
-    if (id && assigned[id]) {
-      throw new Error(nameOf_(id) + ' は ' + day + period + '限 に既に別のコマへ入っています。');
-    }
-  });
-
-  const updated = updateRow(SHEET.COURSES, 'course_id', courseId, {
-    quarter: quarter, day: day, period: period,
-    support_type: supportType, user_student: userStudent,
-    subject: String(p.subject || '').trim(),
-    instructor: String(p.instructor || '').trim(),
-    room: String(p.room || '').trim(),
-    staff_a_id: staffA, staff_b_id: staffB,
-    note: String(p.note || '').trim(),
-  });
+  const updated = updateRow(SHEET.COURSES, 'course_id', courseId, row);
   if (!updated) throw new Error('更新できませんでした（対象が見つかりません）。');
   return { ok: true, course_id: courseId };
 }

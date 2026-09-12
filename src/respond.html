@@ -31,6 +31,7 @@
 
   <script>
     var VACANCY_ID = '<?= params.vacancy || "" ?>';
+    var CUR = null;   // 表示中の欠員（確認ダイアログの文面に使う）
 
     function escapeHtml(s) {
       return String(s == null ? '' : s)
@@ -50,6 +51,7 @@
 
     function render(v) {
       var content = document.getElementById('content');
+      CUR = v;   // 確認ダイアログで「どのコマに入るのか」を出すために持っておく
 
       // サーバーが空を返した場合（デプロイ版が古い等）に固まらないようにする
       if (!v) {
@@ -74,6 +76,14 @@
           '<div class="notice msg info">この欠員は既に対応が確定しています。回答は受け付けていません。</div>';
         return;
       }
+      // 締切で募集終了（D22）。「他の人で埋まった」とは理由が違うので文言を分ける。
+      if (v.deadlineClosed) {
+        content.className = '';
+        content.innerHTML = detail +
+          '<div class="notice msg info">この代行募集は締め切られました（授業開始が近いため）。<br>' +
+          '以降の対応は職員が行います。</div>';
+        return;
+      }
       // 候補ではない
       if (!v.eligible) {
         content.className = '';
@@ -82,8 +92,20 @@
         return;
       }
 
+      // 既に辞退済み。辞退は取り消せない（e2eテストでの指摘）ので、ボタンを出さずに確定表示にする。
+      // 以前はここでボタンを出し「（変更できます）」と案内していたため、何度でも押せて、
+      // 辞退のあとに承諾もできてしまい、職員側から見て誰が断ったのかが読めなくなっていた。
+      if (v.myAnswer === '辞退') {
+        content.className = '';
+        content.innerHTML = detail +
+          '<div class="notice msg info">この代行依頼は<b>辞退</b>で受け付けています。<br>' +
+          'ご確認ありがとうございました。</div>' +
+          '<div class="current">気が変わって対応できる場合は、職員へ直接ご連絡ください。</div>';
+        return;
+      }
+
       var current = v.myAnswer
-        ? '<div class="current">現在の回答: <b>' + escapeHtml(v.myAnswer) + '</b>（変更できます）</div>'
+        ? '<div class="current">現在の回答: <b>' + escapeHtml(v.myAnswer) + '</b></div>'
         : '';
 
       content.className = '';
@@ -95,7 +117,37 @@
         '<div id="msg"></div>';
     }
 
+    // 「いつ・どのコマか」を確認ダイアログに出すための1行（例：2026-09-12（土）4限（15:15〜16:45））
+    function slotText() {
+      if (!CUR) return '';
+      return fmtDate(CUR.date) + '（' + CUR.day + '）' + CUR.period + '限'
+        + (CUR.time ? '（' + CUR.time + '）' : '');
+    }
+
+    // 承諾も辞退も、押した時点で確定して取り消しが効かない。どちらもワンクッション置く。
+    //  - 承諾 … 先着順なので、押した瞬間にそのシフトに入ることが決まる
+    //  - 辞退 … あとから承諾に変えられず、職員の電話フォローの対象からも外れる（D25）
+    function confirmAnswer(ans) {
+      var slot = slotText();
+      if (ans === '承諾') {
+        return confirm(
+          'この代行を「承諾」で回答します。\n\n'
+          + (slot ? slot + '\n' : '')
+          + 'このコマに、あなたが代行として入ります。\n'
+          + '先着順です。あなたが最初なら、この時点で確定します。\n\n'
+          + 'よろしいですか？');
+      }
+      return confirm(
+        'この代行依頼を「辞退」で回答します。\n\n'
+        + (slot ? slot + '\n' : '')
+        + '辞退はあとから取り消せません（承諾に変更できません）。\n'
+        + '気が変わって対応できるようになった場合は、職員へ直接ご連絡ください。\n\n'
+        + 'よろしいですか？');
+    }
+
     function answer(ans) {
+      if (!confirmAnswer(ans)) return;
+
       var buttons = document.querySelectorAll('.btns button');
       buttons.forEach(function (b) { b.disabled = true; });
       document.getElementById('msg').innerHTML =
@@ -106,6 +158,13 @@
           var msg = document.getElementById('msg');
           res = res || {};
 
+          // 締切に到達していた → 募集終了（D22）。ボタンは無効のままにする。
+          if (res.deadline) {
+            msg.innerHTML =
+              '<div class="notice msg info">' + escapeHtml(res.message ||
+                'この代行募集は締め切られました。') + '</div>';
+            return;
+          }
           // 先約で埋まった → 受付終了。ボタンは無効のままにする。
           if (res.filled) {
             msg.innerHTML =
@@ -120,10 +179,13 @@
               'ご協力ありがとうございます。</div>';
             return; // 確定済みなのでボタンは無効のまま
           }
-          // 辞退を記録（欠員はまだ開いているので、気が変われば承諾できるよう再度有効化）
-          buttons.forEach(function (b) { b.disabled = false; });
+          // 辞退を記録。**ボタンは戻さない**（辞退は取り消せない・e2eテストでの指摘）。
+          // 再有効化していた頃は何度でも押せるうえ、辞退のあとに承諾もでき、職員側の候補一覧で
+          // 「誰が断ったのか」が読めなくなっていた。気が変わった場合は職員が manage 画面から
+          // その人を代行に確定できる（電話番号は伏せるが、確定の導線は残してある）。
           msg.innerHTML =
-            '<div class="notice msg info">辞退で承りました。ご確認ありがとうございます。</div>';
+            '<div class="notice msg info">辞退で承りました。ご確認ありがとうございます。<br>' +
+            '気が変わって対応できる場合は、職員へ直接ご連絡ください。</div>';
         })
         .withFailureHandler(function (err) {
           buttons.forEach(function (b) { b.disabled = false; });

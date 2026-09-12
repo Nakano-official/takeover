@@ -276,6 +276,108 @@ function migrateCoursesColumns() {
 }
 
 /**
+ * 既存の courses シートに date 列を追加する（D27・単発コマ）。
+ *
+ * 空＝従来どおり毎週のコマ、`yyyy-MM-dd`＝その日だけの単発コマ（特別授業・説明会など）。
+ * 既存行はすべて空＝毎週扱いになるので、この移行で既存の時間割は一切変わらない。
+ * 追加した列はテキスト書式にして日付値への自動変換を防ぐ（10-6b と同じ理由）。冪等。
+ */
+function migrateAddCourseDate() {
+  const ss = openMainDb_();
+  const sheet = ss.getSheetByName('courses');
+  if (!sheet) { Logger.log('❌ courses シートが見つかりません。'); return; }
+
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
+    return String(h).trim();
+  });
+  if (headers.indexOf('date') !== -1) {
+    Logger.log('✅ courses には既に date 列があります（追加なし）。');
+    return;
+  }
+
+  const col = lastCol + 1;
+  sheet.getRange(1, col, 1, 1).setValues([['date']]);
+  invalidateSheetCache_('courses'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
+  Logger.log('✅ courses に date 列を追加しました。');
+  Logger.log('   既存行は空＝毎週のコマのままです（時間割は変わりません）。');
+  Logger.log('   単発コマ（特別授業・説明会など）はシフト入力画面の「この日だけ」から登録できます。');
+  migrateCoursesTextFormat();   // 追加した列に必ずテキスト書式を掛ける;
+}
+
+/**
+ * 既存の courses シートの period / date 列を「列全体」テキスト固定にする（10-6b の横展開）。
+ *
+ * 10-6 より前に作られたシートは、テキスト書式が初期データの行数ぶんにしか掛かっていない。
+ * そのため職員や画面から**後で足した行**は型が変わる：
+ *   - `period` … '3' が**数値 3** になる。`String()` で吸収しているので実害は出ていないが、同じ穴。
+ *   - `date`   … '2026-09-12' が**日付値**になる。`readRows` が Date を返し、時間割の照合
+ *     （その週の日付 === 実施日）が絶対に一致せず、**単発コマが表示から消える**（D27）。
+ *     エラーにならないので気づけない。
+ *
+ * 書式を広げるだけで、既に型が変わっているセルは書き換えない（`courseDate_` が読む側で吸収する）。
+ * 見た目を揃えたいときは、該当セルの値を入力し直せばよい。冪等。
+ */
+function migrateCoursesTextFormat() {
+  const ss = openMainDb_();
+  const sheet = ss.getSheetByName('courses');
+  if (!sheet) { Logger.log('❌ courses シートが見つかりません。'); return; }
+
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0]
+    .map(function (h) { return String(h).trim(); });
+  const rows = Math.max(sheet.getMaxRows() - 1, 1);
+
+  ['period', 'date'].forEach(function (name) {
+    const idx = headers.indexOf(name);
+    if (idx === -1) {
+      Logger.log('・' + name + ' 列がありません（スキップ）。');
+      return;
+    }
+    sheet.getRange(2, idx + 1, rows, 1).setNumberFormat('@');
+    Logger.log('✅ courses.' + name + ' を列全体テキスト固定にしました。');
+  });
+
+  invalidateSheetCache_('courses'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
+  Logger.log('   ※ 既に数値・日付値になっているセルは書式変更では直りません。');
+  Logger.log('     見た目を揃えたい場合はそのセルの値を入力し直してください（読み取りは吸収済み）。');
+}
+
+/**
+ * 既存の vacancies シートに close_notified_at 列を追加する（D22・時間トリガー基盤）。
+ *
+ * 「締切に到達したことを処理して職員へ決着を要求したか」を記録する列。**募集クローズという
+ * 状態そのものは保存しない**（date + periods.start_time から毎回算出する・D21 と同じ流儀）。
+ * ここに入るのは副作用の記録だけで、二重通知を防ぐための CAS ガード列として使う。
+ *
+ * この列が無いと closeExpiredRecruits（時間トリガー）はガード列を引けず、
+ * 何もせずエラーを記録して戻る。トリガーを入れる前に1回実行すること。冪等。
+ */
+function migrateAddVacancyCloseNotifiedAt() {
+  const ss = openMainDb_();
+  const sheet = ss.getSheetByName('vacancies');
+  if (!sheet) { Logger.log('❌ vacancies シートが見つかりません。'); return; }
+
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
+    return String(h).trim();
+  });
+  if (headers.indexOf('close_notified_at') !== -1) {
+    Logger.log('✅ vacancies には既に close_notified_at 列があります（追加なし）。');
+    return;
+  }
+
+  const col = lastCol + 1;
+  sheet.getRange(1, col, 1, 1).setValues([['close_notified_at']]);
+  // 'yyyy-MM-dd HH:mm:ss' が日時値に化けないよう列全体をテキスト固定（10-6b と同じ理由）
+  sheet.getRange(2, col, Math.max(sheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+  invalidateSheetCache_('vacancies'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
+  Logger.log('✅ vacancies に close_notified_at 列を追加しました。');
+  Logger.log('   既存行は空です。過去の未決着欠員は、初回のトリガー実行で');
+  Logger.log('   「過去日のため通知せずマークのみ」として静かに埋まります（一斉通知は起きません）。');
+  Logger.log('   続けて Triggers.gs の installTriggers() を実行してください。');
+}
+
+/**
  * 既存の staffs シートに skills 列（対応可能な内容：テイク/介助）を追加する（D9）。
  * 既存運用シートを壊さず、無ければ末尾に1列足す（冪等）。GASエディタから1回実行する。
  * skills 未設定の行は findCandidates_ で「全対応扱い」となるため、運用前に入力すること。
@@ -497,17 +599,26 @@ function setupMainDb_(ss, data) {
     'room',           // 教室
     'staff_a_id', 'staff_b_id',
     'note',           // 備考
+    'date',           // 単発コマの実施日（空＝毎週／'yyyy-MM-dd'＝その日だけ・D27）
   ];
   // period 列（D列）は periods シートと突合するためテキスト固定。初期データの行数ぶんではなく
   // 列全体に掛ける（10-6 / 10-6b と同じ理由。空セットアップだと1行しか掛からず、以後
   // シフト入力画面から足したコマの period が数値になる）。
   coursesSheet.getRange(2, 4, Math.max(coursesSheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+  // date 列（M列）も 'yyyy-MM-dd' 文字列で扱うためテキスト固定（列全体・10-6b と同じ理由）
+  coursesSheet.getRange(2, COURSE_HEADERS.indexOf('date') + 1,
+    Math.max(coursesSheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
   writeTable_(coursesSheet, COURSE_HEADERS, data.courses);
 
   const vacanciesSheet = ss.insertSheet('vacancies');
-  vacanciesSheet.getRange(1, 1, 1, 7).setValues([
-    ['vacancy_id', 'date', 'course_id', 'absent_staff_id', 'notify_status', 'result', 'substitute_staff_id'],
+  vacanciesSheet.getRange(1, 1, 1, 8).setValues([
+    ['vacancy_id', 'date', 'course_id', 'absent_staff_id', 'notify_status', 'result',
+     'substitute_staff_id', 'close_notified_at'],
   ]);
+  // date（B列）と close_notified_at（H列）は日付・時刻値への自動変換を避けてテキスト固定。
+  // 列全体に掛ける（10-6 / 10-6b の教訓：初期データの行数ぶんだと後から足した行で型が変わる）。
+  vacanciesSheet.getRange(2, 2, Math.max(vacanciesSheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+  vacanciesSheet.getRange(2, 8, Math.max(vacanciesSheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
 
   const responsesSheet = ss.insertSheet('responses');
   responsesSheet.getRange(1, 1, 1, 4).setValues([

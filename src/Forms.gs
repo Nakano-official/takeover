@@ -32,7 +32,8 @@ const Q_PHONE = '電話番号';
 const Q_WEBHOOK = 'Google Chat Webhook URL';
 // セクション①空きコマ（曜日ごとのチェックボックス。選択肢は「1限」〜「7限」）。
 // 設問の曜日集合は WORK_DAYS（Constants.gs）を単一の出所とし、設問名は day+WORK_DAY_SLOT_Q_SUFFIX で
-// 導出する。土曜運用の有効化は WORK_DAYS に '土' を足すだけで入力画面と同時に揃う（backlog 10-5）。
+// 導出する（backlog 10-5）。★ フォームを作るときは WORK_DAYS の**全曜日ぶん**の設問を置くこと。
+// 現在 WORK_DAYS は月〜土なので、土曜の設問を落とすと土曜の補充候補が構造的に0人になる。
 // スキル（チェックボックス。選択肢は「テイク」「介助」）
 const Q_SKILLS = '対応できる業務';
 
@@ -162,27 +163,5 @@ function installIntakeTrigger() {
   Logger.log('✅ onIntakeFormSubmit トリガーを連絡先DBに設置しました（フォームの回答先がこのDBであること）。');
 }
 
-/**
- * 設問→値のマッピングを実データ無しで確認する（GASエディタから手動実行→ログ確認）。
- */
-function testIntakeMapping() {
-  // 実際の namedValues はチェックボックスを「カンマ結合の単一文字列」で渡す
-  // （例: '1限, 3限'）。配列形式と両方を通せることを確認する。
-  const nv = {
-    'メールアドレス': ['S010@mail.ryukoku.ac.jp'],
-    '月曜の空きコマ': ['1限, 3限'],     // 本番形式：カンマ結合
-    '水曜の空きコマ': ['2限'],
-    '対応できる業務': ['テイク, 介助'],  // 本番形式：カンマ結合
-    '電話番号': ['090-1111-2222'],
-    'Google Chat Webhook URL': ['https://chat.googleapis.com/v1/spaces/XXX/messages?key=...&token=...'],
-  };
-  Logger.log('email  = ' + firstValue_(nv, Q_EMAIL));
-  Logger.log('slots  = ' + buildSlots_(nv));   // 期待: 月1,月3,水2
-  Logger.log('skills = ' + buildSkills_(nv));  // 期待: テイク,介助
-  Logger.log('phone  = ' + firstValue_(nv, Q_PHONE));
-  Logger.log('webhook= ' + firstValue_(nv, Q_WEBHOOK));
-
-  // Webhook 形式チェック（正しい Chat URL のみ true）
-  Logger.log('webhook valid(Chat)   = ' + isChatWebhook_('https://chat.googleapis.com/v1/spaces/X/messages?key=k'));  // true
-  Logger.log('webhook valid(他URL)  = ' + isChatWebhook_('https://example.com/hook'));  // false
-}
+// 設問→値のマッピング確認は tools/sim-forms.js へ移した。
+//   node tools/sim-forms.js  … 合成 namedValues で期待値を assert する（GAS不要）。

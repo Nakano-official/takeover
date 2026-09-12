@@ -162,6 +162,20 @@ function filterRows(sheetName, columnName, value) {
  * 1行を追記する。rowObject はヘッダー名をキーに持つオブジェクト。
  * ヘッダーに無いキーは無視し、足りないキーは空文字で埋める。
  */
+function appendRowValues_(sheet, sheetName, row) {
+  // **appendRow ではなく setValues で書く。**
+  //
+  // Sheet.appendRow はセルの表示形式を無視して値を解釈し直すため、テキスト固定にした列でも
+  // '2' が**数値 2**に、'2026-09-12' が**日付値**に化ける（courses.period / courses.date /
+  // vacancies.date で実際に発生した）。読み取り側は String()・dateToStr_ で吸収しているので
+  // 実害は出ていなかったが、型がぶれる経路を残す理由がない。
+  // setValues はセルの表示形式に従うので、テキスト固定の列へ入れた文字列は文字列のまま残る
+  // （ダミーデータを書く writeTable_ が setValues で、そちらは全て文字列で入っていた）。
+  const rowNumber = sheet.getLastRow() + 1;
+  sheet.getRange(rowNumber, 1, 1, row.length).setValues([row]);
+  return rowNumber;
+}
+
 function appendRow(sheetName, rowObject) {
   return withLock_(function () {
     const sheet = getSheet_(sheetName);
@@ -169,7 +183,7 @@ function appendRow(sheetName, rowObject) {
     const row = headers.map(function (h) {
       return rowObject[h] !== undefined && rowObject[h] !== null ? rowObject[h] : '';
     });
-    sheet.appendRow(row);
+    appendRowValues_(sheet, sheetName, row);
     invalidateSheetCache_(sheetName);
     return true;
   });
@@ -297,7 +311,7 @@ function appendRowWithId(sheetName, idColumn, prefix, rowObject) {
     const row = headers.map(function (h) {
       return obj[h] !== undefined && obj[h] !== null ? obj[h] : '';
     });
-    sheet.appendRow(row);
+    appendRowValues_(sheet, sheetName, row);
     invalidateSheetCache_(sheetName);
     return id;
   });
@@ -332,7 +346,7 @@ function upsertRow(sheetName, matchObj, rowObject) {
     const row = headers.map(function (h) {
       return merged[h] !== undefined && merged[h] !== null ? merged[h] : '';
     });
-    sheet.appendRow(row);
+    appendRowValues_(sheet, sheetName, row);
     invalidateSheetCache_(sheetName);
     return 'inserted';
   });
@@ -435,80 +449,4 @@ function withLock_(fn) {
     invalidateSheetCache_();
     lock.releaseLock();
   }
-}
-
-// ─── デバッグ用テスト ────────────────────────────────────────
-
-/**
- * GASエディタから手動実行してデータアクセス層を検証する。
- * 実行後「実行ログ」を確認すること。実データは変更しない（テスト行は最後に削除）。
- */
-function testSheets() {
-  Logger.log('===== Sheets.gs 動作確認 開始 =====');
-
-  // 1) プロパティ確認
-  const props = PropertiesService.getScriptProperties();
-  Logger.log('[プロパティ] SPREADSHEET_ID = ' + (props.getProperty('SPREADSHEET_ID') ? 'OK' : '未設定!'));
-  Logger.log('[プロパティ] CONTACTS_SPREADSHEET_ID = ' + (props.getProperty('CONTACTS_SPREADSHEET_ID') ? 'OK' : '未設定!'));
-
-  // 2) 各シートの読み取り件数
-  Logger.log('--- readRows 件数 ---');
-  [SHEET.STAFFS, SHEET.COURSES, SHEET.VACANCIES, SHEET.RESPONSES, SHEET.PERIODS, SHEET.CONTACTS].forEach(function (name) {
-    try {
-      Logger.log('  ' + name + ': ' + readRows(name).length + ' 件');
-    } catch (e) {
-      Logger.log('  ' + name + ': ❌ ' + e.message);
-    }
-  });
-
-  // 3) staffs の中身サンプル
-  const staffs = readRows(SHEET.STAFFS);
-  Logger.log('--- staffs サンプル ---');
-  staffs.forEach(function (s) {
-    Logger.log('  ' + s.staff_id + ' / ' + s.name + ' / ' + s.role + ' / [' + s.available_slots + ']');
-  });
-
-  // 4) periods が時刻テキストとして読めているか（Date化していないか）
-  Logger.log('--- periods 型チェック ---');
-  readRows(SHEET.PERIODS).forEach(function (p) {
-    const t = p.start_time;
-    const type = (t instanceof Date) ? '⚠️Date型（要修正）' : typeof t;
-    Logger.log('  ' + p.period + '限: ' + t + ' 〜 ' + p.end_time + '（型: ' + type + '）');
-  });
-
-  // 5) findRow / filterRows
-  Logger.log('--- 検索テスト ---');
-  const found = findRow(SHEET.STAFFS, 'staff_id', 'S002');
-  Logger.log('  findRow S002 = ' + (found ? found.name : '見つからず'));
-  Logger.log('  filterRows role=学生 = ' + filterRows(SHEET.STAFFS, 'role', '学生').length + ' 件');
-
-  // 6) 書き込みテスト（vacancies にテスト行 → 削除）
-  Logger.log('--- 書き込みテスト（追記→削除）---');
-  try {
-    const testId = '__TEST__' + new Date().getTime();
-    appendRow(SHEET.VACANCIES, { vacancy_id: testId, date: '2026-06-12', notify_status: 'test' });
-    const writeOk = findRow(SHEET.VACANCIES, 'vacancy_id', testId) !== null;
-    Logger.log('  追記: ' + (writeOk ? 'OK' : '❌失敗'));
-    deleteTestRow_(SHEET.VACANCIES, 'vacancy_id', testId);
-    const cleanOk = findRow(SHEET.VACANCIES, 'vacancy_id', testId) === null;
-    Logger.log('  テスト行削除: ' + (cleanOk ? 'OK' : '❌残存'));
-  } catch (e) {
-    Logger.log('  ❌ ' + e.message);
-  }
-
-  Logger.log('===== 動作確認 終了 =====');
-}
-
-// テスト専用：該当行を物理削除する（testSheets からのみ使用）
-function deleteTestRow_(sheetName, keyColumn, keyValue) {
-  withLock_(function () {
-    const sheet = getSheet_(sheetName);
-    const values = sheet.getDataRange().getValues();
-    const keyIdx = values[0].indexOf(keyColumn);
-    for (var r = values.length - 1; r >= 1; r--) {
-      if (String(values[r][keyIdx]).trim() === String(keyValue).trim()) {
-        sheet.deleteRow(r + 1);
-      }
-    }
-  });
 }

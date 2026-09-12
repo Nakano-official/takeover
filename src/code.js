@@ -335,8 +335,13 @@ function getTimetable(quarter) {
   sel.filterIds.forEach(function (id) { filterSet[id] = true; });
   const sysMap = termSystemMap_(); // term_id → system（詳細表示で体系を出すため）
 
+  // 単発コマ（D27）は学期フィルタを通さない。学期外の説明会・行事もありうるうえ、
+  // どの週に出すかは date で決まるので、学期で落とすと「その日なのに出ない」が起きる。
+  // 実際にどの週へ出すかはクライアントが date で判定する（週送りはサーバー往復なし・D23）。
   const courses = allCourses
-    .filter(function (c) { return filterSet[String(c.quarter).trim()]; })
+    .filter(function (c) {
+      return courseDate_(c) ? true : !!filterSet[String(c.quarter).trim()];
+    })
     .map(function (c) {
       const courseId = String(c.course_id).trim();
       const term = String(c.quarter).trim();
@@ -354,6 +359,7 @@ function getTimetable(quarter) {
         staffA: nameById[String(c.staff_a_id).trim()] || String(c.staff_a_id || '').trim(),
         staffB: nameById[String(c.staff_b_id).trim()] || String(c.staff_b_id || '').trim(),
         note: String(c.note || '').trim(),
+        oneOffDate: courseDate_(c),          // 単発コマの実施日（空＝毎週・D27）
         // status / substitute / absent / date は週によって変わるのでサーバーでは埋めない。
         // 下の vacancy（course_id|日付 の索引）から、クライアントが表示中の週ぶんだけ組み立てる。
       };
@@ -406,7 +412,8 @@ function getTimetable(quarter) {
   // コマが無い曜日・時限も空欄の枠として残す。
   // 週表示にした以上、週の途中の曜日が抜けている方が不自然なので土日も枠として出す
   // （日曜に授業が入ることはほぼ無いが、枠としては置く）。
-  // ※ シフト入力の選択肢は WORK_DAYS（月〜金・D17）のままで、ここは表示の枠だけの話。
+  // ※ シフト入力の選択肢は WORK_DAYS（月〜土・D17）で、ここは表示の枠だけの話。
+  //   日曜は WORK_DAYS に無いので登録できないが、枠としてはここに出る。
   const DAY_ORDER = ['月', '火', '水', '木', '金', '土', '日'];
   const daySet = {};
   DAY_ORDER.forEach(function (d) { daySet[d] = true; });

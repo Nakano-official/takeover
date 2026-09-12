@@ -428,15 +428,27 @@ function notifySubstituteReleased(vacancyId, substituteStaffId) {
 }
 
 /**
- * 代行者なしで自動決着したことを職員スペースへ知らせる（review #4）。
- * 候補へ依頼を送っていないケースなので個別通知の宛先は無く、職員への一報のみ。
+ * 代行募集をクローズしたことを職員スペースへ知らせ、**決着を要求する**（D22）。
+ *
+ * D22 以前はこの通知が「自動で〇〇に設定しました」という事後報告だった。現在は result を
+ * 書かないので、これは職員へのアクション依頼になる。補充できなかった欠員こそ人手が要るのに、
+ * 自動決着で一覧から落ちて最も見えなくなっていた、という逆転を正すための通知。
+ *
+ * 3つの理由で文面を分ける（原因も職員の動き方も違うため）：
+ *   NO_CANDIDATES    … その時限に空きのある候補が最初から1人もいなかった（D10）
+ *   PAST_DEADLINE    … 欠勤連絡の時点で既に締切を過ぎていた（直前欠勤・D21）
+ *   DEADLINE_REACHED … 募集はしたが誰も承諾しないまま締切に達した（トリガー検知・D22）
+ *
+ * DEADLINE_REACHED のときだけ候補者にも「締め切りました」を送る。この経路の候補者は
+ * 依頼を受け取って考えていた人たちなので、黙って回答できなくなると宙ぶらりんになる。
+ * 他の2経路では依頼自体を送っていないので宛先がない。
  *
  * @param  {string} vacancyId
- * @param  {string} resultLabel  '1人テイク' / '職員対応'
- * @param  {string} [reason]     AUTO_RESOLVE_REASON。PAST_DEADLINE なら「直前欠勤」の文面にする
- * @return {{staff:boolean, errors:Array}}
+ * @param  {string} reason      RECRUIT_CLOSE_REASON のいずれか
+ * @param  {string} [suggestion] 決着の提案（'1人テイク' / '職員対応'）。職員が判断する材料
+ * @return {{staff:boolean, others:Array, errors:Array}}
  */
-function notifyAutoResolved(vacancyId, resultLabel, reason) {
+function notifyRecruitClosed(vacancyId, reason, suggestion) {
   const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
   if (!vacancy) throw new Error('対象の欠員が見つかりません。');
   const course = findRow(SHEET.COURSES, 'course_id', vacancy.course_id);
@@ -449,71 +461,70 @@ function notifyAutoResolved(vacancyId, resultLabel, reason) {
   const dateText = dateToStr_(vacancy.date);
   const slot = String(course.day).trim() + String(course.period).trim() + '限';
   const absentName = nameById[String(vacancy.absent_staff_id).trim()] || vacancy.absent_staff_id;
+  const manageUrl = getAppUrl_() + '?page=manage';
 
-  // 直前欠勤（締切超過で募集を行わなかった）は、候補不在とは原因も職員の動き方も違うので文面を分ける。
-  const late = reason === AUTO_RESOLVE_REASON.PAST_DEADLINE;
-  const msg =
-    (late ? '⏰ *直前の欠勤連絡です（代行募集なし）*\n' : '⚠️ *補充候補がいませんでした*\n') +
+  var head, why;
+  if (reason === RECRUIT_CLOSE_REASON.PAST_DEADLINE) {
+    head = '⏰ *直前の欠勤連絡です（代行募集なし）*';
+    why = '→ 授業開始' + RECRUIT_DEADLINE_MIN_BEFORE + '分前を過ぎているため、代行候補への依頼は送っていません。';
+  } else if (reason === RECRUIT_CLOSE_REASON.DEADLINE_REACHED) {
+    head = '⏰ *代行が決まらないまま募集を締め切りました*';
+    why = '→ 授業開始' + RECRUIT_DEADLINE_MIN_BEFORE + '分前になったため、代行の募集を終了しました。';
+  } else {
+    head = '⚠️ *補充候補がいませんでした*';
+    why = '→ この時限に空きのある候補が1人もいないため、代行の募集を行っていません。';
+  }
+
+  const result = { staff: false, others: [], errors: [] };
+
+  const staffMsg =
+    head + '\n' +
     '日付: ' + dateText + '\n' +
     'コマ: ' + slot + (timeText ? '（' + timeText + '）' : '') + '\n' +
     '欠勤: ' + absentName + '\n' +
-    (late
-      ? '→ 授業開始' + RECRUIT_DEADLINE_MIN_BEFORE + '分前を過ぎているため、代行候補への依頼は送っていません。\n'
-      : '') +
-    '→ 自動で「' + resultLabel + '」に設定しました。変更が必要なら管理画面で対応してください。\n' +
+    why + '\n' +
+    '→ *この欠員の決着（1人テイク／職員対応）をお願いします。*' +
+    (suggestion ? '（担当の残り方から見て「' + suggestion + '」が妥当そうです）' : '') + '\n' +
+    manageUrl + '\n' +
     '欠員ID: ' + vacancyId;
 
-  const result = { staff: false, errors: [] };
   try {
-    postToWebhook_(getStaffSpaceWebhook_(), msg);
+    postToWebhook_(getStaffSpaceWebhook_(), staffMsg);
     result.staff = true;
   } catch (e) {
     result.errors.push('職員スペース: ' + e.message);
   }
+
+  // 依頼を受け取っていた候補者へ「締め切りました」を送る（DEADLINE_REACHED のみ）
+  if (reason === RECRUIT_CLOSE_REASON.DEADLINE_REACHED) {
+    const candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id], vacancy.date);
+    const webhookById = buildWebhookMap_();
+    const targets = candidates.map(function (cand) {
+      const sid = String(cand.staff_id).trim();
+      result.others.push({ staff_id: cand.staff_id, name: cand.name, sent: false, reason: '' });
+      return {
+        key: sid,
+        url: webhookById[sid] || '',
+        text:
+          cand.name + ' さん\n' +
+          '先ほどの代行募集は、授業開始が近いため締め切りました。ご確認ありがとうございました。\n' +
+          '日付: ' + dateText + '\n' +
+          'コマ: ' + slot + (timeText ? '（' + timeText + '）' : ''),
+      };
+    });
+    const sendResult = postToWebhooks_(targets); // 一括送信（backlog 10-10）
+    result.others.forEach(function (entry) {
+      const r = sendResult[String(entry.staff_id).trim()];
+      if (!r) return;
+      entry.sent = r.sent;
+      entry.reason = r.reason;
+    });
+  }
+
   try {
     updateRow(SHEET.VACANCIES, 'vacancy_id', vacancyId, { notify_status: NOTIFY_STATUS.DONE });
   } catch (e) {
     result.errors.push('ステータス更新: ' + e.message);
   }
   return result;
-}
-
-// ─── デバッグ用 ──────────────────────────────────────────────
-
-/**
- * 職員スペースへの疎通確認。GASエディタから実行してChatにテスト投稿が届くか見る。
- * 初回は外部リクエストの承認ダイアログが出るので「許可」する。
- */
-function testNotify() {
-  Logger.log('===== Notify 疎通確認 =====');
-  try {
-    const url = getStaffSpaceWebhook_();
-    Logger.log('CHAT_WEBHOOK_URL: 設定OK');
-    postToWebhook_(url, '✅ テスト送信：支援室シフト管理システムから職員スペースへ送信できています。');
-    Logger.log('→ 送信成功。Chatのスペースを確認してください。');
-  } catch (e) {
-    Logger.log('❌ ' + e.message);
-  }
-  Logger.log('===== 終了 =====');
-}
-
-/**
- * 最新の欠員に対して notifyNewVacancy を実行する（実送信あり）。
- * testNotify で疎通確認できた後に使う。
- */
-function testNotifyVacancy() {
-  const vacancies = readRows(SHEET.VACANCIES);
-  if (vacancies.length === 0) {
-    Logger.log('vacancies が空です。先に欠勤連絡で欠員を作ってください。');
-    return;
-  }
-  const vid = vacancies[vacancies.length - 1].vacancy_id;
-  Logger.log('対象 vacancy_id: ' + vid);
-  try {
-    const res = notifyNewVacancy(vid);
-    Logger.log('結果: ' + JSON.stringify(res, null, 2));
-  } catch (e) {
-    Logger.log('❌ ' + e.message);
-    Logger.log(e.stack);
-  }
 }

@@ -42,6 +42,8 @@
                 border-radius: var(--radius-pill); color: #fff; margin-left: 6px; vertical-align: 1px; }
     .row .tag.take { background: var(--brand); }
     .row .tag.help { background: #d98a00; }
+    /* 単発コマ（D27）＝その日1回だけ。毎週のコマと一覧で見分けられるよう別色にする */
+    .row .tag.once { background: var(--warn); }
     .row .sub { color: var(--text-muted); }
     .row .stf { color: var(--ok); }
     .ops { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; }
@@ -136,8 +138,16 @@
       document.getElementById('form').className = '';
       document.getElementById('form').innerHTML =
         '<div class="grid">' +
-          '<div><label>曜日<span class="req">*</span></label>' +
+          '<div class="full"><label>種別<span class="req">*</span></label>' +
+            '<select id="recurrence" onchange="onRecurrenceChange()">' +
+            '<option value="weekly">毎週（学期中くり返す授業）</option>' +
+            '<option value="once">この日だけ（特別授業・説明会などのイベント）</option>' +
+            '</select></div>' +
+          '<div id="dayBox"><label>曜日<span class="req">*</span></label>' +
             '<select id="day" onchange="rebuildStaff()">' + dayOpts + '</select></div>' +
+          '<div id="dateBox" style="display:none"><label>実施日<span class="req">*</span></label>' +
+            '<input type="date" id="date" onchange="onDateChange()">' +
+            '<div class="hint" id="dateDay" style="margin:4px 0 0"></div></div>' +
           '<div><label>時限<span class="req">*</span></label>' +
             '<select id="period" onchange="rebuildStaff()">' + perOpts + '</select></div>' +
           '<div><label>内容<span class="req">*</span></label>' +
@@ -153,7 +163,8 @@
           '<div></div>' +
           '<div class="full"><label style="font-weight:600;cursor:pointer">' +
             '<input type="checkbox" id="eligOnly" checked onchange="rebuildStaff()" style="width:auto">' +
-            ' このコマに空きがあり、スキルも合う人だけ表示</label></div>' +
+            ' このコマに空きがあり、スキルも合う人だけ表示</label>' +
+            '<div class="hint" id="eligNote" style="margin:4px 0 0;display:none"></div></div>' +
           '<div><label>担当スタッフA<span class="req">*</span></label>' +
             '<select id="staff_a_id"></select></div>' +
           '<div><label>担当スタッフB</label><select id="staff_b_id"></select></div>' +
@@ -162,7 +173,9 @@
         '<button class="btn primary block" id="submit" onclick="submitCourse()">このコマを追加</button>' +
         '<button class="btn block" id="cancelEdit" onclick="cancelEdit()" style="display:none">編集をやめる</button>' +
         '<p class="hint">＊は必須。テイクはB欄に2人目を選びます（未定なら「なし」のままでも登録可）。' +
-        '担当欄は選んだ曜日・時限に空きがあり内容に対応できる人だけを表示します。' +
+        '毎週のコマでは、担当欄に「選んだ曜日・時限に空きがあり内容に対応できる人」だけを表示します。' +
+        '「この日だけ」（特別授業・説明会など）では<b>全員から選べます</b>' +
+        '（空きコマは毎週の予定なので、その日の予定を表さないため）。' +
         '登録済みのコマは下の一覧の「編集」から修正できます（教室が後から決まった場合など）。</p>';
 
       fillUserOptions();
@@ -202,6 +215,57 @@
       else { b.disabled = false; }
     }
 
+    // ===== 種別（毎週 / この日だけ）=====
+    function isOnce() {
+      var el = document.getElementById('recurrence');
+      return !!el && el.value === 'once';
+    }
+
+    // 'yyyy-MM-dd' を一覧向けの日本語表記にする（例：9/12（土））。
+    // 年は学期の中では冗長なので落とし、週バー（home）の日付ラベルと同じ M/D に揃える。
+    // サーバーが必ず 'yyyy-MM-dd' に正規化して返す前提（courseDate_ が Date も吸収する）。
+    function dateLabel(iso) {
+      var m = String(iso || '').split('-');
+      if (m.length !== 3) return String(iso || '');   // 想定外の値はそのまま出す
+      var w = weekdayOfISO(iso);
+      return (+m[1]) + '/' + (+m[2]) + (w ? '（' + w + '）' : '');
+    }
+
+    function weekdayOfISO(iso) {
+      var m = String(iso || '').split('-');
+      if (m.length !== 3) return '';
+      var d = new Date(+m[0], +m[1] - 1, +m[2]);
+      if (isNaN(d.getTime())) return '';
+      return ['日', '月', '火', '水', '木', '金', '土'][d.getDay()];
+    }
+
+    // 毎週＝曜日を選ぶ／この日だけ＝日付を選ぶ。曜日は日付から自動で決まる（サーバーも同じ導出）。
+    function onRecurrenceChange() {
+      var once = isOnce();
+      document.getElementById('dayBox').style.display = once ? 'none' : '';
+      document.getElementById('dateBox').style.display = once ? '' : 'none';
+
+      // 単発コマでは「空き×スキル」の絞り込みを使わない。available_slots は
+      // 毎週の空きコマであって、その日に空いているかを表さないため（全員から選ぶ）。
+      var elig = document.getElementById('eligOnly');
+      var note = document.getElementById('eligNote');
+      elig.disabled = once;
+      note.style.display = once ? '' : 'none';
+      note.textContent = once
+        ? '「この日だけ」では絞り込みは使いません（空きコマは毎週の予定で、その日の空き状況を表さないため）。全員から選べます。'
+        : '';
+      onDateChange();
+    }
+
+    function onDateChange() {
+      var lab = document.getElementById('dateDay');
+      if (isOnce()) {
+        var w = weekdayOfISO(val('date'));
+        lab.textContent = w ? w + '曜日として登録されます' : '実施日を選んでください';
+      }
+      rebuildStaff();
+    }
+
     // 担当A/Bの候補を「空き＋スキル」で組み直す（選択中の値は可能なら維持）
     function staffEligible(s) {
       var slotKey = val('day') + val('period');
@@ -212,7 +276,8 @@
     }
 
     function rebuildStaff() {
-      var eligOnly = document.getElementById('eligOnly').checked;
+      // 単発コマは常に全員から選ぶ（絞り込みの条件そのものが成り立たない）
+      var eligOnly = !isOnce() && document.getElementById('eligOnly').checked;
       var list = eligOnly ? DATA.staff.filter(staffEligible) : DATA.staff.slice();
       var opt = function (s) {
         var label = s.name + (s.skills ? '（' + s.skills + '）' : '');
@@ -233,9 +298,13 @@
 
     // 追加 or 更新（EDIT_ID の有無で分岐）
     function submitCourse() {
+      var once = isOnce();
       var payload = {
         quarter: val('quarter').trim(),
-        day: val('day'), period: val('period'),
+        // 単発コマは曜日を送らない（サーバーが実施日から導出する・D27）
+        day: once ? '' : val('day'),
+        date: once ? val('date') : '',
+        period: val('period'),
         support_type: val('support_type'),
         user_student: userValue(),
         subject: val('subject').trim(),
@@ -246,6 +315,7 @@
         note: val('note').trim(),
       };
       if (!payload.quarter) { showToast('学期を選択してください。', false); return; }
+      if (once && !payload.date) { showToast('実施日を選んでください。', false); return; }
       if (!payload.user_student) { showToast('利用者を入力してください。', false); return; }
 
       if (EDIT_ID) { runUpdate(payload); } else { runAdd(payload); }
@@ -299,6 +369,9 @@
       EDIT_ID = id;
       // 担当に現在の人が必ず出るよう、まず絞り込みを外して全員表示にする
       document.getElementById('eligOnly').checked = false;
+      document.getElementById('recurrence').value = c.date ? 'once' : 'weekly';
+      document.getElementById('date').value = c.date || '';
+      onRecurrenceChange();          // 表示の出し分け（この中で rebuildStaff も走る）
       document.getElementById('day').value = c.day;
       document.getElementById('period').value = c.period;
       document.getElementById('support_type').value = c.support_type;
@@ -343,6 +416,9 @@
       btn.disabled = false; btn.textContent = 'このコマを追加';
       document.getElementById('cancelEdit').style.display = 'none';
       document.getElementById('eligOnly').checked = true;
+      document.getElementById('recurrence').value = 'weekly';
+      document.getElementById('date').value = '';
+      onRecurrenceChange();
       ['subject', 'instructor', 'room', 'note', 'user_new'].forEach(function (id) {
         document.getElementById(id).value = '';
       });
@@ -392,11 +468,15 @@
       host.innerHTML = courses.map(function (c) {
         var isTake = c.support_type === 'テイク';
         var staff = escapeHtml(c.staffA || '—') + (c.staffB ? ' ・ ' + escapeHtml(c.staffB) : '');
-        var slot = escapeHtml(c.day) + escapeHtml(c.period) + '限';
+        // 単発コマは曜日ではなく実施日で示す（毎週のコマと読み分けられるように）
+        var slot = c.date
+          ? escapeHtml(dateLabel(c.date)) + escapeHtml(c.period) + '限'
+          : escapeHtml(c.day) + escapeHtml(c.period) + '限';
         var label = slot + ' ' + c.support_type + ' ' + (c.user_student || '');
         var info =
           '<span class="slot">' + slot + '</span>' +
           '<span class="tag ' + (isTake ? 'take' : 'help') + '">' + escapeHtml(c.support_type) + '</span>' +
+          (c.date ? '<span class="tag once">単発</span>' : '') +
           ' <b>' + escapeHtml(c.user_student) + '</b>' +
           '<div class="sub">' + escapeHtml(c.subject || '—')
             + (c.room ? ' / ' + escapeHtml(c.room) : '')
