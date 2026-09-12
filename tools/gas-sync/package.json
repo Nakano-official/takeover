@@ -1,0 +1,8 @@
+{
+  "name": "shift-gas-sync",
+  "private": true,
+  "description": "Google Apps Script同期用CLI",
+  "dependencies": {
+    "@google/clasp": "^3.4.1"
+  }
+}

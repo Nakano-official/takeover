@@ -23,6 +23,12 @@
 
 const PROP_DEVICE_TOKEN = 'DEVICE_TOKEN';
 
+// 大学ログイン済みのPC専用。呼び出しのたびに職員権限を確認する。
+function getDeviceRelaySummary() {
+  requireStaff_();
+  return getOpenVacancySummary_();
+}
+
 /**
  * 端末ポーリングを処理して JSON を返す（doGet から分岐して呼ばれる）。
  * @param {Object} params e.parameter（token を含む）
