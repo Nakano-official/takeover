@@ -275,6 +275,50 @@ function migrateCoursesColumns() {
   Logger.log('   既存行の新カラムは空です。時間割の内容を入力してください。');
 }
 
+// registrations シートの列（Setup と Registration.gs で共有する唯一の出所）
+const REGISTRATION_HEADERS = [
+  'registration_id',
+  'email',          // 申請者（Session から取る。本人が入力する項目ではない）
+  'name',           // 氏名（承認時に staffs.name になる）
+  'phone',
+  'webhook_url',
+  'skills',         // 本人の申告。承認時に職員が確定させる
+  'slots',          // 空きコマ（'月1,火3'）
+  'note',           // 申請者からの連絡事項
+  'status',         // 申請中 / 承認済 / 却下
+  'applied_at',
+  'decided_at',
+  'decided_by',     // 承認・却下した職員の staff_id
+  'staff_id',       // 承認で採番された staff_id（却下なら空）
+  'reject_reason',
+];
+
+/**
+ * 既存の連絡先DBに registrations シートを追加する（D28・利用登録の申請）。
+ *
+ * 未登録者が自分で申請を出し、職員が承認して初めて staffs / contacts に行ができる。
+ * このシートが無いと申請画面が保存できない。冪等。
+ */
+function migrateAddRegistrationsSheet() {
+  const ss = openContactsDb_();
+  var sheet = ss.getSheetByName('registrations');
+  if (sheet) {
+    Logger.log('✅ 連絡先DBには既に registrations シートがあります（追加なし）。');
+    return;
+  }
+  sheet = ss.insertSheet('registrations');
+  sheet.getRange(1, 1, 1, REGISTRATION_HEADERS.length).setValues([REGISTRATION_HEADERS]);
+  ['phone', 'applied_at', 'decided_at'].forEach(function (name) {
+    const idx = REGISTRATION_HEADERS.indexOf(name);
+    if (idx === -1) return;
+    sheet.getRange(2, idx + 1, Math.max(sheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+  });
+  applyHeaderStyle_([sheet], '#cc0000');
+  invalidateSheetCache_('registrations'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
+  Logger.log('✅ 連絡先DBに registrations シートを追加しました。');
+  Logger.log('   未登録アカウントで開くと申請画面が出ます。承認は「利用登録の承認」画面から。');
+}
+
 /**
  * 既存の staffs シートに slots_updated_at 列を追加する（D28・マイページ）。
  *
@@ -702,7 +746,19 @@ function setupContactsDb_(ss, data) {
   contactsSheet.getRange(2, 4, Math.max(contactsSheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
   writeTable_(contactsSheet, ['staff_id', 'name', 'email', 'phone', 'webhook_url'], data.contacts);
 
-  applyHeaderStyle_([contactsSheet], '#cc0000');
+  // 利用登録の申請（D28）。未登録者が自分で出し、職員が承認して初めて staffs/contacts に入る。
+  // 氏名・電話・Webhook を含むので連絡先DB側（職員のみ）に置く。
+  const regSheet = ss.insertSheet('registrations');
+  regSheet.getRange(1, 1, 1, REGISTRATION_HEADERS.length).setValues([REGISTRATION_HEADERS]);
+  // phone は先頭ゼロ、applied_at/decided_at は 'yyyy-MM-dd HH:mm:ss' 文字列で扱うためテキスト固定。
+  // 列全体に掛ける（10-6 / 10-6b の教訓）。
+  ['phone', 'applied_at', 'decided_at'].forEach(function (name) {
+    const idx = REGISTRATION_HEADERS.indexOf(name);
+    if (idx === -1) return;
+    regSheet.getRange(2, idx + 1, Math.max(regSheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+  });
+
+  applyHeaderStyle_([contactsSheet, regSheet], '#cc0000');
 }
 
 // ─── 共通：ヘッダー書式 ──────────────────────────────────────

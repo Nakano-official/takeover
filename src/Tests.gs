@@ -382,3 +382,90 @@ function testOneOffDiagnosis() {
   }
   Logger.log('===== 診断終了 =====');
 }
+
+// ─── 設定の診断 ──────────────────────────────────────────────
+
+/**
+ * 「リクエストされたドキュメントにアクセスする権限がありません」の切り分け用。
+ *
+ * この例外は SpreadsheetApp.openById() が投げるもので、原因は次のどれか：
+ *   (1) スクリプトプロパティのIDが**古い／別のファイルを指している**
+ *   (2) そのファイルを**作ったアカウントと、いま動かしているアカウントが違う**
+ *   (3) IDのコピーミス（URL全体を貼った・余分な空白が入った 等）
+ *
+ * どれなのかはログを見ないと分からないので、実行アカウントと2つのIDを出し、
+ * それぞれ実際に開いてみて結果を表示する。実データは変更しない。
+ */
+function showConfig() {
+  Logger.log('===== 設定の診断 =====');
+
+  // 実行アカウント。GASエディタから実行すると「いまエディタを開いている人」になり、
+  // Web App 経由だと「デプロイした人」になる。ここが食い違うと権限エラーの原因になる。
+  var active = '';
+  var effective = '';
+  try { active = Session.getActiveUser().getEmail(); } catch (e) { active = '(取得不可)'; }
+  try { effective = Session.getEffectiveUser().getEmail(); } catch (e) { effective = '(取得不可)'; }
+  Logger.log('[実行アカウント] 操作者=' + (active || '(空)') + ' / 実行権限=' + (effective || '(空)'));
+
+  const props = PropertiesService.getScriptProperties();
+  const keys = ['SPREADSHEET_ID', 'CONTACTS_SPREADSHEET_ID', 'CALENDAR_ID',
+    'CHAT_WEBHOOK_URL', 'DEVICE_TOKEN'];
+  Logger.log('--- スクリプトプロパティ ---');
+  keys.forEach(function (k) {
+    const v = props.getProperty(k);
+    if (!v) { Logger.log('・' + k + ' = ⚠️未設定'); return; }
+    // Webhook とトークンは秘密なので長さだけ出す
+    if (k === 'CHAT_WEBHOOK_URL' || k === 'DEVICE_TOKEN') {
+      Logger.log('・' + k + ' = 設定あり（' + v.length + '文字）');
+      return;
+    }
+    const clean = v.trim();
+    Logger.log('・' + k + ' = ' + v + (clean !== v ? '  ⚠️前後に空白があります' : ''));
+    if (clean.indexOf('http') === 0 || clean.indexOf('/') !== -1) {
+      Logger.log('    ⚠️ URLを貼っている可能性があります。IDだけ（/d/ と /edit の間）を入れてください。');
+    }
+  });
+
+  // 実際に開いてみる
+  [['メインDB', 'SPREADSHEET_ID'], ['連絡先DB', 'CONTACTS_SPREADSHEET_ID']].forEach(function (pair) {
+    const label = pair[0];
+    const id = props.getProperty(pair[1]);
+    Logger.log('--- ' + label + '（' + pair[1] + '）---');
+    if (!id) { Logger.log('  ⚠️ 未設定のため開けません。'); return; }
+    try {
+      const ss = SpreadsheetApp.openById(String(id).trim());
+      const names = ss.getSheets().map(function (sh) { return sh.getName(); });
+      Logger.log('  ✅ 開けました: 「' + ss.getName() + '」');
+      Logger.log('     オーナー: ' + safeOwner_(ss));
+      Logger.log('     シート: ' + names.join(' / '));
+    } catch (e) {
+      Logger.log('  ❌ 開けません: ' + e.message);
+      Logger.log('     → このIDのファイルを ' + (effective || active || 'この実行アカウント') +
+        ' が開けません。IDが正しいか、そのアカウントが所有/共有されているか確認してください。');
+    }
+  });
+
+  // 期待するシートが揃っているか
+  Logger.log('--- シートの有無 ---');
+  ['staffs', 'courses', 'vacancies', 'responses', 'periods', 'terms', 'contacts', 'registrations']
+    .forEach(function (name) {
+      try {
+        getSheet_(name);
+        Logger.log('  ✅ ' + name);
+      } catch (e) {
+        Logger.log('  ❌ ' + name + ' … ' + e.message);
+      }
+    });
+
+  Logger.log('===== 診断終了 =====');
+}
+
+// オーナーは取得できないことがある（共有ドライブ等）ので握りつぶす
+function safeOwner_(ss) {
+  try {
+    const o = ss.getOwner();
+    return o ? o.getEmail() : '(取得不可・共有ドライブの可能性)';
+  } catch (e) {
+    return '(取得不可: ' + e.message + ')';
+  }
+}

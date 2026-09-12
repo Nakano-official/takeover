@@ -62,12 +62,41 @@
   /* ===== 画面共通のヘッダー・ナビ（code.js の renderChrome_ が出力する） ===== */
 
   .appbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
     background: linear-gradient(180deg, var(--brand) 0%, var(--brand-dark) 100%);
     color: #fff;
-    padding: 14px 16px 15px;
+    padding: 12px 16px;
   }
   .appbar h1 { font-size: 1.12rem; margin: 0; font-weight: 700; letter-spacing: .01em; }
-  .appbar .user { font-size: .78rem; opacity: .88; margin-top: 3px; }
+
+  /* 右上のユーザー。登録済みなら**マイページへのリンク**（a.user）、
+     未登録（申請画面）ならただの文字（span.user）。ナビの項目を1つ減らすため、
+     マイページへの導線はここに置いている。 */
+  .appbar .user {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: .78rem; flex: 0 0 auto; opacity: .9;
+  }
+  .appbar a.user {
+    color: #fff; text-decoration: none; opacity: 1;
+    padding: 4px 11px 4px 5px; border-radius: var(--radius-pill);
+    background: rgba(255, 255, 255, .14);
+    transition: background .12s ease;
+  }
+  .appbar a.user:hover { background: rgba(255, 255, 255, .27); }
+  .appbar a.user.on { background: rgba(255, 255, 255, .32); }
+  .appbar .user .avatar {
+    width: 24px; height: 24px; border-radius: 50%; flex: 0 0 auto;
+    background: rgba(255, 255, 255, .26);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: .88rem; line-height: 1;
+  }
+  .appbar .user .uname {
+    display: flex; flex-direction: column; line-height: 1.25; text-align: left;
+    max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .appbar .user .uname small { opacity: .82; font-size: .68rem; }
+  /* 狭い画面では名前を隠してアイコンだけにする（画面名を優先） */
+  @media (max-width: 430px) { .appbar .user .uname { display: none; } }
 
   /* スクロールしてもナビは上に残す（時間割など縦に長い画面で効く） */
   .appnav {
