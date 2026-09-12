@@ -137,7 +137,8 @@
 スプレッドシートは2つに分離する（詳細は docs/spec/requirements.md・docs/spec/architecture.md）。
 
 - **メインDB**：以下のシート群。アクセスは職員 + GAS
-- **連絡先DB**：contacts シート（staff_id・氏名・メール・電話番号・webhook_url）。**職員のみアクセス可**
+- **連絡先DB**：contacts シート（staff_id・氏名・メール・電話番号・webhook_url）と
+  registrations シート（利用登録の申請・D28）。**職員のみアクセス可**
 
 ### `staffs` シート
 | カラム | 内容 |
@@ -208,6 +209,24 @@
 | period | 時限（1〜7） |
 | start_time | 開始時刻 |
 | end_time | 終了時刻 |
+
+### `registrations` シート（利用登録の申請・D28）※**連絡先DB側**
+名簿に無いアカウントが自分で出す申請を溜める。氏名・電話・Webhook を含むので連絡先DB側に置く。
+**承認するまで `staffs` / `contacts` には一切書かない**（書くのは `approveRegistration` だけ）。
+
+| カラム | 内容 |
+|---|---|
+| registration_id | 申請ID |
+| email | 申請者（**Session から取る**。本人が入力する項目ではない） |
+| name | 氏名（承認時に `staffs.name` になる） |
+| phone / webhook_url | 連絡先（承認時に `contacts` へ） |
+| skills | 本人の申告。**承認時に職員が確定させる** |
+| slots | 空きコマ（`月1,火3`） |
+| note | 申請者からの連絡事項 |
+| status | 申請中 / 承認済 / 却下 |
+| applied_at / decided_at / decided_by | 申請日時・決定日時・決定した職員の staff_id |
+| staff_id | 承認で採番された staff_id（却下なら空） |
+| reject_reason | 却下の理由（本人の申請画面に出る） |
 
 ---
 

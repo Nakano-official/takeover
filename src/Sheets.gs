@@ -20,10 +20,12 @@ const SHEET = {
   PERIODS: 'periods',
   TERMS: 'terms',
   CONTACTS: 'contacts',
+  // 利用登録の申請（D28）。氏名・電話・Webhook を含むので**連絡先DB側**に置く。
+  REGISTRATIONS: 'registrations',
 };
 
 // 連絡先DBに属するシート（これ以外はメインDB扱い）
-const CONTACTS_DB_SHEETS = [SHEET.CONTACTS];
+const CONTACTS_DB_SHEETS = [SHEET.CONTACTS, SHEET.REGISTRATIONS];
 
 // 書き込みロックの最大待機時間（ミリ秒）
 const LOCK_TIMEOUT_MS = 15000;
@@ -150,6 +152,22 @@ function findRow(sheetName, columnName, value) {
 /**
  * 指定カラムが value と一致する全行を返す。
  */
+/**
+ * findRow の大文字小文字を無視する版。メールの照合に使う。
+ *
+ * Google アカウントのメールは入力や表示で大小が揺れるため、contacts との突合を
+ * 厳密一致にすると「登録してあるのに未登録扱い」になる（ログインできなくなる）。
+ * データアクセスなのでここに置く（かつて code.js にあった）。
+ */
+function findRowCI_(sheetName, columnName, value) {
+  const target = String(value).trim().toLowerCase();
+  const rows = readRows(sheetName);
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i][columnName]).trim().toLowerCase() === target) return rows[i];
+  }
+  return null;
+}
+
 function filterRows(sheetName, columnName, value) {
   return readRows(sheetName).filter(function (row) {
     return String(row[columnName]).trim() === String(value).trim();

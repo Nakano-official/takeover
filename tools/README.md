@@ -18,6 +18,8 @@ node tools/sim-vacancy.js     # 欠員補充（機能A）のロジック
 node tools/sim-attendance.js  # 勤怠CSVの解析と15分丸め突合（機能B）
 node tools/sim-forms.js       # フォーム設問 → DB値のマッピング
 node tools/sim-oneoff.js      # 単発コマ（特別授業・イベント・D27）
+node tools/sim-profile.js     # マイページ（本人が変更できる項目の境界・D28）
+node tools/sim-registration.js # 利用登録の申請と承認（D28）
 ```
 
 いずれも失敗時は終了コード 1 を返す。
@@ -88,6 +90,20 @@ D1（先着確定）・D21（締切）・D22（募集クローズ／決着は職
 過ぎた単発の非表示・候補抽出・入力一覧の並び順。
 
 **検出できないこと**：時間割の週表示（`home.html` の `weekStateOf`）と入力画面の出し分け。ブラウザ確認が要る。
+
+## sim-profile.js / sim-registration.js（D28）
+
+`Profile.gs`（マイページ）と `Registration.gs`（利用登録の申請・承認）を検証する。
+見ているのはどちらも**境界**で、機能そのものより「越えてはいけない線」を守れているか。
+
+- `sim-profile.js` … 本人が変更できるのは電話・Webhook・空きコマの3つだけ。
+  payload に `role` や `name` を混ぜても無視されること、`staff_id` が必ず Session から取られること、
+  実在しないスロットを弾くこと。
+- `sim-registration.js` … **承認するまで `staffs` / `contacts` に一切書かない**こと、
+  **`role` を申請者が決められない**こと、メールが Session 由来であること、
+  二重承認・重複メール・却下後の再申請。
+
+**検出できないこと**：画面の見た目と操作（申請フォーム・承認画面）。ブラウザ確認が要る。
 
 ---
 

@@ -26,12 +26,23 @@ const PAGES = {
   // マイページ（D28）。本人が自分の連絡先と空きコマを直す画面なので、職員・学生とも入れる。
   // 編集できる項目はサーバー側（Profile.gs）で固定してあり、画面からは増やせない。
   mypage:  { file: 'mypage',  title: 'マイページ',         staffOnly: false },
+  // 利用登録の申請（D28）。**名簿（contacts）に無いアカウントでも開ける唯一の画面**。
+  // doGet が未登録者をここへ回す。ナビには出さない（登録済みの人には用が無いため）。
+  signup:  { file: 'signup',  title: '利用登録の申請',     staffOnly: false },
+  // 申請の承認（D28）。ここが staffs / contacts に行を作る唯一の経路。
+  approvals: { file: 'approvals', title: '利用登録の承認', staffOnly: true },
 };
+
+// 未登録アカウントを受け止める画面。PAGES のキーと合わせること。
+const SIGNUP_PAGE = 'signup';
+// ヘッダー右上のユーザーアイコンから開く画面。ナビには並べない。
+const MYPAGE_PAGE = 'mypage';
 
 // ナビに並べる画面（この順で表示する）。
 // respond は通知リンクから ?vacancy= 付きで開く画面なので、ナビには出さない。
 // ここに足せば全画面のナビに一斉に反映される（staffOnly は PAGES 側で自動判定）。
-const NAV_PAGES = ['home', 'absence', 'mypage', 'input', 'manage', 'check', 'terms'];
+// マイページはここに入れない。ヘッダー右上のユーザーアイコンから入る（renderChrome_）。
+const NAV_PAGES = ['home', 'absence', 'input', 'manage', 'approvals', 'check', 'terms'];
 
 const DEFAULT_PAGE = 'home';
 // ROLE_STAFF（'職員'）はドメイン定数なので Constants.gs にある（関数内から参照すること）。
@@ -56,12 +67,17 @@ function doGet(e) {
 
   const user = getCurrentUser_();
 
-  // 利用登録（contacts に存在）がないユーザーは拒否
+  // 名簿（contacts）に無いアカウントは、行き止まりにせず**申請画面へ回す**（D28）。
+  // かつては「職員にお問い合わせください」で終わりだったため、名簿登録が全部職員の手作業だった。
+  // ここを開けても名簿は汚れない。申請は registrations に溜まるだけで、
+  // staffs / contacts に行ができるのは職員が承認したときだけ（Registration.gs）。
   if (!user) {
-    return renderMessage_(
-      '利用登録がありません',
-      'このアカウントは支援室シフト管理システムに登録されていません。職員にお問い合わせください。'
-    );
+    return renderPage_(PAGES[SIGNUP_PAGE], SIGNUP_PAGE, null, params);
+  }
+
+  // 登録済みの人に申請画面は用が無いので既定画面へ送る
+  if (pageKey === SIGNUP_PAGE) {
+    return renderPage_(PAGES[DEFAULT_PAGE], DEFAULT_PAGE, user, params);
   }
 
   // 職員限定画面のアクセス制御
@@ -100,15 +116,7 @@ function getCurrentUser_() {
   };
 }
 
-// メールは大文字小文字を無視して照合する
-function findRowCI_(sheetName, columnName, value) {
-  const target = String(value).trim().toLowerCase();
-  const rows = readRows(sheetName);
-  for (var i = 0; i < rows.length; i++) {
-    if (String(rows[i][columnName]).trim().toLowerCase() === target) return rows[i];
-  }
-  return null;
-}
+// findRowCI_（大文字小文字を無視した行検索）はデータアクセスなので Sheets.gs にある。
 
 // 呼び出し側が職員かどうかを保証する（google.script.run で呼ぶサーバー関数の先頭で使う）
 function requireStaff_() {
@@ -161,7 +169,9 @@ function renderChrome_(config, pageKey, user) {
   const appUrl = getAppUrl_();
   const isStaff = user && user.role === ROLE_STAFF;
 
-  const visible = NAV_PAGES.filter(function (key) {
+  // 未登録者（申請画面）にはナビを出さない。行ける画面がまだ無いので、
+  // リンクを並べても押した先で弾かれるだけになる。
+  const visible = !user ? [] : NAV_PAGES.filter(function (key) {
     const p = PAGES[key];
     if (!p) return false;
     if (p.staffOnly && !isStaff) return false;       // 職員限定画面は学生に出さない
@@ -184,10 +194,27 @@ function renderChrome_(config, pageKey, user) {
   return '' +
     '<header class="appbar">' +
       '<h1>' + escapeHtml_(config.title) + '</h1>' +
-      '<div class="user">' + escapeHtml_(user && user.name ? user.name : '') + ' さん（' +
-        escapeHtml_(user && user.role ? user.role : '') + '）</div>' +
+      renderUserChip_(appUrl, pageKey, user) +
     '</header>' +
     '<nav class="appnav' + few + '">' + links + '</nav>';
+}
+
+/**
+ * ヘッダー右上のユーザー表示を作る。
+ *
+ * 登録済みなら**マイページへのリンク**にする。ナビの項目数を増やさずに導線を置けるうえ、
+ * 「自分の情報を直す」は他の画面（時間割・欠員管理）と並ぶ性質のものではないため。
+ * 未登録（申請画面）ではリンクにしない — 行ける先がまだ無い。
+ */
+function renderUserChip_(appUrl, pageKey, user) {
+  if (!user) return '<span class="user">まだ利用登録がありません</span>';
+  const current = pageKey === MYPAGE_PAGE ? ' on' : '';
+  return '<a class="user' + current + '" href="' + escapeHtml_(appUrl) +
+    '?page=' + encodeURIComponent(MYPAGE_PAGE) + '" title="マイページ（連絡先・空きコマの変更）">' +
+    '<span class="avatar" aria-hidden="true">👤</span>' +
+    '<span class="uname">' + escapeHtml_(user.name || '') +
+      '<small>' + escapeHtml_(user.role || '') + '</small></span>' +
+    '</a>';
 }
 
 // 簡易メッセージ画面（エラー・準備中など）

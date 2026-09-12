@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('shared-styles') ?>
+  <style>
+    :root { --main-max: 720px; }
+
+    label { display: block; font-size: .85rem; font-weight: 700; margin: 0 0 6px; }
+    input, textarea { width: 100%; }
+    textarea { resize: vertical; min-height: 64px; }
+    .field { margin-bottom: 16px; }
+    h2 { font-size: 1rem; margin: 0 0 4px; }
+    .lead { font-size: .88rem; color: var(--text-muted); margin: 0 0 14px; line-height: 1.8; }
+    .mail { font-weight: 700; color: var(--brand-ink); }
+
+    .checks { display: flex; gap: 16px; flex-wrap: wrap; }
+    .checks label { display: inline-flex; align-items: center; gap: 6px;
+                    font-weight: normal; margin: 0; }
+    .checks input { width: auto; }
+
+    .grid-wrap { overflow-x: auto; }
+    table.slots { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 380px; }
+    table.slots th, table.slots td { border-right: 1px solid var(--border);
+                                     border-bottom: 1px solid var(--border); text-align: center; }
+    table.slots tr > *:last-child { border-right: none; }
+    table.slots thead th { background: var(--brand); color: #fff; padding: 7px 4px;
+                           font-size: .88rem; font-weight: 600; border-color: var(--brand-dark); }
+    table.slots .ph { background: var(--surface-alt); font-size: .82rem; font-weight: 600;
+                      padding: 6px 8px; white-space: nowrap; text-align: right; }
+    table.slots .ph small { display: block; color: var(--text-faint); font-weight: normal; font-size: .7rem; }
+    table.slots td { padding: 0; }
+    table.slots td label { display: block; margin: 0; padding: 10px 4px; cursor: pointer; }
+    table.slots td label:hover { background: var(--brand-soft); }
+    table.slots input { width: auto; }
+
+    .toast { margin-top: 14px; display: none; }
+    .toast.show { display: block; }
+  </style>
+</head>
+<body>
+  <?!= chrome ?>
+
+  <main>
+    <div id="body" class="state">読み込み中…</div>
+  </main>
+
+  <script>
+    var C = null;
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    function escapeAttr(s) {
+      return escapeHtml(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+    }
+    function val(id) { var el = document.getElementById(id); return el ? el.value : ''; }
+
+    function render(c) {
+      C = c;
+      var host = document.getElementById('body');
+
+      if (c.alreadyRegistered) {
+        host.className = '';
+        host.innerHTML = '<div class="card"><h2>登録は済んでいます</h2>' +
+          '<p class="lead">このアカウントは既に利用登録されています。' +
+          '画面を再読み込みするとシフト確認が開きます。</p>' +
+          '<button class="btn primary block" onclick="location.reload()">再読み込み</button></div>';
+        return;
+      }
+
+      // 申請中は内容を見せつつ、間違いに気づいたら出し直せるようにする
+      var statusCard = '';
+      if (c.status === '申請中') {
+        statusCard = '<div class="notice info" style="margin-bottom:16px">' +
+          '<b>申請を受け付けています。</b>職員の承認をお待ちください' +
+          (c.appliedAt ? '（申請日時: ' + escapeHtml(c.appliedAt) + '）' : '') + '。<br>' +
+          '内容に間違いがあれば、下の欄を直して出し直せます。</div>';
+      } else if (c.status === '却下') {
+        statusCard = '<div class="notice warn" style="margin-bottom:16px">' +
+          '<b>前回の申請は承認されませんでした。</b>' +
+          (c.rejectReason ? '<br>理由: ' + escapeHtml(c.rejectReason) : '') +
+          '<br>内容を確認して、もう一度申請できます。</div>';
+      }
+
+      host.className = '';
+      host.innerHTML = statusCard +
+        '<div class="card">' +
+        '<h2>利用登録の申請</h2>' +
+        '<p class="lead">このアカウント（<span class="mail">' + escapeHtml(c.email) + '</span>）は' +
+        'まだ名簿に登録されていません。下の内容で申請すると、<b>職員が確認して承認します</b>。' +
+        '承認されるまでは他の画面は使えません。</p>' +
+
+        '<div class="field"><label for="name">氏名<span style="color:var(--danger)">*</span></label>' +
+          '<input id="name" placeholder="龍谷 太郎" value="' + escapeAttr(c.name) + '">' +
+          '<p class="hint">勤務実績の照合に使うので、大学に届け出ている氏名で入れてください。</p></div>' +
+
+        '<div class="field"><label for="phone">電話番号</label>' +
+          '<input id="phone" type="tel" placeholder="090-1234-5678" value="' + escapeAttr(c.phone) + '">' +
+          '<p class="hint">代行の返事が無いときに職員から連絡することがあります。</p></div>' +
+
+        '<div class="field"><label for="webhook">Google Chat の通知先URL</label>' +
+          '<input id="webhook" type="url" placeholder="https://chat.googleapis.com/..." value="'
+            + escapeAttr(c.webhook_url) + '">' +
+          '<p class="hint">代行依頼はここへ届きます。作り方は職員から配られた案内を参照してください。' +
+          '後からマイページで登録・変更もできます。</p></div>' +
+
+        '<div class="field"><label>対応できる業務</label>' +
+          '<div class="checks">' +
+          skillBox('テイク', c.skills) + skillBox('介助', c.skills) +
+          '</div>' +
+          '<p class="hint">申告内容は職員が確認して確定します。</p></div>' +
+
+        renderSlots(c) +
+
+        '<div class="field"><label for="note">職員への連絡事項</label>' +
+          '<textarea id="note" placeholder="任意">' + escapeHtml(c.note) + '</textarea></div>' +
+
+        '<button class="btn primary block" id="submit" onclick="submitForm()">' +
+          (c.status === '申請中' ? 'この内容で出し直す' : 'この内容で申請する') + '</button>' +
+        '<div id="toast" class="toast"></div>' +
+        '</div>';
+    }
+
+    function skillBox(name, current) {
+      var on = String(current || '').indexOf(name) !== -1;
+      return '<label><input type="checkbox" data-skill="' + escapeAttr(name) + '"'
+        + (on ? ' checked' : '') + '>' + escapeHtml(name) + '</label>';
+    }
+
+    function renderSlots(c) {
+      var chosen = {};
+      (c.slots || []).forEach(function (s) { chosen[s] = true; });
+      var h = '<div class="field"><label>空きコマ</label>' +
+        '<p class="hint" style="margin:0 0 8px">授業が入っていない＝<b>代行に入れる可能性がある</b>コマに' +
+        'チェックしてください。後からマイページで変更できます。</p>' +
+        '<div class="grid-wrap"><table class="slots"><thead><tr><th class="ph"></th>';
+      c.days.forEach(function (d) { h += '<th>' + escapeHtml(d) + '</th>'; });
+      h += '</tr></thead><tbody>';
+      c.periods.forEach(function (per) {
+        h += '<tr><th class="ph">' + escapeHtml(per.period) + '限'
+          + (per.time ? '<small>' + escapeHtml(per.time) + '</small>' : '') + '</th>';
+        c.days.forEach(function (d) {
+          var key = d + per.period;
+          h += '<td><label><input type="checkbox" data-slot="' + escapeAttr(key) + '"'
+            + (chosen[key] ? ' checked' : '') + '></label></td>';
+        });
+        h += '</tr>';
+      });
+      h += '</tbody></table></div></div>';
+      return h;
+    }
+
+    function picked(attr) {
+      var out = [];
+      document.querySelectorAll('input[' + attr + ']').forEach(function (b) {
+        if (b.checked) out.push(b.getAttribute(attr));
+      });
+      return out;
+    }
+
+    function submitForm() {
+      if (!val('name').trim()) { showToast('氏名を入力してください。', false); return; }
+      var btn = document.getElementById('submit');
+      btn.disabled = true;
+      btn.textContent = '送信中…';
+      google.script.run
+        .withSuccessHandler(function () {
+          btn.textContent = '申請しました';
+          showToast('申請を受け付けました。職員の承認をお待ちください。', true);
+          setTimeout(function () { location.reload(); }, 1500);
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false;
+          btn.textContent = 'この内容で申請する';
+          showToast(err.message, false);
+        })
+        .submitRegistration({
+          name: val('name').trim(),
+          phone: val('phone').trim(),
+          webhook_url: val('webhook').trim(),
+          skills: picked('data-skill').join(','),
+          slots: picked('data-slot'),
+          note: val('note').trim(),
+        });
+    }
+
+    function showToast(text, ok) {
+      var t = document.getElementById('toast');
+      t.className = 'notice toast show ' + (ok ? 'ok' : 'err');
+      t.textContent = text;
+      t.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    google.script.run
+      .withSuccessHandler(render)
+      .withFailureHandler(function (err) {
+        var host = document.getElementById('body');
+        host.className = 'state';
+        host.textContent = 'エラー: ' + err.message;
+      })
+      .getSignupContext();
+  </script>
+</body>
+</html>

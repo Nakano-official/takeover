@@ -49,6 +49,8 @@ const DEFAULT_HEADERS = {
   periods: ['period', 'start_time', 'end_time'],
   terms: ['term_id', 'system', 'start_date', 'end_date'],
   contacts: ['staff_id', 'name', 'email', 'phone', 'webhook_url'],
+  registrations: ['registration_id', 'email', 'name', 'phone', 'webhook_url', 'skills', 'slots',
+    'note', 'status', 'applied_at', 'decided_at', 'decided_by', 'staff_id', 'reject_reason'],
 };
 
 function pad(n) { return String(n).padStart(2, '0'); }
@@ -115,7 +117,16 @@ class Harness {
       (x) => String(x[keyColumn]).trim() === String(keyValue).trim())[0];
   }
 
-  setUser(user) { this.user = user; }
+  setUser(user) {
+    this.user = user;
+    if (user && user.email) this.email = user.email;
+  }
+
+  /** 名簿に無いアカウントを表す（Session のメールだけ設定する・D28 の申請フロー用） */
+  setEmail(email) {
+    this.email = email;
+    this.user = null;
+  }
 
   /** 記録された通知を種別で絞る */
   notifiesOf(kind) { return this.notifyLog.filter((n) => n.kind === kind); }
@@ -181,6 +192,17 @@ class Harness {
       console: console,
       Logger: { log: function () {} },
 
+      // ログイン中のアカウント。名簿に無い人（利用登録の申請・D28）も表せるよう、
+      // getCurrentUser_ とは別に「メールだけ」を持てるようにしてある。
+      Session: {
+        getActiveUser: function () {
+          return { getEmail: function () { return self.email || (self.user && self.user.email) || ''; } };
+        },
+        getEffectiveUser: function () {
+          return { getEmail: function () { return self.email || 'harness@example.invalid'; } };
+        },
+      },
+
       Utilities: {
         formatDate: function (d, tz, fmt) {
           const Y = d.getFullYear(), M = pad(d.getMonth() + 1), D = pad(d.getDate());
@@ -237,12 +259,19 @@ class Harness {
       // 実行内キャッシュは持たない（毎回実データを見る）。CAS の判定結果は変わらない。
       SHEET: {
         STAFFS: 'staffs', COURSES: 'courses', VACANCIES: 'vacancies', RESPONSES: 'responses',
-        PERIODS: 'periods', TERMS: 'terms', CONTACTS: 'contacts',
+        PERIODS: 'periods', TERMS: 'terms', CONTACTS: 'contacts', REGISTRATIONS: 'registrations',
       },
       readRows: function (s) { return copy(DB()[s]); },
       getHeaders_: function (s) { return H()[s].slice(); },
       findRow: function (s, col, val) {
         const r = self.row(s, col, val);
+        return r ? copy(r) : null;
+      },
+      findRowCI_: function (s, col, val) {
+        const target = String(val).trim().toLowerCase();
+        const r = DB()[s].filter(function (x) {
+          return String(x[col]).trim().toLowerCase() === target;
+        })[0];
         return r ? copy(r) : null;
       },
       filterRows: function (s, col, val) {
@@ -307,7 +336,9 @@ class Harness {
       // ── code.js / Terms.gs 相当（画面・権限まわり）──
       getCurrentUser_: function () { return self.user; },
       requireStaff_: function () {
-        if (!self.user || self.user.role !== '職員') throw new Error('職員限定の操作です。');
+        if (!self.user) throw new Error('利用登録がありません。');
+        if (self.user.role !== '職員') throw new Error('職員権限が必要です。');
+        return self.user;   // 本番の requireStaff_ は user を返す（呼び出し側が staff_id を使う）
       },
       getAppUrl_: function () { return 'https://example.invalid/app'; },
       readTerms_: function () { return copy(DB().terms); },
@@ -330,6 +361,11 @@ class Harness {
       notifySubstituteReleased: function (id, sub) {
         self.notifyLog.push({ kind: 'released', id: id, sub: sub });
         return { sent: true, reason: '' };
+      },
+      // 個別送信（承認時の疎通確認などで使う）。実送信はせず記録する。
+      postToWebhook_: function (url, text) {
+        self.notifyLog.push({ kind: 'post', url: url, text: text });
+        return true;
       },
       notifyRecruitClosed: function (id, reason, suggestion) {
         self.notifyLog.push({ kind: 'recruitClosed', id: id, reason: reason, suggestion: suggestion });
