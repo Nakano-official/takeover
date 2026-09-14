@@ -26,6 +26,9 @@ const PAGES = {
   // マイページ（D28）。本人が自分の連絡先と空きコマを直す画面なので、職員・学生とも入れる。
   // 編集できる項目はサーバー側（Profile.gs）で固定してあり、画面からは増やせない。
   mypage:  { file: 'mypage',  title: 'マイページ',         staffOnly: false },
+  // 登録済みスタッフの一覧（職員限定）。連絡先を含むので staffOnly。読み取り専用で、
+  // 名簿を作るのは承認（approvals）だけ・本人の情報を直すのはマイページだけ、という経路は崩さない。
+  roster:  { file: 'roster',  title: 'スタッフ名簿',       staffOnly: true  },
   // 利用登録の申請（D28）。**名簿（contacts）に無いアカウントでも開ける唯一の画面**。
   // doGet が未登録者をここへ回す。ナビには出さない（登録済みの人には用が無いため）。
   signup:  { file: 'signup',  title: '利用登録の申請',     staffOnly: false },
@@ -46,7 +49,7 @@ const MYPAGE_PAGE = 'mypage';
 // respond は通知リンクから ?vacancy= 付きで開く画面なので、ナビには出さない。
 // ここに足せば全画面のナビに一斉に反映される（staffOnly は PAGES 側で自動判定）。
 // マイページはここに入れない。ヘッダー右上のユーザーアイコンから入る（renderChrome_）。
-const NAV_PAGES = ['home', 'absence', 'input', 'manage', 'approvals', 'check', 'terms'];
+const NAV_PAGES = ['home', 'absence', 'input', 'manage', 'roster', 'approvals', 'check', 'terms'];
 
 const DEFAULT_PAGE = 'home';
 // ROLE_STAFF（'職員'）はドメイン定数なので Constants.gs にある（関数内から参照すること）。

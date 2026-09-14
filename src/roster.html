@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('shared-styles') ?>
+  <style>
+    :root { --main-max: 1040px; }
+
+    .card { padding: 16px 18px; margin-bottom: 14px; }
+
+    /* 上段：学生スタッフの状態を数で出す。押すとその条件で絞り込む */
+    .summary { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip { border: 1px solid transparent; border-radius: var(--radius-pill);
+            padding: 6px 14px; font-size: .85rem; font-weight: 700;
+            cursor: pointer; font-family: inherit; }
+    .chip.total { background: var(--brand-soft); color: var(--brand-ink); }
+    .chip.ok    { background: var(--ok-bg);      color: var(--ok); }
+    .chip.warn  { background: var(--warn-bg);    color: var(--warn); }
+    .chip.zero  { background: var(--surface-alt); color: var(--text-faint); }
+    .chip.on    { border-color: currentColor; box-shadow: var(--shadow-1); }
+
+    /* 絞り込み */
+    .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field label { font-size: .78rem; color: var(--text-muted); }
+    .field input, .field select { font-size: .9rem; padding: 7px 10px; }
+    #q { min-width: 220px; }
+    .count { font-size: .82rem; color: var(--text-muted); margin: 10px 0 0; }
+
+    .tablewrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+    th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border);
+             vertical-align: middle; }
+    th { font-size: .76rem; color: var(--text-muted); background: var(--surface-alt);
+         font-weight: 700; white-space: nowrap; position: sticky; top: 0; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+    /* 要対応の行は左端に色を付ける。並べ替えはしない（見るたびに行が動かないように） */
+    tr.person { cursor: pointer; }
+    tr.person:hover { background: var(--brand-soft); }
+    tr.attn td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+    tr.blocked td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
+
+    .who { font-weight: 700; }
+    .who .id { display: block; font-weight: normal; font-size: .74rem; color: var(--text-faint); }
+    .role { display: inline-block; padding: 1px 9px; border-radius: var(--radius-pill);
+            font-size: .74rem; font-weight: 700; white-space: nowrap;
+            background: var(--surface-alt); color: var(--text-muted); }
+    .role.staff { background: var(--info-bg); color: var(--info); }
+
+    .yes { color: var(--ok); font-weight: 700; }
+    .no  { color: var(--danger); font-weight: 700; }
+    .na  { color: var(--text-faint); }
+    .stale { color: var(--warn); font-weight: 700; }
+
+    /* 行を押したときに出る詳細 */
+    tr.detail > td { background: var(--surface-alt); padding: 14px 16px; }
+    .dl { display: grid; grid-template-columns: 92px 1fr; gap: 6px 14px; margin: 0 0 10px;
+          font-size: .88rem; }
+    .dl dt { color: var(--text-muted); font-size: .8rem; }
+    .dl dd { margin: 0; word-break: break-all; }
+    .dl dd.empty { color: var(--text-faint); }
+    .slotlist { display: flex; flex-wrap: wrap; gap: 5px; }
+    .slot { background: var(--surface); border: 1px solid var(--border-strong);
+            border-radius: var(--radius-sm); padding: 1px 8px; font-size: .8rem; }
+    .todo { margin: 0; padding-left: 18px; font-size: .84rem; color: var(--warn); line-height: 1.7; }
+    .todo li { margin-bottom: 2px; }
+  </style>
+</head>
+<body>
+  <?!= chrome ?>
+
+  <main>
+    <div id="top" class="state">読み込み中…</div>
+
+    <div id="body" hidden>
+      <div class="card">
+        <h2>学生スタッフの状態</h2>
+        <div id="summary" class="summary"></div>
+        <p class="hint" id="scope"></p>
+      </div>
+
+      <div class="card">
+        <div class="controls">
+          <div class="field">
+            <label for="q">氏名・ID・メールで検索</label>
+            <input type="text" id="q" placeholder="例：山田 / S003">
+          </div>
+          <div class="field">
+            <label for="kind">区分</label>
+            <select id="kind">
+              <option value="student">学生スタッフ</option>
+              <option value="staff">職員</option>
+              <option value="all">全員</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="sort">並び順</label>
+            <select id="sort">
+              <option value="name">氏名</option>
+              <option value="slots">空きコマが少ない順</option>
+              <option value="courses">担当コマが多い順</option>
+              <option value="updated">空きコマ更新が古い順</option>
+            </select>
+          </div>
+        </div>
+        <p class="count" id="count"></p>
+      </div>
+
+      <div class="card" style="padding:0;overflow:hidden">
+        <div class="tablewrap">
+          <table>
+            <thead>
+              <tr>
+                <th>氏名</th>
+                <th>区分</th>
+                <th>対応業務</th>
+                <th class="num">空きコマ</th>
+                <th>空きコマ更新</th>
+                <th class="num">担当コマ</th>
+                <th>電話</th>
+                <th>通知</th>
+                <th>個人コード</th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="orphans"></div>
+      <p class="hint" id="foot"></p>
+    </div>
+  </main>
+
+  <script>
+    var DATA = null;
+    var OPEN = {};          // staff_id → 詳細を開いているか
+    var ISSUE_FILTER = '';  // サマリーのチップで絞り込んでいる issue コード（'*' は「要対応すべて」）
+
+    // issue コード → 画面の文言。「何が起きるか」まで書く（項目名だけだと重さが伝わらない）
+    var ISSUES = {
+      contact:    { label: '連絡先DBに行が無い',   why: 'この人はログインできません。承認の途中で片側だけ作られた可能性があります。' },
+      slots:      { label: '空きコマが未登録',     why: '代行依頼の候補に一度も出てきません。マイページから登録してもらってください。' },
+      slotsStale: { label: '本人が更新していない', why: '空きコマは入っていますが、本人がマイページで出し直した記録がありません。学期が変わっていれば古い値のままです。' },
+      webhook:    { label: '通知先URLが未登録',    why: '代行依頼の通知が届きません。マイページから登録してもらってください。' },
+      phone:      { label: '電話番号が未登録',     why: '返信が無いときに職員から連絡できません。' },
+      code:       { label: '個人コードが未入力',   why: '勤怠CSVとの照合ができません。承認直後は空なので、名簿（staffs）に入れてください。' }
+    };
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    function escapeAttr(s) {
+      return escapeHtml(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+    }
+    function mark(ok, yesText, noText) {
+      return ok ? '<span class="yes">' + yesText + '</span>'
+                : '<span class="no">' + noText + '</span>';
+    }
+
+    // ── サマリー ────────────────────────────────────────────
+    function renderSummary() {
+      var s = DATA.summary;
+      var chips = [];
+      chips.push(chip('', 'total', '学生スタッフ ' + s.students + ' 人'));
+      if (s.needsAction === 0) {
+        chips.push('<span class="chip ok">全員そろっています</span>');
+      } else {
+        chips.push(chip('*', 'warn', '要対応 ' + s.needsAction + ' 人'));
+      }
+      chips.push(chip('slots', s.noSlots ? 'warn' : 'zero', '空きコマ未登録 ' + s.noSlots));
+      chips.push(chip('slotsStale', s.slotsStale ? 'warn' : 'zero', '本人未更新 ' + s.slotsStale));
+      chips.push(chip('webhook', s.noWebhook ? 'warn' : 'zero', '通知先なし ' + s.noWebhook));
+      chips.push(chip('phone', s.noPhone ? 'warn' : 'zero', '電話なし ' + s.noPhone));
+      chips.push(chip('code', s.noCode ? 'warn' : 'zero', '個人コード未入力 ' + s.noCode));
+      if (s.noContact) chips.push(chip('contact', 'warn', 'ログイン不可 ' + s.noContact));
+      document.getElementById('summary').innerHTML = chips.join('');
+
+      document.getElementById('scope').innerHTML =
+        '「担当コマ」は ' +
+        (DATA.termScope.length ? escapeHtml(DATA.termScope.join('・')) : '（学期未設定）') +
+        ' のコマ数です（終わった単発コマは数えません）。' +
+        (DATA.pendingRegistrations
+          ? ' 承認待ちの利用登録が <b>' + DATA.pendingRegistrations + ' 件</b>あります（' +
+            '<a href="<?= appUrl ?>?page=approvals">利用登録の承認</a>）。'
+          : '');
+    }
+
+    function chip(code, tone, text) {
+      var on = (code && ISSUE_FILTER === code) ? ' on' : '';
+      return '<button type="button" class="chip ' + tone + on + '" data-issue="' +
+        escapeAttr(code) + '">' + escapeHtml(text) + '</button>';
+    }
+
+    // ── 一覧 ────────────────────────────────────────────────
+    function visibleRows() {
+      var kind = document.getElementById('kind').value;
+      var q = document.getElementById('q').value.trim().toLowerCase();
+
+      var rows = DATA.rows.filter(function (r) {
+        if (kind === 'student' && !r.isStudent) return false;
+        if (kind === 'staff' && r.isStudent) return false;
+        if (ISSUE_FILTER === '*' && r.issues.length === 0) return false;
+        if (ISSUE_FILTER && ISSUE_FILTER !== '*' && r.issues.indexOf(ISSUE_FILTER) === -1) return false;
+        if (q) {
+          var hay = (r.name + ' ' + r.staff_id + ' ' + r.email + ' ' + r.personal_code).toLowerCase();
+          if (hay.indexOf(q) === -1) return false;
+        }
+        return true;
+      });
+
+      var sort = document.getElementById('sort').value;
+      if (sort === 'slots') {
+        rows.sort(function (a, b) { return a.slotCount - b.slotCount; });
+      } else if (sort === 'courses') {
+        rows.sort(function (a, b) { return b.courseCount - a.courseCount; });
+      } else if (sort === 'updated') {
+        // 未更新（空文字）が一番古い扱いになり先頭に来る
+        rows.sort(function (a, b) {
+          return String(a.slots_updated_at).localeCompare(String(b.slots_updated_at));
+        });
+      }
+      return rows;
+    }
+
+    function render() {
+      renderSummary();
+      var rows = visibleRows();
+      var host = document.getElementById('rows');
+
+      document.getElementById('count').textContent =
+        rows.length + ' 人を表示中（登録済み 全 ' + DATA.summary.total + ' 人：学生 ' +
+        DATA.summary.students + ' 人・職員 ' + DATA.summary.staffMembers + ' 人）';
+
+      if (rows.length === 0) {
+        host.innerHTML = '<tr><td colspan="9" class="state">該当する人がいません。</td></tr>';
+      } else {
+        host.innerHTML = rows.map(function (r) {
+          return personRow(r) + (OPEN[r.staff_id] ? detailRow(r) : '');
+        }).join('');
+      }
+      renderOrphans();
+      document.getElementById('foot').textContent = '最終取得: ' + DATA.generatedAt;
+    }
+
+    function personRow(r) {
+      // 「ログインできない」は他の欠けと重さが違うので赤、それ以外の欠けは黄色
+      var cls = 'person' +
+        (r.issues.indexOf('contact') !== -1 ? ' blocked' : (r.issues.length ? ' attn' : ''));
+
+      var updated = r.slots_updated_at
+        ? escapeHtml(r.slots_updated_at.slice(0, 10))
+        : (r.isStudent ? '<span class="stale">未更新</span>' : '<span class="na">—</span>');
+
+      return '<tr class="' + cls + '" data-id="' + escapeAttr(r.staff_id) + '">' +
+        '<td><span class="who">' + escapeHtml(r.name || '（氏名なし）') +
+          '<span class="id">' + escapeHtml(r.staff_id) + '</span></span></td>' +
+        '<td><span class="role' + (r.isStudent ? '' : ' staff') + '">' +
+          escapeHtml(r.role || '—') + '</span></td>' +
+        '<td>' + escapeHtml(r.skills || '全対応') + '</td>' +
+        '<td class="num">' + (r.isStudent
+          ? (r.slotCount ? r.slotCount : '<span class="no">0</span>')
+          : '<span class="na">—</span>') + '</td>' +
+        '<td>' + updated + '</td>' +
+        '<td class="num">' + r.courseCount + '</td>' +
+        '<td>' + ((r.isStudent || r.phone) ? mark(!!r.phone, escapeHtml(r.phone), '未登録')
+                                           : '<span class="na">—</span>') + '</td>' +
+        '<td>' + (r.isStudent ? mark(r.hasWebhook, '届く', '届かない')
+                              : '<span class="na">—</span>') + '</td>' +
+        '<td>' + (r.isStudent ? mark(!!r.personal_code, escapeHtml(r.personal_code), '未入力')
+                              : '<span class="na">—</span>') + '</td>' +
+        '</tr>';
+    }
+
+    function detailRow(r) {
+      var kv = function (k, v) {
+        return '<dt>' + k + '</dt><dd' + (v ? '' : ' class="empty"') + '>' +
+          (v ? escapeHtml(v) : '（未登録）') + '</dd>';
+      };
+      var slots = r.slots.length
+        ? '<div class="slotlist">' + r.slots.map(function (s) {
+            return '<span class="slot">' + escapeHtml(s) + '</span>';
+          }).join('') + '</div>'
+        : '<span class="na">（未登録）</span>';
+
+      var todo = r.issues.length
+        ? '<ul class="todo">' + r.issues.map(function (code) {
+            var i = ISSUES[code] || { label: code, why: '' };
+            return '<li><b>' + escapeHtml(i.label) + '</b> — ' + escapeHtml(i.why) + '</li>';
+          }).join('') + '</ul>'
+        : '<p class="hint">不足はありません。</p>';
+
+      return '<tr class="detail"><td colspan="9">' +
+        '<dl class="dl">' +
+          kv('メール', r.email) +
+          kv('電話番号', r.phone) +
+          '<dt>通知先URL</dt><dd' + (r.hasWebhook ? '' : ' class="empty"') + '>' +
+            (r.hasWebhook ? '登録あり（URL は表示しません）' : '（未登録・代行依頼が届きません）') +
+          '</dd>' +
+          kv('個人コード', r.personal_code) +
+          '<dt>空きコマ</dt><dd>' + slots + '</dd>' +
+          kv('空きコマ更新', r.slots_updated_at) +
+        '</dl>' + todo +
+        '<p class="hint">電話・通知先URL・空きコマは<b>本人がマイページから</b>直せます。' +
+        '対応業務（skills）と個人コードは<b>職員が名簿（staffs）で</b>直します。</p>' +
+        '</td></tr>';
+    }
+
+    function renderOrphans() {
+      var host = document.getElementById('orphans');
+      var list = DATA.orphanContacts || [];
+      if (list.length === 0) { host.innerHTML = ''; return; }
+      host.innerHTML = '<div class="notice warn"><b>名簿に対応する行が無い連絡先が ' + list.length +
+        ' 件あります。</b><br>連絡先DBにはあるのに staffs に行が無い状態です。' +
+        'この人はログインしても「利用登録がありません」になります。<br>' +
+        list.map(function (c) {
+          return '・' + escapeHtml(c.name || '（氏名なし）') + '（' +
+            escapeHtml(c.email || 'メール未登録') + '／staff_id: ' +
+            escapeHtml(c.staff_id || '空') + '）';
+        }).join('<br>') + '</div>';
+    }
+
+    // ── 操作 ────────────────────────────────────────────────
+    document.getElementById('rows').addEventListener('click', function (ev) {
+      var tr = ev.target.closest('tr.person');
+      if (!tr) return;
+      var id = tr.getAttribute('data-id');
+      OPEN[id] = !OPEN[id];
+      render();
+    });
+
+    document.getElementById('summary').addEventListener('click', function (ev) {
+      var btn = ev.target.closest('button[data-issue]');
+      if (!btn) return;
+      var code = btn.getAttribute('data-issue');
+      // 「学生スタッフ N 人」（code なし）は絞り込み解除。同じチップの再押下でも解除する。
+      ISSUE_FILTER = (!code || ISSUE_FILTER === code) ? '' : code;
+      if (ISSUE_FILTER) document.getElementById('kind').value = 'student';
+      render();
+    });
+
+    ['q', 'kind', 'sort'].forEach(function (id) {
+      var el = document.getElementById(id);
+      el.addEventListener('input', render);
+      el.addEventListener('change', render);
+    });
+
+    function load() {
+      google.script.run
+        .withSuccessHandler(function (data) {
+          DATA = data;
+          document.getElementById('top').hidden = true;
+          document.getElementById('body').hidden = false;
+          render();
+        })
+        .withFailureHandler(function (err) {
+          var top = document.getElementById('top');
+          top.className = 'state';
+          top.textContent = 'エラー: ' + err.message;
+        })
+        .getStaffRoster();
+    }
+
+    load();
+  </script>
+</body>
+</html>
