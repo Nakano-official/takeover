@@ -10,13 +10,16 @@
  *   - **その人は代行依頼が届くか**（webhook_url）・**職員から電話できるか**（phone）
  *   - **代行候補に出られるか**（available_slots。空だと構造的に永久に出てこない・backlog 10-5）
  *   - **本人が今学期の空きコマを出し直したか**（slots_updated_at。空＝職員が入れたまま・D28）
- *   - **勤怠の照合ができるか**（personal_code。承認直後は必ず空・D28）
  *   - 今学期に何コマ持っているか
  *
  * ■ 読み取り専用
  *   ここでは何も書き換えない。名簿を作るのは承認（approveRegistration）だけ、
  *   本人の連絡先と空きコマを直すのはマイページ（Profile.gs）だけ、という D28 の経路を崩さない。
- *   職員が管理する項目（skills / personal_code）はシートで直す。
+ *   職員が管理する項目（skills）はシートで直す。
+ *
+ * ■ 個人コード（personal_code）は出さない
+ *   機能B（勤怠整合性チェック）を実装しない方針になったため（2026-09-13）、この列を読む相手が
+ *   いなくなった。入力画面も無いまま「未入力」と警告し続けると、直しようのない赤が並ぶだけになる。
  *
  * ■ 個人情報
  *   連絡先（メール・電話）を含むので **職員限定**。requireStaff_() を先頭で必ず通す。
@@ -55,7 +58,6 @@ function getStaffRoster() {
     const slots = splitSlots_(s.available_slots);
     const phone = contact ? String(contact.phone || '').trim() : '';
     const webhook = contact ? String(contact.webhook_url || '').trim() : '';
-    const code = String(s.personal_code || '').trim();
     const updatedAt = rosterTimestamp_(s.slots_updated_at);
 
     // 「欠けていること」をコードで返す。文言は画面側に置く（ここはデータだけ返す）。
@@ -70,7 +72,6 @@ function getStaffRoster() {
       // 「行を作る」の1つしかない。根本の contact だけを出して重ねない。
       if (contact && !webhook) issues.push('webhook');
       if (contact && !phone) issues.push('phone');
-      if (!code) issues.push('code');
     }
 
     return {
@@ -85,7 +86,6 @@ function getStaffRoster() {
       // URL は**それを知っている人なら誰でも投稿できる**秘密に近い値なので画面に晒さない。
       hasWebhook: !!webhook,
       hasContact: !!contact,
-      personal_code: code,
       slots: slots,
       slotCount: slots.length,
       slots_updated_at: updatedAt,
@@ -185,7 +185,6 @@ function rosterSummary_(rows) {
     slotsStale: count('slotsStale'),
     noWebhook: count('webhook'),
     noPhone: count('phone'),
-    noCode: count('code'),
   };
 }
 

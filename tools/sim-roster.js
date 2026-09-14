@@ -9,9 +9,12 @@
  *   1. **職員限定であること**。連絡先（メール・電話）を含むので学生に返してはいけない。
  *   2. **Webhook URL そのものを返さないこと**。届くかどうかだけ分かれば足り、
  *      URL は知っている人なら誰でも投稿できる値なので画面に出さない。
- *   3. **「欠けていること」を取りこぼさないこと**。空きコマ未登録・通知先なし・個人コード未入力は
- *      どれも「動いているように見えて実は届かない／照合できない」種類の壊れ方で、
+ *   3. **「欠けていること」を取りこぼさないこと**。空きコマ未登録・通知先なしは
+ *      どちらも「動いているように見えて実は届かない」種類の壊れ方で、
  *      この画面が唯一の気づく場所になる。
+ *   4. **個人コード（personal_code）を返さないこと**。機能Bを実装しない方針になり
+ *      （2026-09-13）読む相手がいなくなった。列はシートに残っているので、うっかり
+ *      画面へ戻さないようにここで固定する。
  */
 const { Harness } = require('./gas-harness');
 
@@ -50,7 +53,7 @@ function setup() {
     phone: '090-1111-1111', webhook_url: OK_HOOK,
   });
 
-  // ② 承認直後の状態：個人コードが空・通知先も電話も無い
+  // ② 承認直後の状態：通知先も電話も無い
   h.add('staffs', {
     staff_id: 'S102', name: '承認直後 次郎', role: '学生', skills: '',
     available_slots: '水3', personal_code: '', slots_updated_at: '2026-09-02 09:00:00',
@@ -143,7 +146,6 @@ h.check(JSON.stringify(res.rows).indexOf(OK_HOOK) === -1,
   'Webhook URL そのものは絶対に返さない（知っていれば誰でも投稿できる値のため）');
 h.check(JSON.stringify(s101.slots) === JSON.stringify(['月1', '火2']) && s101.slotCount === 2,
   '空きコマを配列と件数で返す');
-h.check(s101.personal_code === 'Y200001', '個人コードを返す（勤怠照合の可否が分かる）');
 h.check(s101.issues.length === 0, '何も欠けていない人は issues が空');
 
 const t1 = rowOf(res, 'T1');
@@ -156,7 +158,6 @@ h.check(res.rows[res.rows.length - 1].staff_id === 'T1', '学生を先に、職�
 h.section('3) 欠けていることの検出');
 const has = (id, code) => rowOf(res, id).issues.indexOf(code) !== -1;
 
-h.check(has('S102', 'code'), '個人コードが空なら code');
 h.check(has('S102', 'webhook'), '通知先が無ければ webhook（代行依頼が届かない）');
 h.check(has('S102', 'phone'), '電話が無ければ phone');
 h.check(!has('S102', 'slots') && !has('S102', 'slotsStale'),
@@ -172,7 +173,7 @@ h.check(has('S105', 'contact'), '連絡先DBに行が無ければ contact（ロ�
 h.check(rowOf(res, 'S105').hasContact === false, 'hasContact=false で行の強調に使える');
 h.check(!has('S105', 'webhook') && !has('S105', 'phone'),
   '連絡先の行ごと無い人に「通知先なし」「電話なし」を重ねない（直す手順は行を作る1つだけ）');
-h.check(has('S105', 'code') === false && rowOf(res, 'S105').personal_code === 'Y200005',
+h.check(rowOf(res, 'S105').slotCount === 1,
   '名簿（staffs）側の項目は連絡先の有無と無関係に見る');
 
 // ── 4) サマリー ────────────────────────────────────────────
@@ -180,7 +181,6 @@ h.section('4) サマリー');
 const sum = res.summary;
 h.check(sum.total === 6 && sum.students === 5 && sum.staffMembers === 1, '人数の内訳');
 h.check(sum.needsAction === 4, '不足がある学生は4人（S102・S103・S104・S105）');
-h.check(sum.noCode === 1, '個人コード未入力は1人');
 h.check(sum.noWebhook === 1, '通知先なしは1人');
 h.check(sum.noPhone === 1, '電話なしは1人');
 h.check(sum.noSlots === 1, '空きコマ未登録は1人');
@@ -235,16 +235,15 @@ setup();
 // google.script.run が戻り値ごと null にするので、必ず文字列にしてから返す。
 // （Date は harness 側ではなく**サンドボックス内**で作る。realm をまたぐと instanceof が効かない）
 h.row('staffs', 'staff_id', 'S101').slots_updated_at = h.value('new Date(2026, 8, 1, 10, 0, 0)');
-// 個人コードが数字だけだと Sheets が数値として読み戻す
-h.row('staffs', 'staff_id', 'S102').personal_code = 20200002;
 asStaff();
 res = G.getStaffRoster();
 h.check(typeof rowOf(res, 'S101').slots_updated_at === 'string' &&
   rowOf(res, 'S101').slots_updated_at.indexOf('2026-09-01') === 0,
   'Date の slots_updated_at を文字列に直して返す');
-h.check(rowOf(res, 'S102').personal_code === '20200002',
-  '数値で読み戻された個人コードを文字列として返す');
-h.check(rowOf(res, 'S102').issues.indexOf('code') === -1,
-  '数値の個人コードを「未入力」と誤判定しない');
+// 機能Bを実装しない以上、この列は画面に出さない（シートには残っている）
+h.check(rowOf(res, 'S101').personal_code === undefined,
+  '★個人コードは返さない（機能B未実装・2026-09-13）');
+h.check(JSON.stringify(res).indexOf('Y200001') === -1,
+  '★個人コードの値がレスポンスのどこにも混ざらない');
 
 process.exitCode = h.report();

@@ -194,7 +194,7 @@ function approveRegistration(registrationId, opts) {
     role: role,
     skills: skills,
     available_slots: String(reg.slots || '').trim(),
-    personal_code: '',              // 勤怠CSVの突合キー。職員が後から入れる（D2/D14）
+    personal_code: '',              // 列は残っているが使わない（機能Bを実装しないため・2026-09-13）
     slots_updated_at: nowString_(), // 本人の申告なので「本人が出した」扱いにする（D28）
   });
 

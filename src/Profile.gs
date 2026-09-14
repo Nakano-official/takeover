@@ -12,7 +12,6 @@
  *
  *   ❌ staffs.name           … 機能Bがカレンダーの氏名で突合する（D7③）。変えると照合が黙って壊れる
  *   ❌ staffs.skills         … 誰にどの依頼が飛ぶかを決める。自己申告だと未研修者にテイクが回る
- *   ❌ staffs.personal_code  … 勤怠CSVの突合キー（D2/D14）。壊れても気づけない
  *   ❌ staffs.role           … 自分を職員にできてしまう＝連絡先DB全体が見える画面に入れる
  *   ❌ contacts.email / staff_id … 本人を特定するキーそのもの
  *
@@ -49,7 +48,6 @@ function getMyProfile() {
     name: staff ? String(staff.name || '').trim() : user.name,
     role: String(user.role || '').trim(),
     skills: staff ? String(staff.skills || '').trim() : '',
-    personal_code: staff ? String(staff.personal_code || '').trim() : '',
     // ── 本人が変更できる項目 ──
     phone: contact ? String(contact.phone || '').trim() : '',
     webhook_url: contact ? String(contact.webhook_url || '').trim() : '',

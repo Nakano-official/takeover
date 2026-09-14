@@ -86,7 +86,6 @@
           ro('区分', p.role) +
           ro('メール', p.email) +
           (p.isStudent ? ro('対応できる業務', p.skills, '空欄は全対応として扱われます') : '') +
-          (p.isStudent ? ro('個人コード', p.personal_code, '勤怠の照合に必要です') : '') +
         '</dl></div>';
 
       // ── 連絡先（本人が変更できる）──

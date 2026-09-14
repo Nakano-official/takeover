@@ -122,7 +122,6 @@
                 <th class="num">担当コマ</th>
                 <th>電話</th>
                 <th>通知</th>
-                <th>個人コード</th>
               </tr>
             </thead>
             <tbody id="rows"></tbody>
@@ -146,8 +145,7 @@
       slots:      { label: '空きコマが未登録',     why: '代行依頼の候補に一度も出てきません。マイページから登録してもらってください。' },
       slotsStale: { label: '本人が更新していない', why: '空きコマは入っていますが、本人がマイページで出し直した記録がありません。学期が変わっていれば古い値のままです。' },
       webhook:    { label: '通知先URLが未登録',    why: '代行依頼の通知が届きません。マイページから登録してもらってください。' },
-      phone:      { label: '電話番号が未登録',     why: '返信が無いときに職員から連絡できません。' },
-      code:       { label: '個人コードが未入力',   why: '勤怠CSVとの照合ができません。承認直後は空なので、名簿（staffs）に入れてください。' }
+      phone:      { label: '電話番号が未登録',     why: '返信が無いときに職員から連絡できません。' }
     };
 
     function escapeHtml(s) {
@@ -176,7 +174,6 @@
       chips.push(chip('slotsStale', s.slotsStale ? 'warn' : 'zero', '本人未更新 ' + s.slotsStale));
       chips.push(chip('webhook', s.noWebhook ? 'warn' : 'zero', '通知先なし ' + s.noWebhook));
       chips.push(chip('phone', s.noPhone ? 'warn' : 'zero', '電話なし ' + s.noPhone));
-      chips.push(chip('code', s.noCode ? 'warn' : 'zero', '個人コード未入力 ' + s.noCode));
       if (s.noContact) chips.push(chip('contact', 'warn', 'ログイン不可 ' + s.noContact));
       document.getElementById('summary').innerHTML = chips.join('');
 
@@ -207,7 +204,7 @@
         if (ISSUE_FILTER === '*' && r.issues.length === 0) return false;
         if (ISSUE_FILTER && ISSUE_FILTER !== '*' && r.issues.indexOf(ISSUE_FILTER) === -1) return false;
         if (q) {
-          var hay = (r.name + ' ' + r.staff_id + ' ' + r.email + ' ' + r.personal_code).toLowerCase();
+          var hay = (r.name + ' ' + r.staff_id + ' ' + r.email).toLowerCase();
           if (hay.indexOf(q) === -1) return false;
         }
         return true;
@@ -237,7 +234,7 @@
         DATA.summary.students + ' 人・職員 ' + DATA.summary.staffMembers + ' 人）';
 
       if (rows.length === 0) {
-        host.innerHTML = '<tr><td colspan="9" class="state">該当する人がいません。</td></tr>';
+        host.innerHTML = '<tr><td colspan="8" class="state">該当する人がいません。</td></tr>';
       } else {
         host.innerHTML = rows.map(function (r) {
           return personRow(r) + (OPEN[r.staff_id] ? detailRow(r) : '');
@@ -271,8 +268,6 @@
                                            : '<span class="na">—</span>') + '</td>' +
         '<td>' + (r.isStudent ? mark(r.hasWebhook, '届く', '届かない')
                               : '<span class="na">—</span>') + '</td>' +
-        '<td>' + (r.isStudent ? mark(!!r.personal_code, escapeHtml(r.personal_code), '未入力')
-                              : '<span class="na">—</span>') + '</td>' +
         '</tr>';
     }
 
@@ -294,19 +289,18 @@
           }).join('') + '</ul>'
         : '<p class="hint">不足はありません。</p>';
 
-      return '<tr class="detail"><td colspan="9">' +
+      return '<tr class="detail"><td colspan="8">' +
         '<dl class="dl">' +
           kv('メール', r.email) +
           kv('電話番号', r.phone) +
           '<dt>通知先URL</dt><dd' + (r.hasWebhook ? '' : ' class="empty"') + '>' +
             (r.hasWebhook ? '登録あり（URL は表示しません）' : '（未登録・代行依頼が届きません）') +
           '</dd>' +
-          kv('個人コード', r.personal_code) +
           '<dt>空きコマ</dt><dd>' + slots + '</dd>' +
           kv('空きコマ更新', r.slots_updated_at) +
         '</dl>' + todo +
         '<p class="hint">電話・通知先URL・空きコマは<b>本人がマイページから</b>直せます。' +
-        '対応業務（skills）と個人コードは<b>職員が名簿（staffs）で</b>直します。</p>' +
+        '対応業務（skills）は<b>職員が名簿（staffs）で</b>直します。</p>' +
         '</td></tr>';
     }
 

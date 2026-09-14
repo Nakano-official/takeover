@@ -94,7 +94,9 @@ h.check(contactRow('S101').phone === '080-2222-2222', '電話が更新される'
 h.check(staffRow('S101').name === '学生 太郎', '★氏名は書き換わらない（機能Bの照合キー・D7③）');
 h.check(staffRow('S101').role === '学生', '★role は書き換わらない（権限昇格を防ぐ）');
 h.check(staffRow('S101').skills === 'テイク', '★skills は書き換わらない（依頼の振り分けに関わる）');
-h.check(staffRow('S101').personal_code === 'Y200001', '★personal_code は書き換わらない（勤怠の突合キー）');
+h.check(staffRow('S101').personal_code === 'Y200001',
+  '★personal_code は書き換わらない（列は残っているが誰も使わない・機能B未実装）');
+h.check(p.personal_code === undefined, '★personal_code はマイページにも返さない');
 h.check(contactRow('S101').email === 's101@example.ac.jp', '★メールは書き換わらない（本人を特定するキー）');
 
 h.section('2b) staff_id は Session から取る（payload の id は見ない）');
