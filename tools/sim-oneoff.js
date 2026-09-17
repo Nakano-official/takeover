@@ -298,6 +298,26 @@ h.check(h.G.precedingMovePeriod_('2', 'テイク') === null,
 h.check(h.G.precedingMovePeriod_('移動前2', '介助') === null,
   '移動枠そのものに「前の移動枠」は無い（授業時限は移動枠として扱わない）');
 
+// ★ 時刻だけで引くと取り違える組み合わせ。
+// 授業間が15分ちょうどだと「次の授業の前の枠」の開始時刻が「前の授業の終了時刻」と
+// 一致するので、1限のあとを探すと 移動前2 が拾われてしまう（実際に画面へ出た）。
+// キーが「2限の前」と宣言しているので、そちらを優先して外す。
+h.add('periods', { period: '1', start_time: '09:15', end_time: '11:00' });
+h.check(h.G.followingMovePeriod_('1', '介助') === null,
+  '★1限のあとに枠は無い（移動前2 を「1限のあと」と取り違えない）');
+h.check(h.G.precedingMovePeriod_('1', '介助') === null,
+  '1限の前の枠を置いていないので null');
+h.add('periods', { period: '移動前1', start_time: '09:00', end_time: '09:15', support_types: '介助', label: '移動介助' });
+h.check(h.G.precedingMovePeriod_('1', '介助').period === '移動前1', '置けば引ける');
+h.check(h.G.followingMovePeriod_('2', '介助').period === '移動後2',
+  '2限のあとは取り違えの修正後も正しく引ける');
+
+// 宣言の無いキー（職員が独自の名前で足した枠）は時刻で引く
+h.add('periods', { period: '昼の付き添い', start_time: '15:00', end_time: '15:10', support_types: '介助', label: '移動介助' });
+h.add('periods', { period: '4', start_time: '15:15', end_time: '16:45' });
+h.check(h.G.followingMovePeriod_('3', '介助').period === '昼の付き添い',
+  '★宣言の無い枠は時刻でつながっていれば引ける（職員が独自名で足せる）');
+
 // 2限＝前と後の両方が付く
 const bundleBase = {
   quarter: '2026-前期', day: '月', period: '2', support_type: '介助',

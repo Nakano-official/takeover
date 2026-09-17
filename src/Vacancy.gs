@@ -897,17 +897,36 @@ function slotsByTypeOf_(staff) {
 }
 
 /**
+ * 移動枠のキーが「どの授業のどちら側か」を宣言していれば返す（D35）。
+ *
+ *   移動前3 → 3限の前 ／ 移動後2 → 2限の後
+ *
+ * 時刻だけでは**前と後を見分けられない場合がある**。授業間が15分ちょうどだと
+ * 「次の授業の前の枠」の開始時刻が「前の授業の終了時刻」と一致するため、
+ * 1限のあとを探すと `移動前2` が拾われてしまう（実際に起きた）。
+ * キーはどの授業の仕事かを明示しているので、こちらを先に見る。
+ *
+ * @return {{side:string, period:string}|null}
+ */
+function declaredMoveAttachment_(key) {
+  const m = String(key == null ? '' : key).trim().match(/^移動(前|後)(.+)$/);
+  if (!m) return null;
+  return { side: m[1] === '前' ? 'before' : 'after', period: m[2].trim() };
+}
+
+/**
  * その授業に**くっついている移動枠**を返す（D34・D35）。無ければ null。
  *
- * 時刻でつながっているかどうかだけを見る。キーの名前（`移動前3` / `移動後2`）は
- * 解析しない。職員がシートで枠を足したり時刻を変えたりできるので、
- * 名前の付け方に縛られないようにするため。
- *
- *   前 … 移動枠の**終わり** ＝ 授業の**始まり**（3限の担当が3限の前に動く）
- *   後 … 移動枠の**始まり** ＝ 授業の**終わり**（2限の担当が2限のあと食堂へ運ぶ）
+ *   前 … 3限の担当が3限の開始前に動く（`移動前3`）
+ *   後 … 2限の担当が2限のあと食堂へ運ぶ（`移動後2`）
  *
  * **1つのあいだに2つ入りうる**（2限の後と3限の前は別の人の仕事・D35）。
- * だからこの関数は「あいだ」ではなく「授業の前／後」で引く。
+ * だから「あいだ」ではなく「授業の前／後」で引く。
+ *
+ * 探し方は2段階。
+ *   1. **キーが宣言している所属**（`移動前3` / `移動後2`）で引く。これが正。
+ *   2. 宣言の無いキー（職員が独自の名前で足した枠）は**時刻でつながっているか**で引く。
+ *      このとき、別の授業に宣言済みの枠は候補から外す（取り違えを防ぐ）。
  *
  * @param {string} period       授業の時限
  * @param {string} supportType  その業務で選べる枠だけを対象にする
@@ -915,22 +934,33 @@ function slotsByTypeOf_(staff) {
  * @return {Object|null} periods の1行
  */
 function attachedMovePeriod_(period, supportType, side) {
-  const rows = readRows(SHEET.PERIODS);
-  const target = rows.filter(function (p) {
-    return String(p.period).trim() === String(period).trim();
+  const key = String(period == null ? '' : period).trim();
+  const rows = readRows(SHEET.PERIODS).filter(function (p) {
+    if (String(p.period).trim() === key) return false;
+    // 通常の授業時限（support_types が空）は移動枠ではない
+    if (!String(p.support_types || '').trim()) return false;
+    return periodAllowsSupportType_(p, supportType);
+  });
+
+  // 1) キーが「この授業のこちら側」と宣言しているもの
+  const declared = rows.filter(function (p) {
+    const at = declaredMoveAttachment_(p.period);
+    return at && at.side === side && at.period === key;
+  })[0];
+  if (declared) return declared;
+
+  // 2) 宣言の無い枠だけを、時刻でつながっているかで探す
+  const target = readRows(SHEET.PERIODS).filter(function (p) {
+    return String(p.period).trim() === key;
   })[0];
   if (!target) return null;
-
   const edge = String((side === 'after' ? target.end_time : target.start_time) || '').trim();
   if (!edge) return null;
 
   const hit = rows.filter(function (p) {
-    if (String(p.period).trim() === String(period).trim()) return false;
+    if (declaredMoveAttachment_(p.period)) return false;   // 別の授業に宣言済み
     const other = String((side === 'after' ? p.start_time : p.end_time) || '').trim();
-    if (other !== edge) return false;
-    // 通常の授業時限（support_types が空）は移動枠ではない
-    if (!String(p.support_types || '').trim()) return false;
-    return periodAllowsSupportType_(p, supportType);
+    return other === edge;
   })[0];
   return hit || null;
 }
