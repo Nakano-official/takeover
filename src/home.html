@@ -298,6 +298,67 @@
       return html;
     }
 
+    /**
+     * 授業期間外の週に出す案内（D16 の週表示）。
+     *
+     * 「この週は授業期間外です」だけだと**どこまで送ればよいか分からない**。
+     * 実際、登録した3Qのコマが今週に出ず「表示されない不具合」に見えた（2026-09-17）。
+     * 登録済みのコマが属する学期の期間を出し、その最初の週へ1回で飛べるようにする。
+     */
+    function outOfTermMessage() {
+      var head = 'この週（' + WEEK.labelByDay['月'] + '〜' + WEEK.labelByDay['日'] +
+        '）は授業期間外です。';
+      var terms = usedTermRanges();
+      if (terms.length === 0) {
+        return escapeHtml(head + '「今週へ」または前後の週をご確認ください。');
+      }
+      var lines = terms.map(function (t) {
+        return '<div>・<b>' + escapeHtml(t.term) + '</b>：' +
+          escapeHtml(t.start) + ' 〜 ' + escapeHtml(t.end) + '</div>';
+      }).join('');
+      var jump = nearestCourseWeek();
+      return escapeHtml(head) +
+        '<div style="margin:10px 0;font-size:.85rem;text-align:left;display:inline-block">' +
+        '<div style="color:var(--text-muted);margin-bottom:4px">登録されているコマの学期</div>' +
+        lines + '</div><div>' +
+        (jump ? '<button type="button" class="btn sm primary" onclick="applyWeek(\'' +
+          escapeAttr(jump) + '\')">' + escapeHtml(jump) + ' の週を見る</button> ' : '') +
+        '<button type="button" class="btn sm" onclick="goThisWeek()">今週へ</button></div>';
+    }
+
+    // 登録済みのコマが属する学期の期間（開始日の早い順）
+    function usedTermRanges() {
+      var used = {};
+      DATA.courses.forEach(function (c) { if (c.term) used[c.term] = true; });
+      return Object.keys(used)
+        .map(function (t) {
+          var r = DATA.termRange && DATA.termRange[t];
+          return r ? { term: t, start: r.start, end: r.end } : null;
+        })
+        .filter(Boolean)
+        .sort(function (a, b) { return a.start < b.start ? -1 : a.start > b.start ? 1 : 0; });
+    }
+
+    // 表示中の週にいちばん近い「授業がある日」。前にも後ろにも行ける。
+    function nearestCourseWeek() {
+      var terms = usedTermRanges();
+      if (!terms.length) return '';
+      var here = WEEK.dateByDay['月'];
+      var best = '';
+      var bestGap = null;
+      terms.forEach(function (t) {
+        // その学期の中で、今の週にいちばん近い日（期間内なら今の週そのもの）
+        var target = here < t.start ? t.start : (here > t.end ? t.end : here);
+        var gap = Math.abs(dayDiff(target, here));
+        if (bestGap === null || gap < bestGap) { bestGap = gap; best = target; }
+      });
+      return best;
+    }
+
+    function dayDiff(a, b) {
+      return Math.round((parseISO(a).getTime() - parseISO(b).getTime()) / 86400000);
+    }
+
     function statusBadge(c) {
       // テイクなのに担当が1名 ＝ 恒常的に枠が空いている（誰でも入れる）
       if ((!c.status || c.status === '通常') && c.support_type === 'テイク' && !c.staffB) {
@@ -626,9 +687,8 @@
         content.className = 'state';
         // この週に授業があるコマが1つも無い＝開講期間の外（学期の前後・長期休暇中）。
         // 絞り込みのせいで空になったのと区別できないと「壊れている」ように見えるため文言を分ける。
-        content.textContent = WEEK_COURSE_COUNT === 0
-          ? 'この週は授業期間外です（' + WEEK.labelByDay['月'] + '〜' + WEEK.labelByDay['日'] +
-            '）。「今週へ」または前後の週をご確認ください。'
+        content.innerHTML = WEEK_COURSE_COUNT === 0
+          ? outOfTermMessage()
           : (MYVIEW
               ? '担当コマも、いま入れる募集中もありません。'
               : '条件に合うコマがありません。「クリア」で絞り込みを解除できます。');
