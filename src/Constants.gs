@@ -19,6 +19,11 @@
 // ここに置くのは、役割の判定が1つの画面の都合ではなくドメインの区分だから。
 const ROLE_STAFF = '職員';
 
+// 対応できる業務（staffs.skills / courses.support_type に入る値・D9）。
+// skills 空欄は「全対応」扱い（D9）。この既定があるため、マイページでは
+// 「両方チェックを外す」を保存させない（外した人が全依頼を受ける側に倒れてしまうため・D31）。
+const SUPPORT_TYPES = ['テイク', '介助'];
+
 // 欠員の決着結果（vacancies.result に記録する確定値）
 const VACANCY_RESULT = {
   FILLED: '補充済',    // 代行者が確定した（先着自動確定 or 職員の手動確定）

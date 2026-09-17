@@ -99,9 +99,8 @@ function submitRegistration(payload) {
   // 空きコマは Profile.gs と同じ検証を通す（実在しないスロットを入れない）
   const slots = normalizeSlots_(p.slots);
   // skills は本人の申告。承認時に職員が確定させるので、ここでは値の見張りだけする。
-  const skills = ['テイク', '介助']
-    .filter(function (x) { return String(p.skills || '').indexOf(x) !== -1; })
-    .join(',');
+  // 申請の時点では「まだ決まっていない」があり得るので、空のままを許す（マイページとは別扱い）。
+  const skills = splitSkills_(p.skills).join(',');
 
   const existing = findRegistrationByEmail_(email);
   const row = {
@@ -181,9 +180,7 @@ function approveRegistration(registrationId, opts) {
 
   const o = opts || {};
   const role = String(o.role || '').trim() === ROLE_STAFF ? ROLE_STAFF : '学生';
-  const skills = ['テイク', '介助']
-    .filter(function (x) { return String(o.skills === undefined ? reg.skills : o.skills).indexOf(x) !== -1; })
-    .join(',');
+  const skills = splitSkills_(o.skills === undefined ? reg.skills : o.skills).join(',');
 
   // staffs に採番して作り、その staff_id で contacts を作る。
   // 2つのスプレッドシートをまたぐので原子的にはできない。staffs を先に作るのは、
