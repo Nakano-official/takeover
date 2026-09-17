@@ -897,6 +897,35 @@ function slotsByTypeOf_(staff) {
 }
 
 /**
+ * その時限の**直前にある移動枠**を返す（D34）。無ければ null。
+ *
+ * 「移動枠の終わり＝授業の始まり」で引く。キーの名前（`移動前1` / `移動1-2`）を
+ * 解析しないのは、職員がシートで枠を足したり時刻を変えたりできるため。
+ * 時刻でつながっているかどうかだけを見れば、名前の付け方に縛られない。
+ *
+ * @param {string} period       授業の時限
+ * @param {string} supportType  その業務で選べる枠だけを対象にする
+ * @return {Object|null} periods の1行
+ */
+function precedingMovePeriod_(period, supportType) {
+  const rows = readRows(SHEET.PERIODS);
+  const target = rows.filter(function (p) {
+    return String(p.period).trim() === String(period).trim();
+  })[0];
+  const start = target ? String(target.start_time || '').trim() : '';
+  if (!start) return null;
+
+  const hit = rows.filter(function (p) {
+    if (String(p.period).trim() === String(period).trim()) return false;
+    if (String(p.end_time || '').trim() !== start) return false;
+    // 通常の授業時限（support_types が空）は「直前の移動枠」ではない
+    if (!String(p.support_types || '').trim()) return false;
+    return periodAllowsSupportType_(p, supportType);
+  })[0];
+  return hit || null;
+}
+
+/**
  * 画面に出す時限の呼び名（D33）。`periods.label` があればそれ、無ければ従来どおり「3限」。
  *
  * 授業のあいだの移動介助のように「n限」と呼べない枠を時限マスタに足せるようにするため。

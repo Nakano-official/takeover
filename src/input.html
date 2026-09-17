@@ -151,7 +151,7 @@
             '<input type="date" id="date" onchange="onDateChange()">' +
             '<div class="hint" id="dateDay" style="margin:4px 0 0"></div></div>' +
           '<div><label>時限<span class="req">*</span></label>' +
-            '<select id="period" onchange="rebuildStaff()">' + perOpts + '</select>' +
+            '<select id="period" onchange="onPeriodChange()">' + perOpts + '</select>' +
             '<div class="hint" id="periodNote" style="margin:4px 0 0"></div></div>' +
           '<div><label>内容<span class="req">*</span></label>' +
             '<select id="support_type" onchange="onTypeChange()">' +
@@ -164,6 +164,11 @@
           '<div><label>担当教員</label><input id="instructor" placeholder="例：（仮）教員A"></div>' +
           '<div><label>教室</label><input id="room" placeholder="例：1-101"></div>' +
           '<div></div>' +
+          '<div class="full" id="moveBox" style="display:none">' +
+            '<label style="font-weight:600;cursor:pointer">' +
+            '<input type="checkbox" id="withMove" checked style="width:auto">' +
+            '<span id="moveLabel"></span></label>' +
+            '<div class="hint" id="moveHint" style="margin:4px 0 0"></div></div>' +
           '<div class="full"><label style="font-weight:600;cursor:pointer">' +
             '<input type="checkbox" id="eligOnly" checked onchange="rebuildStaff()" style="width:auto">' +
             ' このコマに空きがあり、スキルも合う人だけ表示</label>' +
@@ -215,6 +220,7 @@
       rebuildStaff();
       var b = document.getElementById('staff_b_id');
       rebuildPeriods();
+      onPeriodChange();
       if (val('support_type') === '介助') { b.value = ''; b.disabled = true; }
       else { b.disabled = false; }
     }
@@ -259,6 +265,7 @@
         ? '「この日だけ」では絞り込みは使いません（空きコマは毎週の予定で、その日の空き状況を表さないため）。全員から選べます。'
         : '';
       onDateChange();
+      onPeriodChange();
     }
 
     function onDateChange() {
@@ -284,6 +291,40 @@
           + escapeHtml(p.label || (p.period + '限'))
           + (p.time ? '（' + escapeHtml(p.time) + '）' : '') + '</option>';
       }).join('');
+    }
+
+    /**
+     * 選んでいる時限の直前に移動枠があれば、「授業前の移動介助も一緒に登録」を出す（D34）。
+     *
+     * 介助は「授業の前の移動もその人が担当する」のが基本形なので**既定でオン**にする。
+     * 連続授業などで移動が要らないときだけ外してもらう。
+     * 移動枠そのものを選んでいるときは出さない（移動の前の移動、になってしまう）。
+     */
+    function onPeriodChange() {
+      var box = document.getElementById('moveBox');
+      if (box) {
+        var per = currentPeriod();
+        var mv = per && per.movePeriod;
+        // 移動枠を選んでいるとき（supportTypes が1つに限定された枠）は対象外
+        var isMoveItself = per && (per.supportTypes || []).length < 2;
+        if (mv && !isMoveItself && val('support_type') === '介助' && !isOnce()) {
+          box.style.display = '';
+          document.getElementById('moveLabel').textContent =
+            '　この授業の前の' + mv.label + 'も一緒に登録する（' + mv.time + '）';
+          document.getElementById('moveHint').textContent =
+            '同じ担当・同じ利用者で、教室はこの授業の教室を引き継ぎます。'
+            + '移動が不要ならチェックを外してください。';
+        } else {
+          box.style.display = 'none';
+        }
+      }
+      rebuildStaff();
+    }
+
+    // いま選んでいる時限（サーバーから来た定義）
+    function currentPeriod() {
+      var key = val('period');
+      return (DATA.periods || []).filter(function (p) { return p.period === key; })[0] || null;
     }
 
     // 内容を変えたら時限の選択肢を組み直す（選択中の時限は選べるなら維持する）
@@ -357,6 +398,12 @@
         staff_a_id: val('staff_a_id'),
         staff_b_id: document.getElementById('staff_b_id').disabled ? '' : val('staff_b_id'),
         note: val('note').trim(),
+        // 授業前の移動介助も一緒に作るか（D34）。チェックが画面に出ていないときは送らない
+        withMove: (function () {
+          var box = document.getElementById('moveBox');
+          if (!box || box.style.display === 'none') return false;
+          return document.getElementById('withMove').checked;
+        })(),
       };
       if (!payload.quarter) { showToast('学期を選択してください。', false); return; }
       if (once && !payload.date) { showToast('実施日を選んでください。', false); return; }
@@ -370,7 +417,8 @@
       btn.disabled = true; btn.textContent = '追加中…';
       google.script.run
         .withSuccessHandler(function (res) {
-          showToast('追加しました（' + res.course_id + '）。', true);
+          showToast('追加しました（' + res.course_id +
+            (res.move_course_id ? ' ／ 移動介助 ' + res.move_course_id : '') + '）。', true);
           // 入力しやすいよう、コマ固有の項目だけクリア（曜日・時限・内容・担当は維持）
           ['subject', 'instructor', 'room', 'note', 'user_new'].forEach(function (id) {
             document.getElementById(id).value = '';

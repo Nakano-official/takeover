@@ -42,6 +42,17 @@ function getInputData(quarter) {
     return {
       period: String(p.period).trim(),
       label: periodLabelOf_(p.period, p),
+      // その時限の直前にある移動枠（D34）。画面は「授業前の移動介助も一緒に登録」を
+      // 出すかどうかの判断にこれを使う。
+      movePeriod: (function () {
+        const mv = precedingMovePeriod_(p.period, '介助');
+        if (!mv) return null;
+        return {
+          period: String(mv.period).trim(),
+          label: periodLabelOf_(mv.period, mv),
+          time: mv.start_time ? mv.start_time + '〜' + mv.end_time : '',
+        };
+      })(),
       time: p.start_time ? p.start_time + '〜' + p.end_time : '',
       // その時限を選べる業務。画面は内容（テイク/介助）に応じて選択肢を出し分ける（D33）
       supportTypes: SUPPORT_TYPES.filter(function (t) {
@@ -224,11 +235,55 @@ function validateCoursePayload_(p, excludeCourseId) {
 }
 
 // 1コマを追加する
+/**
+ * 1コマを追加する。
+ *
+ * `payload.withMove` が真なら、**その授業の直前の移動介助も同時に作る**（D34）。
+ * 介助は「授業の前の移動もその人が担当する」のが基本形なので、入力を2回に分けない。
+ * 移動ぶんは同じ利用者・同じ担当・同じ日（または曜日）で、教室は授業の教室
+ * （＝移動先）を引き継ぐ。
+ */
 function addCourse(payload) {
   requireStaff_();
-  const row = validateCoursePayload_(payload || {}, null);
+  const p = payload || {};
+  const row = validateCoursePayload_(p, null);
+
+  // 先に移動ぶんも検証しておく。授業だけ作ってから移動で弾かれると、
+  // 「半分だけ登録された」状態を職員が手で片付けることになる。
+  var moveRow = null;
+  if (p.withMove) {
+    const mv = precedingMovePeriod_(row.period, row.support_type);
+    if (!mv) {
+      throw new Error(periodLabelOf_(row.period, null) + ' の前に移動介助の枠がありません。');
+    }
+    moveRow = validateCoursePayload_({
+      quarter: row.quarter,
+      day: row.day,
+      date: row.date,
+      period: String(mv.period).trim(),
+      support_type: row.support_type,
+      user_student: row.user_student,
+      staff_a_id: row.staff_a_id,
+      staff_b_id: row.staff_b_id,
+      room: row.room,                  // 移動先＝授業の教室
+      note: periodLabelOf_(row.period, null) + 'の前の移動',
+    }, null);
+  }
+
   const id = appendRowWithId(SHEET.COURSES, 'course_id', 'C', row);
-  return { ok: true, course_id: id };
+
+  var moveId = '';
+  if (moveRow) {
+    try {
+      moveId = appendRowWithId(SHEET.COURSES, 'course_id', 'C', moveRow);
+    } catch (e) {
+      // 授業は作れているので、消さずに名指しで返す（黙って片方だけ残さない）
+      throw new Error('授業（' + id + '）は登録しましたが、移動介助の登録に失敗しました：'
+        + e.message + '　移動介助はシフト入力からもう一度追加してください。');
+    }
+  }
+
+  return { ok: true, course_id: id, move_course_id: moveId };
 }
 
 // 1コマを編集する（履修登録時に教室未定 → 後から修正、などに対応）
