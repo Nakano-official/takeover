@@ -363,25 +363,34 @@ function getTimetable(quarter) {
   const vacancies = readRows(SHEET.VACANCIES);
   const allCourses = readRows(SHEET.COURSES);
 
-  // 学期の選択を term マスタで解決する（11-3/D16）。
-  // home は閲覧用なので既定は「現在（開講中）」＝今日を含む学期すべての和集合
-  // （先端理工のクォーターと他学部のセメスターが同時に並ぶ）。
-  const courseTermIds = [];
-  allCourses.forEach(function (c) {
-    const q = String(c.quarter).trim();
-    if (q && courseTermIds.indexOf(q) === -1) courseTermIds.push(q);
-  });
-  const sel = resolveTermSelection_(quarter, courseTermIds, 'view');
-  const filterSet = {};
-  sel.filterIds.forEach(function (id) { filterSet[id] = true; });
   const sysMap = termSystemMap_(); // term_id → system（詳細表示で体系を出すため）
 
-  // 単発コマ（D27）は学期フィルタを通さない。学期外の説明会・行事もありうるうえ、
-  // どの週に出すかは date で決まるので、学期で落とすと「その日なのに出ない」が起きる。
-  // 実際にどの週へ出すかはクライアントが date で判定する（週送りはサーバー往復なし・D23）。
+  // 学期の開講期間（term_id → {start, end}）。
+  // 週表示では「その週のその日が学期の期間内か」をコマ単位で判定する。
+  // これが無いと、後期の終了後の週へ送っても後期のコマが並び続ける
+  // （授業が無い日に授業があるように見える）。
+  const termRange = {};
+  readTerms_().forEach(function (t) {
+    if (t.start_date && t.end_date) {
+      termRange[t.term_id] = { start: t.start_date, end: t.end_date };
+    }
+  });
+
+  // **学期では絞らない（D37）。** 表示する範囲を決めるのは「見ている週」だけ。
+  //
+  // 週送り（D23）を入れた時点で、学期フィルタは二重チェックになっていた。
+  // 二重だったせいで「サーバー側の学期だけが未来へ飛び、週では出るはずのコマが消える」
+  // という食い違いが起き、実際に3Qのコマが丸ごと消えた（D36）。軸を1本にすれば起きない。
+  //
+  // 代わりに**終了が1年以上前の学期は送らない**。courses は過去分を消さない運用なので、
+  // 何もしないと年々重くなる。1年より前の時間割を画面で見る場面は無いと判断した。
+  const cutoff = shiftDateStr_(todayJst_(), -365);
   const courses = allCourses
     .filter(function (c) {
-      return courseDate_(c) ? true : !!filterSet[String(c.quarter).trim()];
+      if (courseDate_(c)) return true;                   // 単発コマは date が出す週を決める（D27）
+      const r = termRange[String(c.quarter).trim()];
+      if (!r) return true;                               // 日付未設定の学期は落とさない（画面で警告する）
+      return r.end >= cutoff;
     })
     .map(function (c) {
       const courseId = String(c.course_id).trim();
@@ -485,22 +494,22 @@ function getTimetable(quarter) {
       };
     });
 
-  // 学期の開講期間（term_id → {start, end}）。
-  // 週表示では「その週のその日が学期の期間内か」をコマ単位で判定する必要がある。
-  // これが無いと、後期の終了後の週へ送っても後期のコマが並び続ける（授業が無い日に
-  // 授業があるように見える）。期間が未設定の学期は判定せず従来どおり表示する（D16 と同じ後方互換）。
-  const termRange = {};
-  readTerms_().forEach(function (t) {
-    if (t.start_date && t.end_date) {
-      termRange[t.term_id] = { start: t.start_date, end: t.end_date };
+  // 日付が未設定の学期にコマがぶら下がっていると、どの週に出すか判定できず
+  // **毎週出続ける**。黙って毎週出すと「先週も来週も同じ授業がある」ことになるので、
+  // 画面で名指しの警告を出せるようにここで拾っておく（学期設定へ誘導する）。
+  const undatedTerms = [];
+  courses.forEach(function (c) {
+    if (c.oneOffDate) return;
+    if (c.term && !termRange[c.term] && undatedTerms.indexOf(c.term) === -1) {
+      undatedTerms.push(c.term);
     }
   });
 
   return {
-    quarters: sel.options, quarter: sel.selected,
     days: days, periods: periods, courses: courses, me: me,
     vacancy: vacancy,   // 'course_id|yyyy-MM-dd' → {status, substitute, absent[]}
-    termRange: termRange, // term_id → {start, end}（週が開講期間内かの判定用）
+    termRange: termRange,     // term_id → {start, end}（週が開講期間内かの判定用）
+    undatedTerms: undatedTerms, // 日付未設定のまま使われている学期（警告用）
     today: todayJst_(), // 「今週」の基準（端末の時計ではなくサーバーのJSTで判定する）
   };
 }

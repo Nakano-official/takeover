@@ -12,6 +12,13 @@
  * 後期開始の数日前に開いたとき、寄せ先が 4Q になって 3Q のコマが全部消えた（D36）。
  *
  * **学期の境目は毎年必ず来る**ので、その時期の挙動をここで固定しておく。
+ *
+ * ■ D37 以降：時間割は学期で絞らない
+ *   表示範囲を決めるのは**見ている週だけ**になった（`getTimetable` は学期で落とさず、
+ *   終了が1年以上前の学期だけを除く）。どの週に出すかはクライアントの `weekStateOf` が
+ *   `termRange` を見て決める。なので**ここで見るのは「何を送るか」**で、
+ *   「どの週に出るか」はブラウザ側の話。
+ *   学期の解決（`nearestTermId_` 等）はシフト入力の既定学期とスタッフ名簿で今も使う。
  */
 const { Harness } = require('./gas-harness');
 
@@ -71,11 +78,9 @@ h.check(G.nearestTermId_(G.readTerms_()) === '2026-後期',
 
 let res = G.getTimetable('');
 h.check(ids(res) === 'C1,C2,C3',
-  '★「現在（開講中）」で、これから始まる3Q・4Q・後期のコマがすべて出る');
-
-// ここが D36 の再発防止。開始日が最新の学期（4Q）へ寄せると
-// 4Q と期間が重ならない 3Q が丸ごと消える。
-h.check(ids(G.getTimetable('2026-3Q')).indexOf('C1') !== -1, '3Q を指定しても出る');
+  '★学期で落とさずに送る（週が表示範囲を決める・D37）');
+h.check(res.quarters === undefined,
+  '★学期の選択肢はもう返さない（画面から絞り込みを外した）');
 
 h.section('1b) シフト入力の既定学期');
 const input = G.getInputData('');
@@ -101,7 +106,10 @@ h.check(scope.indexOf('2026-後期') !== -1 && scope.indexOf('2026-3Q') !== -1
 h.check(scope.indexOf('2026-前期') === -1, '前期は入らない');
 
 res = G.getTimetable('');
-h.check(ids(res) === 'C1,C2', '前期のコマは「現在」に出ない');
+h.check(ids(res) === 'C1,C2,C3',
+  '★前期のコマも送る（終了が1年以内なら落とさない。出すかどうかは週が決める）');
+h.check(res.termRange['2026-前期'] && res.termRange['2026-3Q'],
+  '★学期の期間表を返す（クライアントの週判定がこれを使う）');
 
 // ── 3) 全部終わったあと ────────────────────────────────────
 h.section('3) 年度が終わったあと（すべて過去）');
@@ -137,7 +145,30 @@ h.setUser({ staff_id: 'T1', name: '職員', role: '職員', email: 't@e.jp' });
 addCourse('C1', '2026-3Q');
 addCourse('C2', '2026-4Q');
 h.check(G.nearestTermId_(G.readTerms_()) === '', '学期が無ければ空を返す');
-h.check(ids(G.getTimetable('')) === 'C2',
-  'terms 未整備なら従来どおり courses 由来の辞書順末尾に寄せる');
+h.check(ids(G.getTimetable('')) === 'C1,C2', 'terms 未整備でもコマは送る（落とさない）');
+h.check(JSON.stringify(G.getTimetable('').undatedTerms.sort()) ===
+  JSON.stringify(['2026-3Q', '2026-4Q']),
+  '★日付が分からない学期を名指しで返す（毎週出続けるので画面で警告する）');
+
+// ── 6) 古い学期は送らない（D37）──────────────────────────
+h.section('6) 終了が1年以上前の学期は送らない');
+setupTerms([
+  ['2024-後期', 'semester', -800, -700],
+  ['2026-後期', 'semester', -10, 140],
+]);
+addCourse('C_OLD', '2024-後期');
+addCourse('C_NEW', '2026-後期');
+res = G.getTimetable('');
+h.check(ids(res) === 'C_NEW',
+  '★1年以上前に終わった学期のコマは送らない（過去分を消さない運用なので年々重くなる）');
+h.check(res.undatedTerms.length === 0, '日付のある学期は警告に出さない');
+
+// 単発コマ（D27）は学期ではなく date が週を決めるので、古い学期でも落とさない
+h.add('courses', {
+  course_id: 'C_ONCE', quarter: '2024-後期', day: '月', period: '1',
+  support_type: '介助', user_student: '利用 学生', staff_a_id: 'S1', date: T.dateIn(3),
+});
+h.check(ids(G.getTimetable('')).indexOf('C_ONCE') !== -1,
+  '★単発コマは学期で落とさない（date がこれからの日なら出す）');
 
 process.exitCode = h.report();

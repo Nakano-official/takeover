@@ -125,6 +125,15 @@ function dayGap_(a, b) {
   return Math.round((da.getTime() - db.getTime()) / 86400000);
 }
 
+/** 'yyyy-MM-dd' を日数ぶんずらした 'yyyy-MM-dd' を返す */
+function shiftDateStr_(iso, days) {
+  const p = String(iso).split('-');
+  const d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]) + days);
+  const mm = ('0' + (d.getMonth() + 1)).slice(-2);
+  const dd = ('0' + d.getDate()).slice(-2);
+  return d.getFullYear() + '-' + mm + '-' + dd;
+}
+
 /**
  * 今日にいちばん近い学期（D36）。**今日がどの学期の期間にも入っていないとき**の寄せ先。
  *

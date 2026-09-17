@@ -77,7 +77,14 @@
 
     /* ===== 週ナビ（欠員は日付に紐づくので、表示する週を必ず1つに決める・D23）===== */
     .weekbar { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; flex-wrap: wrap; }
-    .weekbar .wk-range { font-weight: 700; font-size: 1rem; min-width: 12.5em; text-align: center; }
+    /* 週の範囲は押せる（カレンダーでその週へ飛ぶ・D37）ので、ボタンだと分かる見た目にする */
+    .weekbar .wk-range { font-weight: 700; font-size: 1rem; min-width: 12.5em; text-align: center;
+                         font-family: inherit; cursor: pointer; color: var(--text);
+                         background: var(--surface); border: 1px solid var(--border-strong);
+                         border-radius: var(--radius-sm); padding: 5px 12px; }
+    .weekbar .wk-range:hover { background: var(--brand-soft); border-color: var(--brand-border);
+                               color: var(--brand-ink); }
+    .weekbar .wk-pick input { font-size: .9rem; padding: 4px 8px; }
     .weekbar .wk-now { background: var(--brand-soft); color: var(--brand-ink);
                        border-color: var(--brand-border); font-weight: 700; }
     .weekbar .wk-tag { font-size: .78rem; color: var(--text-muted); }
@@ -198,8 +205,6 @@
       </div>
 
       <div class="toolbar" id="toolbar">
-        <label for="q">クォーター</label>
-        <select id="q" onchange="onQuarter()"></select>
         <label for="fUser">利用者</label>
         <select id="fUser" onchange="applyFilters()"></select>
         <label for="fStaff">スタッフ</label>
@@ -215,11 +220,16 @@
     </div>
     <div class="weekbar">
       <button type="button" class="btn sm" onclick="shiftWeek(-1)" aria-label="前の週">◀ 前の週</button>
-      <span class="wk-range" id="wkRange">—</span>
+      <button type="button" class="wk-range" id="wkRange" onclick="toggleWkPick()"
+              aria-expanded="false" title="日付を選んでその週へ移動">—</button>
       <button type="button" class="btn sm" onclick="shiftWeek(1)" aria-label="次の週">次の週 ▶</button>
       <button type="button" class="btn sm wk-now" id="wkNow" onclick="goThisWeek()">今週へ</button>
       <span class="wk-tag" id="wkTag"></span>
+      <span class="wk-pick" id="wkPickBox" hidden>
+        <input type="date" id="wkPick" onchange="jumpToPicked()">
+      </span>
     </div>
+    <div id="undated"></div>
     <p class="termnote">※ <?= TERM_BOUNDARY_NOTICE ?></p>
     <div id="count" class="count"></div>
     <div id="content" class="state">読み込み中…</div>
@@ -651,8 +661,6 @@
         if (val('fStaff') !== '__all__') n++;
         if (val('fType') !== '__all__') n++;
       }
-      // クォーターは既定が「現在（開講中）」＝空文字。別の学期を選んでいれば1件と数える
-      if (document.getElementById('q').value) n++;
       var badge = document.getElementById('fBadge');
       badge.textContent = n;
       badge.hidden = (n === 0);
@@ -666,7 +674,21 @@
 
     function val(id) { return document.getElementById(id).value; }
 
+    // 日付が未設定の学期にコマがあると、どの週に出すか判定できず**毎週出続ける**（D37）。
+    // 黙って毎週出すと「先週も来週も同じ授業がある」ことになるので名指しで知らせる。
+    function renderUndated() {
+      var host = document.getElementById('undated');
+      if (!host) return;
+      var list = (DATA && DATA.undatedTerms) || [];
+      if (list.length === 0) { host.innerHTML = ''; return; }
+      host.innerHTML = '<div class="notice warn">' +
+        '<b>開始日・終了日が未設定の学期があります：' + escapeHtml(list.join(' / ')) + '</b><br>' +
+        'この学期のコマは、どの週に出せばよいか判定できないため**毎週**表示されています。' +
+        '「学期設定」で日付を入れてください。</div>';
+    }
+
     function render() {
+      renderUndated();
       var content = document.getElementById('content');
       var countEl = document.getElementById('count');
       if (!DATA || DATA.courses.length === 0) {
@@ -739,16 +761,6 @@
       host.textContent = lines.join(String.fromCharCode(10));
     }
 
-    function fillQuarters() {
-      var sel = document.getElementById('q');
-      // DATA.quarters は {value,label} の配列（value='' は「現在（開講中）」の和集合）
-      sel.innerHTML = DATA.quarters.map(function (o) {
-        return '<option value="' + escapeHtml(o.value) + '"' +
-          (o.value === DATA.quarter ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>';
-      }).join('');
-      sel.style.display = DATA.quarters.length > 1 ? '' : 'none';
-    }
-
     // 利用者・スタッフの絞り込み候補を投入（選択値は可能なら維持）
     function fillFilters() {
       var users = uniqueSorted(DATA.courses.map(function (c) { return c.user_student; }));
@@ -787,9 +799,31 @@
       return out.sort();
     }
 
-    function onQuarter() {
-      // 学期を変えても、見ている週は保つ（週はクライアント側の状態なので再取得不要）
-      load(document.getElementById('q').value);
+    /**
+     * 週の範囲表示を押すと日付を選べる（D37）。
+     *
+     * 表示範囲を決める軸を**週だけ**にしたので、学期の絞り込みは無くなった。
+     * 遠い週へ行く手段が「前の週／次の週」しかないと、前の学期を見るのに何十回も押すことになる。
+     * カレンダーから直接その週へ飛べれば、学期という概念を画面に出さずに済む。
+     */
+    function toggleWkPick() {
+      var box = document.getElementById('wkPickBox');
+      var open = box.hidden;
+      box.hidden = !open;
+      document.getElementById('wkRange').setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) {
+        var input = document.getElementById('wkPick');
+        input.value = WEEK ? WEEK.dateByDay['月'] : '';
+        input.focus();
+      }
+    }
+
+    function jumpToPicked() {
+      var v = document.getElementById('wkPick').value;
+      if (!v) return;
+      document.getElementById('wkPickBox').hidden = true;
+      document.getElementById('wkRange').setAttribute('aria-expanded', 'false');
+      applyWeek(v);
     }
 
     // ===== 週の移動（D23）=====
@@ -885,6 +919,7 @@
       if (!WEEK) return;
       document.getElementById('wkRange').textContent =
         WEEK.labelByDay['月'] + '(月) 〜 ' + WEEK.labelByDay['日'] + '(日)';
+      document.getElementById('wkPickBox').hidden = true;
       // 今週を見ているときは「今週へ」を出さない（押しても何も変わらないため）
       document.getElementById('wkNow').style.display = WEEK.isThisWeek ? 'none' : '';
       document.getElementById('wkTag').textContent = WEEK.isThisWeek ? '今週' : '';
@@ -904,7 +939,6 @@
       google.script.run
         .withSuccessHandler(function (data) {
           DATA = data;
-          fillQuarters();
           fillFilters();
           applyWeek(keepWeek); // 週を載せて VIEW を作り描画
         })
