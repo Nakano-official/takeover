@@ -84,6 +84,9 @@
       return String(s == null ? '' : s)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
+    function escapeAttr(s) {
+      return escapeHtml(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+    }
     function val(id) { return document.getElementById(id).value; }
 
     function load(quarter) {
