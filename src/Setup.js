@@ -394,8 +394,16 @@ function migrateSlotsAndMovePeriods() {
   Logger.log('このあと画面へ反映するには、デプロイの更新が必要です（/dev なら不要）。');
 }
 
+// 移動介助の枠の表示名（periods.label）。
+const MOVE_PERIOD_LABEL = '移動介助';
+
+// 1限の前の移動枠（登校の付き添い）の長さ。授業間の移動と違って
+// 「前の授業の終わり」が無いため、1限の開始からこれだけさかのぼった時刻を始まりにする。
+// 実態に合わなければ periods シートの時刻を直せばよい（コードは見ていない）。
+const MOVE_BEFORE_FIRST_MIN = 30;
+
 /**
- * 時限マスタの既定値（D33）。授業時限のあいだに移動介助の枠を挟んだ並び。
+ * 時限マスタの既定値（D33）。授業時限のあいだと**1限の前**に移動介助の枠を挟んだ並び。
  *
  * 列は [period, start_time, end_time, support_types, label]。
  * `support_types` が空＝全業務で使える通常の授業時限。`介助` を入れた行は
@@ -416,14 +424,42 @@ function MOVE_PERIOD_ROWS_() {
     ['7', '20:10', '21:40'],
   ];
   const out = [];
+  // 1限の前（登校の付き添い）。前の授業が無いので、開始時刻から
+  // MOVE_BEFORE_FIRST_MIN 分さかのぼった時刻を枠の始まりにする。
+  out.push(moveRow_(
+    moveKeyBeforeFirst_(classes[0][0]),
+    shiftHhmm_(classes[0][1], -MOVE_BEFORE_FIRST_MIN),
+    classes[0][1]));
   classes.forEach(function (c, i) {
     out.push([c[0], c[1], c[2], '', '']);
     const next = classes[i + 1];
     if (next) {
-      out.push(['移動' + c[0] + '-' + next[0], c[2], next[1], '介助', '移動介助']);
+      out.push(moveRow_(moveKeyBetween_(c[0], next[0]), c[2], next[1]));
     }
   });
   return out;
+}
+
+// 移動枠の period キー。**このキーは available_slots / assist_slots に
+// 「月移動前1」の形で入る**ので、あとから変えない（既存データが一致しなくなる）。
+function moveKeyBeforeFirst_(firstPeriod) { return '移動前' + firstPeriod; }
+function moveKeyBetween_(a, b) { return '移動' + a + '-' + b; }
+
+/** 移動枠1行ぶん（periods の列順） */
+function moveRow_(key, start, end) {
+  return [key, start, end, '介助', MOVE_PERIOD_LABEL];
+}
+
+/** 'HH:mm' を分だけずらす（範囲外は端で止める） */
+function shiftHhmm_(hhmm, deltaMin) {
+  const m = String(hhmm).match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return hhmm;
+  var total = Number(m[1]) * 60 + Number(m[2]) + deltaMin;
+  if (total < 0) total = 0;
+  if (total > 24 * 60 - 1) total = 24 * 60 - 1;
+  const hh = ('0' + Math.floor(total / 60)).slice(-2);
+  const mm = ('0' + (total % 60)).slice(-2);
+  return hh + ':' + mm;
 }
 
 /**
@@ -495,6 +531,18 @@ function migrateAddMovePeriods() {
     }).filter(function (r) { return r.period; });
   };
 
+  const writeMoveRow = function (rowNumber, key, start, end) {
+    const values = headers.map(function (h) {
+      return h === 'period' ? key
+        : h === 'start_time' ? start
+        : h === 'end_time' ? end
+        : h === 'support_types' ? '介助'
+        : h === 'label' ? MOVE_PERIOD_LABEL : '';
+    });
+    sheet.getRange(rowNumber, 1, 1, headers.length).setNumberFormat('@');
+    sheet.getRange(rowNumber, 1, 1, headers.length).setValues([values]);
+  };
+
   var added = 0;
   var guard = 0;
   while (guard++ < 50) {
@@ -504,24 +552,28 @@ function migrateAddMovePeriods() {
     rows.forEach(function (r) { existing[r.period] = true; });
 
     var inserted = false;
+
+    // 1限の前（登校の付き添い）。前の授業が無いので開始時刻からさかのぼる。
+    const first = classes[0];
+    if (first && first.start) {
+      const headKey = moveKeyBeforeFirst_(first.period);
+      if (!existing[headKey]) {
+        sheet.insertRowBefore(first.row);
+        writeMoveRow(first.row, headKey, shiftHhmm_(first.start, -MOVE_BEFORE_FIRST_MIN), first.start);
+        added++;
+        continue;   // 行番号がずれるので読み直す
+      }
+    }
+
     for (var i = 0; i + 1 < classes.length; i++) {
       const a = classes[i];
       const b = classes[i + 1];
-      const key = '移動' + a.period + '-' + b.period;
+      const key = moveKeyBetween_(a.period, b.period);
       if (existing[key]) continue;
       if (!a.end || !b.start) continue;   // 時刻が入っていない行は飛ばす
 
       sheet.insertRowAfter(a.row);
-      const values = [];
-      headers.forEach(function (h) {
-        values.push(h === 'period' ? key
-          : h === 'start_time' ? a.end
-          : h === 'end_time' ? b.start
-          : h === 'support_types' ? '介助'
-          : h === 'label' ? '移動介助' : '');
-      });
-      sheet.getRange(a.row + 1, 1, 1, headers.length).setNumberFormat('@');
-      sheet.getRange(a.row + 1, 1, 1, headers.length).setValues([values]);
+      writeMoveRow(a.row + 1, key, a.end, b.start);
       added++;
       inserted = true;
       break;   // 行番号がずれるので読み直す
@@ -533,7 +585,7 @@ function migrateAddMovePeriods() {
   if (added === 0) {
     Logger.log('✅ 移動介助の枠は既にそろっています（追加なし）。');
   } else {
-    Logger.log('✅ 移動介助の枠を ' + added + ' 件、授業のあいだへ挿入しました。');
+    Logger.log('✅ 移動介助の枠を ' + added + ' 件挿入しました（1限の前と、授業のあいだ）。');
     Logger.log('   使わない区間の行は消してかまいません（残っていても空欄の帯が出るだけです）。');
   }
 }
