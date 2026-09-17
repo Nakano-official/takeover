@@ -157,7 +157,7 @@ function notifyNewVacancy(vacancyId, reopened) {
   const p = periodById[String(course.period).trim()] || {};
   const timeText = p.start_time ? p.start_time + '〜' + p.end_time : '';
   const dateText = dateToStr_(vacancy.date);
-  const slot = String(course.day).trim() + String(course.period).trim() + '限';
+  const slot = String(course.day).trim() + periodLabelOf_(course.period, p);
   const absentName = nameById[String(vacancy.absent_staff_id).trim()] || vacancy.absent_staff_id;
   const respondUrl = getAppUrl_() + '?page=respond&vacancy=' + encodeURIComponent(vacancyId);
 
@@ -259,7 +259,7 @@ function notifyVacancyFilled(vacancyId, substituteStaffId) {
   const p = periodById[String(course.period).trim()] || {};
   const timeText = p.start_time ? p.start_time + '〜' + p.end_time : '';
   const dateText = dateToStr_(vacancy.date);
-  const slot = String(course.day).trim() + String(course.period).trim() + '限';
+  const slot = String(course.day).trim() + periodLabelOf_(course.period, p);
   const subId = String(substituteStaffId).trim();
   const subName = nameById[subId] || subId;
 
@@ -359,7 +359,7 @@ function notifyVacancyClosed(vacancyId, resultLabel) {
   const p = periodById[String(course.period).trim()] || {};
   const timeText = p.start_time ? p.start_time + '〜' + p.end_time : '';
   const dateText = dateToStr_(vacancy.date);
-  const slot = String(course.day).trim() + String(course.period).trim() + '限';
+  const slot = String(course.day).trim() + periodLabelOf_(course.period, p);
 
   const result = { others: [], errors: [] };
   const candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id], vacancy.date);
@@ -407,7 +407,7 @@ function notifySubstituteReleased(vacancyId, substituteStaffId) {
   const p = periodById[String(course.period).trim()] || {};
   const timeText = p.start_time ? p.start_time + '〜' + p.end_time : '';
   const dateText = dateToStr_(vacancy.date);
-  const slot = String(course.day).trim() + String(course.period).trim() + '限';
+  const slot = String(course.day).trim() + periodLabelOf_(course.period, p);
   const name = buildNameMap_()[String(substituteStaffId).trim()] || substituteStaffId;
 
   const url = getStaffWebhook_(substituteStaffId);
@@ -459,7 +459,7 @@ function notifyRecruitClosed(vacancyId, reason, suggestion) {
   const p = periodById[String(course.period).trim()] || {};
   const timeText = p.start_time ? p.start_time + '〜' + p.end_time : '';
   const dateText = dateToStr_(vacancy.date);
-  const slot = String(course.day).trim() + String(course.period).trim() + '限';
+  const slot = String(course.day).trim() + periodLabelOf_(course.period, p);
   const absentName = nameById[String(vacancy.absent_staff_id).trim()] || vacancy.absent_staff_id;
   const manageUrl = getAppUrl_() + '?page=manage';
 

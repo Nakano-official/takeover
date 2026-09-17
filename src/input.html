@@ -130,10 +130,9 @@
       var dayOpts = DATA.days.map(function (d) {
         return '<option value="' + escapeHtml(d) + '">' + escapeHtml(d) + '</option>';
       }).join('');
-      var perOpts = DATA.periods.map(function (p) {
-        return '<option value="' + escapeHtml(p.period) + '">' + escapeHtml(p.period) + '限'
-          + (p.time ? '（' + escapeHtml(p.time) + '）' : '') + '</option>';
-      }).join('');
+      // 時限の選択肢は内容（テイク/介助）が決まってから組む。移動介助の枠は
+      // 介助でしか選べないため（D33）。組み直しは onTypeChange から呼ぶ。
+      var perOpts = periodOptions('テイク');
 
       document.getElementById('form').className = '';
       document.getElementById('form').innerHTML =
@@ -149,7 +148,8 @@
             '<input type="date" id="date" onchange="onDateChange()">' +
             '<div class="hint" id="dateDay" style="margin:4px 0 0"></div></div>' +
           '<div><label>時限<span class="req">*</span></label>' +
-            '<select id="period" onchange="rebuildStaff()">' + perOpts + '</select></div>' +
+            '<select id="period" onchange="rebuildStaff()">' + perOpts + '</select>' +
+            '<div class="hint" id="periodNote" style="margin:4px 0 0"></div></div>' +
           '<div><label>内容<span class="req">*</span></label>' +
             '<select id="support_type" onchange="onTypeChange()">' +
             '<option value="テイク">テイク（原則2名）</option>' +
@@ -211,6 +211,7 @@
     function onTypeChange() {
       rebuildStaff();
       var b = document.getElementById('staff_b_id');
+      rebuildPeriods();
       if (val('support_type') === '介助') { b.value = ''; b.disabled = true; }
       else { b.disabled = false; }
     }
@@ -264,6 +265,44 @@
         lab.textContent = w ? w + '曜日として登録されます' : '実施日を選んでください';
       }
       rebuildStaff();
+    }
+
+    /**
+     * その内容で選べる時限だけの <option>（D33）。
+     * ここを絞らないとテイクを移動介助の枠に登録でき、そのコマは
+     * **代行候補が永久に0人**になる（テイクの空きコマ表に移動枠は無いため）。
+     * サーバー側（validateCoursePayload_）でも同じ検証をしている。
+     */
+    function periodOptions(type) {
+      return DATA.periods.filter(function (p) {
+        return (p.supportTypes || []).indexOf(type) !== -1;
+      }).map(function (p) {
+        return '<option value="' + escapeAttr(p.period) + '">'
+          + escapeHtml(p.label || (p.period + '限'))
+          + (p.time ? '（' + escapeHtml(p.time) + '）' : '') + '</option>';
+      }).join('');
+    }
+
+    // 内容を変えたら時限の選択肢を組み直す（選択中の時限は選べるなら維持する）
+    function rebuildPeriods() {
+      var sel = document.getElementById('period');
+      if (!sel) return;
+      var keep = sel.value;
+      var type = val('support_type');
+      sel.innerHTML = periodOptions(type);
+      if (keep) sel.value = keep;
+      if (!sel.value && sel.options.length) sel.selectedIndex = 0;
+
+      var note = document.getElementById('periodNote');
+      if (note) {
+        var limited = DATA.periods.filter(function (p) {
+          return (p.supportTypes || []).indexOf(type) !== -1 &&
+            (p.supportTypes || []).length < 2;
+        });
+        note.textContent = limited.length
+          ? '「' + limited[0].label + '」は授業のあいだの枠です（' + type + 'のみ）。'
+          : '';
+      }
     }
 
     // 担当A/Bの候補を「空き＋スキル」で組み直す（選択中の値は可能なら維持）
@@ -472,8 +511,8 @@
         var staff = escapeHtml(c.staffA || '—') + (c.staffB ? ' ・ ' + escapeHtml(c.staffB) : '');
         // 単発コマは曜日ではなく実施日で示す（毎週のコマと読み分けられるように）
         var slot = c.date
-          ? escapeHtml(dateLabel(c.date)) + escapeHtml(c.period) + '限'
-          : escapeHtml(c.day) + escapeHtml(c.period) + '限';
+          ? escapeHtml(dateLabel(c.date)) + escapeHtml(c.periodLabel || (c.period + '限'))
+          : escapeHtml(c.day) + escapeHtml(c.periodLabel || (c.period + '限'));
         var label = slot + ' ' + c.support_type + ' ' + (c.user_student || '');
         var info =
           '<span class="slot">' + slot + '</span>' +

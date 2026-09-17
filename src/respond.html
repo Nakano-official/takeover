@@ -64,7 +64,7 @@
       var detail =
         '<dl class="detail">' +
         '<dt>日付</dt><dd>' + escapeHtml(fmtDate(v.date)) + '</dd>' +
-        '<dt>コマ</dt><dd>' + escapeHtml(v.day + v.period) + '限' +
+        '<dt>コマ</dt><dd>' + escapeHtml(v.day + (v.periodLabel || (v.period + '限'))) +
           (v.time ? '（' + escapeHtml(v.time) + '）' : '') + '</dd>' +
         '<dt>欠勤するスタッフ</dt><dd>' + escapeHtml(v.absentName) + '</dd>' +
         '</dl>';
@@ -120,7 +120,7 @@
     // 「いつ・どのコマか」を確認ダイアログに出すための1行（例：2026-09-12（土）4限（15:15〜16:45））
     function slotText() {
       if (!CUR) return '';
-      return fmtDate(CUR.date) + '（' + CUR.day + '）' + CUR.period + '限'
+      return fmtDate(CUR.date) + '（' + CUR.day + '）' + (CUR.periodLabel || (CUR.period + '限'))
         + (CUR.time ? '（' + CUR.time + '）' : '');
     }
 

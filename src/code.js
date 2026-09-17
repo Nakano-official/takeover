@@ -349,13 +349,15 @@ function getTimetable(quarter) {
     slotsByType: meRow ? slotsByTypeOf_(meRow) : {},
   };
 
-  // 時限マスタ（時刻と並び順）
+  // 時限マスタ（表示名・時刻・並び順・その枠を使える業務）
   const periodTime = {};
   const periodIndex = {};
+  const periodRowById = {};
   readRows(SHEET.PERIODS).forEach(function (p, i) {
     const key = String(p.period).trim();
     periodTime[key] = p.start_time ? p.start_time + '〜' + p.end_time : '';
     periodIndex[key] = i;
+    periodRowById[key] = p;
   });
 
   const vacancies = readRows(SHEET.VACANCIES);
@@ -399,6 +401,7 @@ function getTimetable(quarter) {
         staffB: nameById[String(c.staff_b_id).trim()] || String(c.staff_b_id || '').trim(),
         note: String(c.note || '').trim(),
         oneOffDate: courseDate_(c),          // 単発コマの実施日（空＝毎週・D27）
+        periodLabel: periodLabelOf_(c.period, periodRowById[String(c.period).trim()]),
         // status / substitute / absent / date は週によって変わるのでサーバーでは埋めない。
         // 下の vacancy（course_id|日付 の索引）から、クライアントが表示中の週ぶんだけ組み立てる。
       };
@@ -466,7 +469,21 @@ function getTimetable(quarter) {
       const ib = periodIndex[b] !== undefined ? periodIndex[b] : 999;
       return ia - ib;
     })
-    .map(function (p) { return { period: p, time: periodTime[p] || '' }; });
+    .map(function (p) {
+      const row = periodRowById[p];
+      // limited＝特定の業務でしか使えない枠（移動介助など・D33）。時間割では
+      // 授業と同じ高さの行にすると、ほぼ空の行で表が倍近くに伸びるため細い帯で描く。
+      const types = SUPPORT_TYPES.filter(function (t) {
+        return periodAllowsSupportType_(row, t);
+      });
+      return {
+        period: p,
+        label: periodLabelOf_(p, row),
+        time: periodTime[p] || '',
+        supportTypes: types,
+        limited: types.length < SUPPORT_TYPES.length,
+      };
+    });
 
   // 学期の開講期間（term_id → {start, end}）。
   // 週表示では「その週のその日が学期の期間内か」をコマ単位で判定する必要がある。

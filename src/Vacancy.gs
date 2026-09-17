@@ -59,6 +59,7 @@ function getMyCourses() {
         quarter: c.quarter,
         day: c.day,
         period: String(c.period).trim(),
+      periodLabel: periodLabelOf_(c.period, p),
         time: p.start_time ? p.start_time + '〜' + p.end_time : '',
         partner: nameById[String(partnerId).trim()] || partnerId || '',
         oneOffDate: courseDate_(c),      // 単発コマの実施日（空＝毎週・D27）
@@ -149,6 +150,7 @@ function submitAbsence(courseId, date) {
     course_id: course.course_id,
     day: course.day,
     period: String(course.period).trim(),
+    periodLabel: periodLabelOf_(course.period, buildPeriodMap_()[String(course.period).trim()]),
   };
 
   // 代行を募集せずに閉じる共通処理（候補0人・締切超過の両方から使う）。
@@ -246,6 +248,8 @@ function getVacancyForRespond(vacancyId) {
     date: dateToStr_(vacancy.date),   // Date型のまま返すと google.script.run で null になるため文字列化
     day: course ? course.day : '',
     period: course ? String(course.period).trim() : '',
+    periodLabel: course
+      ? periodLabelOf_(course.period, buildPeriodMap_()[String(course.period).trim()]) : '',
     time: p.start_time ? p.start_time + '〜' + p.end_time : '',
     absentName: nameById[String(vacancy.absent_staff_id).trim()] || vacancy.absent_staff_id,
     closed: !!String(vacancy.result).trim(),       // 対応確定済みなら true
@@ -567,6 +571,7 @@ function getVacanciesForManage() {
       date: dateToStr_(v.date),
       day: course.day || '',
       period: String(course.period || '').trim(),
+      periodLabel: periodLabelOf_(course.period, periodById[String(course.period || '').trim()]),
       time: p.start_time ? p.start_time + '〜' + p.end_time : '',
       absentName: nameById[String(v.absent_staff_id).trim()] || v.absent_staff_id,
       result: String(v.result || '').trim(),
@@ -889,6 +894,17 @@ function slotsByTypeOf_(staff) {
     out[type] = splitSlots_(staff && staff[SLOT_COLUMN_BY_SUPPORT_TYPE[type]]);
   });
   return out;
+}
+
+/**
+ * 画面に出す時限の呼び名（D33）。`periods.label` があればそれ、無ければ従来どおり「3限」。
+ *
+ * 授業のあいだの移動介助のように「n限」と呼べない枠を時限マスタに足せるようにするため。
+ * **画面側で `period + '限'` を組み立てない**こと（16か所に散っていたのをここへ寄せた）。
+ */
+function periodLabelOf_(period, periodRow) {
+  const label = String((periodRow && periodRow.label) || '').trim();
+  return label || (String(period == null ? '' : period).trim() + '限');
 }
 
 /**

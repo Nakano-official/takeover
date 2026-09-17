@@ -45,12 +45,20 @@ function getSignupContext() {
   const contact = findRowCI_(SHEET.CONTACTS, 'email', email);
   const existing = findRegistrationByEmail_(email);
 
-  const periods = readRows(SHEET.PERIODS).map(function (p) {
+  // 申請では空きコマを1つしか聞かない（承認時に両業務へ同じ値が入る・D32）ので、
+  // 全業務で使える時限だけを出す。移動介助のような業務限定の枠は、承認後に
+  // 本人がマイページの業務タブで入れる。
+  const periods = readRows(SHEET.PERIODS).filter(function (p) {
+    return String(p.period).trim() && SUPPORT_TYPES.every(function (t) {
+      return periodAllowsSupportType_(p, t);
+    });
+  }).map(function (p) {
     return {
       period: String(p.period).trim(),
+      label: periodLabelOf_(p.period, p),
       time: p.start_time ? p.start_time + '〜' + p.end_time : '',
     };
-  }).filter(function (p) { return p.period; });
+  });
 
   return {
     email: email,

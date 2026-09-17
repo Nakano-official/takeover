@@ -124,6 +124,13 @@
     .pc .ph small { display: block; color: var(--text-faint); font-weight: normal;
                     font-size: .72rem; margin-top: 2px; }
     .pc td.cell, .pc td.empty { padding: 5px; height: 56px; }
+
+    /* 授業のあいだの枠（移動介助・D33）。授業と同じ高さにすると、ほぼ空の行で
+       表が倍近くに伸びて授業が読みにくくなるので、半分以下の高さの帯として描く。 */
+    .pc tr.between td.cell, .pc tr.between td.empty { height: 22px; padding: 2px 5px; }
+    .pc tr.between td { background: var(--surface-alt); }
+    .pc tr.between .ph { font-size: .74rem; color: var(--text-muted); line-height: 1.25; }
+    .pc tr.between .ph small { font-size: .66rem; }
     .pc td.empty { background: #fbfcfd; }
 
     /* ===== スマホ：曜日タブ＋その日のカード ===== */
@@ -133,6 +140,7 @@
                    color: var(--brand-ink); border-radius: var(--radius-pill);
                    padding: 7px 16px; font-size: .95rem; cursor: pointer; }
     .tabs button.on { background: var(--brand); color: #fff; border-color: var(--brand); font-weight: 600; }
+    .per.between .per-h { background: var(--surface-alt); color: var(--text-muted); }
     .per { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
            margin-bottom: 10px; box-shadow: var(--shadow-1); overflow: hidden; }
     .per-h { background: var(--surface-alt); padding: 8px 12px; font-size: .95rem; font-weight: 700;
@@ -377,7 +385,7 @@
         ['内容', escapeHtml(c.support_type || '—') +
           (c.oneOffDate ? '<span class="tag once" style="margin-left:6px">この日だけ</span>' : '')],
         ['学期', termLabel(c)],
-        ['日時', escapeHtml(c.day) + '曜 ' + escapeHtml(c.period) + '限' +
+        ['日時', escapeHtml(c.day) + '曜 ' + escapeHtml(c.periodLabel || (c.period + '限')) +
           (pt ? '（' + escapeHtml(pt) + '）' : '')],
         // 表示中の週における実施日。欠員の状態はこの日付に対するもの（D23）
         [c.oneOffDate ? '実施日（1回限り）' : 'この週の日付', escapeHtml(c.date || '—')],
@@ -438,8 +446,9 @@
              '<small>' + escapeHtml(dayLabel(day)) + '</small></th>';
       });
       h += '</tr></thead><tbody>';
-      d.periods.forEach(function (p) {
-        h += '<tr><th class="ph">' + escapeHtml(p.period) + '限' +
+      d.periods.filter(periodVisible).forEach(function (p) {
+        h += '<tr' + (p.limited ? ' class="between"' : '') + '>' +
+             '<th class="ph">' + escapeHtml(p.label || (p.period + '限')) +
              (p.time ? '<small>' + escapeHtml(p.time) + '</small>' : '') + '</th>';
         d.days.forEach(function (day) {
           var list = cellCourses(day, p.period);
@@ -470,12 +479,16 @@
       var host = document.getElementById('dayView');
       if (!host) return;
       // 全時限を枠として並べる（コマが無い時限も空欄で残す）
-      host.innerHTML = VIEW.periods.map(function (p) {
+      host.innerHTML = VIEW.periods.filter(periodVisible).map(function (p) {
         var list = cellCourses(curDay, p.period);
+        // 授業のあいだの枠は、その日に予定が無ければ出さない。空の枠を6つ並べても
+        // 縦に長くなるだけで読み取れる情報が増えない（PCは細い帯なので常に出す）。
+        if (p.limited && list.length === 0) return '';
         var body = list.length
           ? list.map(card).join('')
           : '<div class="per-empty">コマなし</div>';
-        return '<div class="per"><div class="per-h">' + escapeHtml(p.period) + '限' +
+        return '<div class="per' + (p.limited ? ' between' : '') + '">' +
+          '<div class="per-h">' + escapeHtml(p.label || (p.period + '限')) +
           (p.time ? '<small>' + escapeHtml(p.time) + '</small>' : '') +
           '</div><div class="per-b">' + body + '</div></div>';
       }).join('');
@@ -487,6 +500,21 @@
       // ラベルには日付も入るので、textContent ではなく data-day で判定する
       tabs.forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-day') === day); });
       renderDayView();
+    }
+
+    /**
+     * その時限の行を出すか（D33）。
+     *
+     * 通常の授業時限は常に出す。特定の業務でしか使えない枠（移動介助）は、
+     * 内容の絞り込みが「テイク」のときに**行ごと消す** — テイクを見たい人にとっては
+     * 一度も使われない行で、残すと表が読みにくくなるだけなので。
+     */
+    function periodVisible(p) {
+      if (!p.limited) return true;
+      if (MYVIEW) return true;          // マイビューは自分の担当で決まるので枠は残す
+      var t = val('fType');
+      if (t === '__all__') return true;
+      return (p.supportTypes || []).indexOf(t) !== -1;
     }
 
     // 時間割の枠は固定（サーバーが返した曜日・時限を常に全部使う）。
@@ -623,7 +651,7 @@
       var once = DATA.courses.filter(function (c) { return c.oneOffDate; });
       lines.push('単発コマ = ' + once.length + ' 件');
       once.forEach(function (c) {
-        lines.push('  ・' + c.course_id + ' ' + c.day + c.period + '限'
+        lines.push('  ・' + c.course_id + ' ' + c.day + (c.periodLabel || (c.period + '限'))
           + ' | oneOffDate=' + JSON.stringify(c.oneOffDate)
           + ' | この週の日付=' + JSON.stringify(c.date)
           + ' | inTerm=' + c.inTerm

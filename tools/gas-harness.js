@@ -46,7 +46,7 @@ const DEFAULT_HEADERS = {
   vacancies: ['vacancy_id', 'date', 'course_id', 'absent_staff_id', 'notify_status',
     'result', 'substitute_staff_id', 'close_notified_at'],
   responses: ['vacancy_id', 'staff_id', 'answer', 'answered_at'],
-  periods: ['period', 'start_time', 'end_time', 'support_types'],
+  periods: ['period', 'start_time', 'end_time', 'support_types', 'label'],
   terms: ['term_id', 'system', 'start_date', 'end_date'],
   contacts: ['staff_id', 'name', 'email', 'phone', 'webhook_url'],
   registrations: ['registration_id', 'email', 'name', 'phone', 'webhook_url', 'skills', 'slots',

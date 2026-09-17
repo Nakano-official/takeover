@@ -35,12 +35,20 @@ function getInputData(quarter) {
     }
   });
 
-  const periods = readRows(SHEET.PERIODS).map(function (p) {
+  const periodRows = readRows(SHEET.PERIODS);
+  const periodById = {};
+  periodRows.forEach(function (p) { periodById[String(p.period).trim()] = p; });
+  const periods = periodRows.map(function (p) {
     return {
       period: String(p.period).trim(),
+      label: periodLabelOf_(p.period, p),
       time: p.start_time ? p.start_time + '〜' + p.end_time : '',
+      // その時限を選べる業務。画面は内容（テイク/介助）に応じて選択肢を出し分ける（D33）
+      supportTypes: SUPPORT_TYPES.filter(function (t) {
+        return periodAllowsSupportType_(p, t);
+      }),
     };
-  });
+  }).filter(function (p) { return p.period; });
   const periodIndex = {};
   periods.forEach(function (p, i) { periodIndex[p.period] = i; });
 
@@ -82,6 +90,7 @@ function getInputData(quarter) {
         quarter: String(c.quarter).trim(),
         day: String(c.day).trim(),
         period: String(c.period).trim(),
+        periodLabel: periodLabelOf_(c.period, periodById[String(c.period).trim()]),
         date: courseDate_(c),          // 単発コマの実施日（空＝毎週・D27）
         support_type: String(c.support_type || '').trim(),
         user_student: String(c.user_student || '').trim(),
@@ -156,8 +165,18 @@ function validateCoursePayload_(p, excludeCourseId) {
   }
 
   if (!period) throw new Error('時限を選んでください。');
-  if (supportType !== 'テイク' && supportType !== '介助') {
-    throw new Error('内容（テイク / 介助）を選んでください。');
+  if (SUPPORT_TYPES.indexOf(supportType) === -1) {
+    throw new Error('内容（' + SUPPORT_TYPES.join(' / ') + '）を選んでください。');
+  }
+
+  // その時限が実在し、その業務で選べるか（D32/D33）。
+  // ここを素通しにすると、たとえばテイクを移動介助の枠に登録できてしまう。
+  // テイクの空きコマ表に移動枠は無いので、そのコマは**代行候補が永久に0人**になる。
+  // エラーは出ないので誰も気づけない。
+  const periodRow = buildPeriodMap_()[period];
+  if (!periodRow) throw new Error('存在しない時限です：' + period);
+  if (!periodAllowsSupportType_(periodRow, supportType)) {
+    throw new Error(periodLabelOf_(period, periodRow) + ' は ' + supportType + ' では選べません。');
   }
   if (!userStudent) throw new Error('利用者を入力してください。');
   if (!staffA) throw new Error('担当スタッフ（少なくとも1名）を選んでください。');
@@ -186,7 +205,7 @@ function validateCoursePayload_(p, excludeCourseId) {
       if (id) assigned[id] = true;
     });
   });
-  const where = (dateStr ? dateStr + '（' + day + '）' : day) + period + '限';
+  const where = (dateStr ? dateStr + '（' + day + '）' : day) + periodLabelOf_(period, periodRow);
   [staffA, staffB].forEach(function (id) {
     if (id && assigned[id]) {
       throw new Error(nameOf_(id) + ' は ' + where + ' に既に別のコマへ入っています。');

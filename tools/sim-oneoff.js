@@ -200,4 +200,70 @@ h.check(G.courseDate_({ date: '' }) === '', '空欄は空（毎週のコマ）')
 h.check(G.courseDate_({}) === '', 'date 列が無い行も空');
 h.check(G.courseDate_(null) === '', 'コマが無くても落ちない');
 
+
+// ── 9) 授業のあいだの「移動介助」の枠（D33）──────────────────
+//
+// 介助は授業間の移動を含むが、移動は時限に収まらない。時限マスタに
+// support_types='介助' の行を足して表現する。テイクでこの枠に登録できてしまうと、
+// テイクの空きコマ表に移動枠は無いので**代行候補が永久に0人**になる（エラーは出ない）。
+h.section('9) 移動介助の枠は介助でしか選べない');
+h.reset();
+h.add('terms', { term_id: '2026-前期', system: 'semester', start_date: T.dateIn(-30), end_date: T.dateIn(30) });
+h.add('periods', { period: '1', start_time: '09:15', end_time: '11:00' });
+h.add('periods', { period: '移動1-2', start_time: '11:00', end_time: '11:15', support_types: '介助', label: '移動介助' });
+h.add('periods', { period: '2', start_time: '11:15', end_time: '12:30' });
+h.add('staffs', { staff_id: 'S1', name: '介助できる人', role: '学生', skills: '介助',
+  available_slots: '', assist_slots: '月移動1-2' });
+h.add('staffs', { staff_id: 'T1', name: '職員', role: '職員' });
+h.setUser({ staff_id: 'T1', name: '職員', role: '職員' });
+
+h.check(h.G.periodLabelOf_('1', h.row('periods', 'period', '1')) === '1限',
+  'label が空なら従来どおり「1限」');
+h.check(h.G.periodLabelOf_('移動1-2', h.row('periods', 'period', '移動1-2')) === '移動介助',
+  '★label があればそれを呼び名にする（「移動1-2限」にしない）');
+
+const movePayload = {
+  quarter: '2026-前期', day: '月', period: '移動1-2',
+  user_student: '利用 学生', staff_a_id: 'S1',
+};
+let blocked = false;
+try {
+  h.G.validateCoursePayload_(Object.assign({}, movePayload, { support_type: 'テイク' }));
+} catch (e) { blocked = /移動介助 は テイク では選べません/.test(e.message); }
+h.check(blocked, '★テイクを移動介助の枠に登録できない（サーバー側で弾く）');
+
+let ok = null;
+try {
+  ok = h.G.validateCoursePayload_(Object.assign({}, movePayload, { support_type: '介助' }));
+} catch (e) { ok = e.message; }
+h.check(ok && ok.period === '移動1-2', '介助なら登録できる');
+
+blocked = false;
+try {
+  h.G.validateCoursePayload_(Object.assign({}, movePayload, { support_type: '介助', period: '9' }));
+} catch (e) { blocked = /存在しない時限/.test(e.message); }
+h.check(blocked, '★時限マスタに無い時限は弾く');
+
+// 候補抽出：移動枠のコマは assist_slots の「月移動1-2」で拾う
+const moveCourse = {
+  course_id: 'CM1', quarter: '2026-前期', day: '月', period: '移動1-2',
+  support_type: '介助', user_student: '利用 学生', staff_a_id: '', staff_b_id: '',
+};
+h.check(h.G.findCandidates_(moveCourse, []).length === 1,
+  '★移動枠の空きコマ（月移動1-2）を持つ人が候補に出る');
+
+h.row('staffs', 'staff_id', 'S1').assist_slots = '月1';
+h.check(h.G.findCandidates_(moveCourse, []).length === 0,
+  '授業の時限が空いていても、移動枠の空きが無ければ候補に出ない');
+
+// 入力画面へ渡す時限の選択肢
+const ctx = h.G.getInputData('2026-前期');
+const movePeriod = ctx.periods.filter(function (p) { return p.period === '移動1-2'; })[0];
+h.check(movePeriod && movePeriod.label === '移動介助', '入力画面へ表示名を渡す');
+h.check(JSON.stringify(movePeriod.supportTypes) === JSON.stringify(['介助']),
+  '★その枠を選べる業務を渡す（画面はこれでプルダウンを絞る）');
+const normal = ctx.periods.filter(function (p) { return p.period === '1'; })[0];
+h.check(JSON.stringify(normal.supportTypes) === JSON.stringify(['テイク', '介助']),
+  'support_types が空の時限は全業務で選べる');
+
 process.exitCode = h.report();

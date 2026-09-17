@@ -44,6 +44,7 @@ function getMyProfile() {
   const periods = periodRows.map(function (p) {
     return {
       period: String(p.period).trim(),
+      label: periodLabelOf_(p.period, p),
       time: p.start_time ? p.start_time + '〜' + p.end_time : '',
       supportTypes: SUPPORT_TYPES.filter(function (t) {
         return periodAllowsSupportType_(p, t);

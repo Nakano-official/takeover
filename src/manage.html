@@ -80,7 +80,7 @@
     function renderVacancy(v) {
       var resolved = !!v.result;
       var head =
-        '<h2>' + escapeHtml(v.day + v.period) + '限'
+        '<h2>' + escapeHtml(v.day + (v.periodLabel || (v.period + '限')))
           + (v.time ? '（' + escapeHtml(v.time) + '）' : '') + '</h2>' +
         '<div class="meta">' + escapeHtml(v.date) + '　欠勤: ' + escapeHtml(v.absentName) +
           '　／　欠員ID: ' + escapeHtml(v.vacancy_id) + '</div>';

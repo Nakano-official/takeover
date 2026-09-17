@@ -165,7 +165,8 @@
         return;
       }
       var opts = courses.map(function (c) {
-        var label = (c.oneOffDate ? '【' + c.oneOffDate + '】' : '') + c.day + c.period + '限'
+        var label = (c.oneOffDate ? '【' + c.oneOffDate + '】' : '') + c.day
+          + (c.periodLabel || (c.period + '限'))
           + (c.time ? '（' + c.time + '）' : '')
           + '　相方: ' + (c.partner || '—');
         return '<option value="' + escapeHtml(c.course_id) + '">' + escapeHtml(label) + '</option>';
@@ -211,14 +212,16 @@
       var box = document.getElementById('result');
       var c = res.course;
       var head = '<h2>✅ 欠員を登録しました</h2>'
-        + '<div>欠員ID: ' + escapeHtml(res.vacancy_id) + '（' + escapeHtml(c.day + c.period) + '限）</div>';
+        + '<div>欠員ID: ' + escapeHtml(res.vacancy_id) + '（'
+        + escapeHtml(c.day + (c.periodLabel || (c.period + '限'))) + '）</div>';
 
       if (res.lateAbsence) {
         // 締切超過（授業開始 N 分前を過ぎた直前欠勤）。代行依頼は送っていないので、
         // 従来どおり Google Classroom へも連絡してもらうよう案内する。
         box.className = 'result warn';
         box.innerHTML = '<h2>⚠️ 欠勤を登録しました（代行の募集は行いません）</h2>'
-          + '<div>欠員ID: ' + escapeHtml(res.vacancy_id) + '（' + escapeHtml(c.day + c.period) + '限）</div>'
+          + '<div>欠員ID: ' + escapeHtml(res.vacancy_id) + '（'
+          + escapeHtml(c.day + (c.periodLabel || (c.period + '限'))) + '）</div>'
           + '<div style="margin-top:8px;">授業開始が近いため（' + escapeHtml(res.deadlineMinutes)
           + '分前を過ぎています）、代行候補者への依頼は送っていません。'
           + '<b>職員へ連絡済みです。この後の対応（1人テイク／職員対応）は職員が決めます。</b></div>'

@@ -242,4 +242,35 @@ G.updateMyProfile({ phone: '090-1111-1111', webhook_url: OK_HOOK, slots: ['火2'
 h.check(staffRow('S101').available_slots === '火2', '古い形の slots はテイクぶんとして受ける');
 h.check(staffRow('S101').assist_slots === '水3', '★古い画面からの保存でも介助を消さない');
 
+
+// ── 9) 業務限定の枠はその業務の表にだけ出る（D33）────────────
+h.section('9) 移動介助の枠はマイページの介助タブにだけ出る');
+setup();
+h.add('periods', { period: '移動1-2', start_time: '09:00', end_time: '09:15',
+  support_types: '介助', label: '移動介助' });
+asStudent();
+p = G.getMyProfile();
+const movePer = p.periods.filter(function (x) { return x.period === '移動1-2'; })[0];
+h.check(!!movePer && movePer.label === '移動介助', '表示名を渡す');
+h.check(JSON.stringify(movePer.supportTypes) === JSON.stringify(['介助']),
+  '★介助でしか選べない枠として渡す（画面はテイクのタブに出さない）');
+
+// 介助の空きコマとしては保存できる
+G.updateMyProfile({
+  phone: '090-1111-1111', webhook_url: OK_HOOK, skills: ['テイク', '介助'],
+  slotsByType: { 'テイク': ['月1'], '介助': ['月移動1-2'] },
+});
+h.check(staffRow('S101').assist_slots === '月移動1-2', '介助の空きコマとして保存できる');
+
+// テイクの空きコマとしては弾く
+let rejected = false;
+try {
+  G.updateMyProfile({
+    phone: '090-1111-1111', webhook_url: OK_HOOK, skills: ['テイク', '介助'],
+    slotsByType: { 'テイク': ['月移動1-2'] },
+  });
+} catch (e) { rejected = /テイクでは選べません/.test(e.message); }
+h.check(rejected, '★テイクの空きコマに移動枠は入れられない（画面を通さない経路でも弾く）');
+h.check(staffRow('S101').assist_slots === '月移動1-2', '★弾いたときは介助ぶんも書き換えない');
+
 process.exitCode = h.report();
