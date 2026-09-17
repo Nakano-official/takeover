@@ -397,10 +397,16 @@ function migrateSlotsAndMovePeriods() {
 // 移動介助の枠の表示名（periods.label）。
 const MOVE_PERIOD_LABEL = '移動介助';
 
-// 1限の前の移動枠（登校の付き添い）の長さ。授業間の移動と違って
-// 「前の授業の終わり」が無いため、1限の開始からこれだけさかのぼった時刻を始まりにする。
-// 実態に合わなければ periods シートの時刻を直せばよい（コードは見ていない）。
-const MOVE_BEFORE_FIRST_MIN = 30;
+// 授業の**前**の移動介助の長さ。介助の担当は授業開始のこれだけ前から業務が始まる
+// （職員確認・2026-09-17「3限の人は3限の開始15分前から業務が始まる」）。
+const MOVE_BEFORE_MIN = 15;
+
+// 授業の**後**の移動介助の長さ（例：2限のあとに食堂へ運ぶ）。
+const MOVE_AFTER_MIN = 15;
+
+// 授業の**後**の移動介助を既定で置く時限。2限のあとの食堂への移動が確認できている
+// （職員確認・2026-09-17）。ほかの時限にも要るなら periods シートに行を足す。
+const MOVE_AFTER_PERIODS = ['2'];
 
 /**
  * 時限マスタの既定値（D33）。授業時限のあいだと**1限の前**に移動介助の枠を挟んだ並び。
@@ -414,7 +420,20 @@ const MOVE_BEFORE_FIRST_MIN = 30;
  * 使わない区間は職員が行を消してよい（残っていても害は無く、空欄の帯が出るだけ）。
  */
 function MOVE_PERIOD_ROWS_() {
-  const classes = [
+  const out = [];
+  CLASS_PERIOD_ROWS_().forEach(function (c) {
+    out.push(moveRow_(moveKeyBefore_(c[0]), shiftHhmm_(c[1], -MOVE_BEFORE_MIN), c[1]));
+    out.push([c[0], c[1], c[2], '', '']);
+    if (MOVE_AFTER_PERIODS.indexOf(c[0]) !== -1) {
+      out.push(moveRow_(moveKeyAfter_(c[0]), c[2], shiftHhmm_(c[2], MOVE_AFTER_MIN)));
+    }
+  });
+  return out;
+}
+
+/** 授業時限そのもの（period, start, end） */
+function CLASS_PERIOD_ROWS_() {
+  return [
     ['1', '09:15', '11:00'],
     ['2', '11:15', '12:30'],
     ['3', '13:30', '15:00'],
@@ -423,27 +442,15 @@ function MOVE_PERIOD_ROWS_() {
     ['6', '18:35', '20:05'],
     ['7', '20:10', '21:40'],
   ];
-  const out = [];
-  // 1限の前（登校の付き添い）。前の授業が無いので、開始時刻から
-  // MOVE_BEFORE_FIRST_MIN 分さかのぼった時刻を枠の始まりにする。
-  out.push(moveRow_(
-    moveKeyBeforeFirst_(classes[0][0]),
-    shiftHhmm_(classes[0][1], -MOVE_BEFORE_FIRST_MIN),
-    classes[0][1]));
-  classes.forEach(function (c, i) {
-    out.push([c[0], c[1], c[2], '', '']);
-    const next = classes[i + 1];
-    if (next) {
-      out.push(moveRow_(moveKeyBetween_(c[0], next[0]), c[2], next[1]));
-    }
-  });
-  return out;
 }
 
-// 移動枠の period キー。**このキーは available_slots / assist_slots に
-// 「月移動前1」の形で入る**ので、あとから変えない（既存データが一致しなくなる）。
-function moveKeyBeforeFirst_(firstPeriod) { return '移動前' + firstPeriod; }
-function moveKeyBetween_(a, b) { return '移動' + a + '-' + b; }
+// 移動枠の period キー。**このキーは assist_slots に「月移動前3」の形で入る**ので、
+// 学生が空きコマを登録し始めたら変えない（既存データがどのコマとも一致しなくなる）。
+function moveKeyBefore_(period) { return '移動前' + period; }
+function moveKeyAfter_(period) { return '移動後' + period; }
+
+/** 旧方式（あいだに1枠だけ）のキー。移行で取り除くために残している */
+function isLegacyGapMoveKey_(key) { return /^移動\d+-\d+$/.test(String(key).trim()); }
 
 /** 移動枠1行ぶん（periods の列順） */
 function moveRow_(key, start, end) {
@@ -514,8 +521,7 @@ function migrateAddMovePeriods() {
 
   const col = {};
   need.forEach(function (h) { col[h] = headers.indexOf(h) + 1; });
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) { Logger.log('❌ periods に時限がありません。'); return; }
+  if (sheet.getLastRow() < 2) { Logger.log('❌ periods に時限がありません。'); return; }
 
   // いまの並びを読む（行番号つき）。移動枠は support_types が入っている行。
   const read = function () {
@@ -543,52 +549,86 @@ function migrateAddMovePeriods() {
     sheet.getRange(rowNumber, 1, 1, headers.length).setValues([values]);
   };
 
-  var added = 0;
+  // ── 1) 旧方式（あいだに1枠だけ）の行を取り除く ──
+  // 「あいだ」に1枠しか置けない形だと、2限のあとの食堂への移動（2限の担当の仕事）と
+  // 3限の前の移動（3限の担当の仕事）が1つの枠に潰れてしまう（D35）。
+  // **使われている行は消さない。** コマか空きコマに入っている枠を消すと、
+  // その参照がどのコマとも一致しなくなり、静かに壊れる。
+  const usedPeriods = {};
+  readRows(SHEET.COURSES).forEach(function (c) {
+    usedPeriods[String(c.period || '').trim()] = true;
+  });
+  readRows(SHEET.STAFFS).forEach(function (st) {
+    [st.available_slots, st.assist_slots].forEach(function (csv) {
+      String(csv || '').split(',').forEach(function (x) {
+        const key = String(x).trim().slice(1);   // 先頭1文字は曜日
+        if (key) usedPeriods[key] = true;
+      });
+    });
+  });
+
+  var removed = 0;
+  var kept = [];
   var guard = 0;
-  while (guard++ < 50) {
+  while (guard++ < 100) {
+    const legacy = read().filter(function (r) { return isLegacyGapMoveKey_(r.period); });
+    const target = legacy.filter(function (r) { return !usedPeriods[r.period]; })[0];
+    if (!target) {
+      kept = legacy.map(function (r) { return r.period; });
+      break;
+    }
+    sheet.deleteRow(target.row);
+    removed++;
+  }
+  if (removed) Logger.log('　旧方式の移動枠を ' + removed + ' 件取り除きました。');
+  if (kept.length) {
+    Logger.log('　⚠️ 使用中のため残した旧方式の枠：' + kept.join(' / '));
+    Logger.log('　　 コマか空きコマがこの枠を参照しています。付け替えてから消してください。');
+  }
+
+  // ── 2) 授業の前と後に枠を入れる ──
+  var added = 0;
+  guard = 0;
+  while (guard++ < 100) {
     const rows = read();
     const classes = rows.filter(function (r) { return !r.types; });   // 通常の授業時限
     const existing = {};
     rows.forEach(function (r) { existing[r.period] = true; });
 
     var inserted = false;
+    for (var i = 0; i < classes.length; i++) {
+      const c = classes[i];
 
-    // 1限の前（登校の付き添い）。前の授業が無いので開始時刻からさかのぼる。
-    const first = classes[0];
-    if (first && first.start) {
-      const headKey = moveKeyBeforeFirst_(first.period);
-      if (!existing[headKey]) {
-        sheet.insertRowBefore(first.row);
-        writeMoveRow(first.row, headKey, shiftHhmm_(first.start, -MOVE_BEFORE_FIRST_MIN), first.start);
-        added++;
-        continue;   // 行番号がずれるので読み直す
+      // 授業の前（介助の担当は授業開始の MOVE_BEFORE_MIN 分前から業務）
+      const beforeKey = moveKeyBefore_(c.period);
+      if (c.start && !existing[beforeKey]) {
+        sheet.insertRowBefore(c.row);
+        writeMoveRow(c.row, beforeKey, shiftHhmm_(c.start, -MOVE_BEFORE_MIN), c.start);
+        added++; inserted = true; break;   // 行番号がずれるので読み直す
       }
-    }
 
-    for (var i = 0; i + 1 < classes.length; i++) {
-      const a = classes[i];
-      const b = classes[i + 1];
-      const key = moveKeyBetween_(a.period, b.period);
-      if (existing[key]) continue;
-      if (!a.end || !b.start) continue;   // 時刻が入っていない行は飛ばす
-
-      sheet.insertRowAfter(a.row);
-      writeMoveRow(a.row + 1, key, a.end, b.start);
-      added++;
-      inserted = true;
-      break;   // 行番号がずれるので読み直す
+      // 授業の後（例：2限のあとに食堂へ運ぶ）
+      const afterKey = moveKeyAfter_(c.period);
+      if (c.end && MOVE_AFTER_PERIODS.indexOf(c.period) !== -1 && !existing[afterKey]) {
+        sheet.insertRowAfter(c.row);
+        writeMoveRow(c.row + 1, afterKey, c.end, shiftHhmm_(c.end, MOVE_AFTER_MIN));
+        added++; inserted = true; break;
+      }
     }
     if (!inserted) break;
   }
 
   invalidateSheetCache_('periods');
-  if (added === 0) {
-    Logger.log('✅ 移動介助の枠は既にそろっています（追加なし）。');
+  if (added === 0 && removed === 0) {
+    Logger.log('✅ 移動介助の枠は既にそろっています（変更なし）。');
   } else {
-    Logger.log('✅ 移動介助の枠を ' + added + ' 件挿入しました（1限の前と、授業のあいだ）。');
-    Logger.log('   使わない区間の行は消してかまいません（残っていても空欄の帯が出るだけです）。');
+    Logger.log('✅ 移動介助の枠を ' + added + ' 件挿入しました（各授業の前と、' +
+      MOVE_AFTER_PERIODS.join('・') + '限の後）。');
+    Logger.log('   要らない枠の行は消してかまいません。足りなければ行を足してください。');
+    Logger.log('   **行の順番がそのまま時間割の並び順**になります。');
   }
 }
+
 
 /**
  * 既存の staffs シートに assist_slots 列を追加する（D32・業務ごとの空きコマ）。

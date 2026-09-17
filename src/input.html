@@ -165,9 +165,12 @@
           '<div><label>教室</label><input id="room" placeholder="例：1-101"></div>' +
           '<div></div>' +
           '<div class="full" id="moveBox" style="display:none">' +
-            '<label style="font-weight:600;cursor:pointer">' +
-            '<input type="checkbox" id="withMove" checked style="width:auto">' +
-            '<span id="moveLabel"></span></label>' +
+            '<label id="moveBeforeRow" style="font-weight:600;cursor:pointer;display:none">' +
+            '<input type="checkbox" id="withMoveBefore" checked style="width:auto">' +
+            '<span id="moveBeforeLabel"></span></label>' +
+            '<label id="moveAfterRow" style="font-weight:600;cursor:pointer;display:none">' +
+            '<input type="checkbox" id="withMoveAfter" checked style="width:auto">' +
+            '<span id="moveAfterLabel"></span></label>' +
             '<div class="hint" id="moveHint" style="margin:4px 0 0"></div></div>' +
           '<div class="full"><label style="font-weight:600;cursor:pointer">' +
             '<input type="checkbox" id="eligOnly" checked onchange="rebuildStaff()" style="width:auto">' +
@@ -294,23 +297,30 @@
     }
 
     /**
-     * 選んでいる時限の直前に移動枠があれば、「授業前の移動介助も一緒に登録」を出す（D34）。
+     * 選んでいる授業にくっついた移動枠があれば、「一緒に登録」を出す（D34・D35）。
      *
-     * 介助は「授業の前の移動もその人が担当する」のが基本形なので**既定でオン**にする。
-     * 連続授業などで移動が要らないときだけ外してもらう。
+     * 介助は「その授業の担当が、その授業の前後の移動も担当する」のが基本形なので
+     * **既定でオン**にする。移動が要らないときだけ外してもらう。
+     *
+     * 前と後は別の枠。2限のあと（食堂へ運ぶ）と3限の前は、同じ昼休みの中に並ぶが
+     * 担当する人が違う（D35）。だから片方だけ出ることもある。
      * 移動枠そのものを選んでいるときは出さない（移動の前の移動、になってしまう）。
      */
     function onPeriodChange() {
       var box = document.getElementById('moveBox');
       if (box) {
         var per = currentPeriod();
-        var mv = per && per.movePeriod;
         // 移動枠を選んでいるとき（supportTypes が1つに限定された枠）は対象外
         var isMoveItself = per && (per.supportTypes || []).length < 2;
-        if (mv && !isMoveItself && val('support_type') === '介助' && !isOnce()) {
+        var eligible = per && !isMoveItself && val('support_type') === '介助' && !isOnce();
+
+        var before = eligible ? per.moveBefore : null;
+        var after = eligible ? per.moveAfter : null;
+        setMoveRow('Before', before, 'この授業の前の');
+        setMoveRow('After', after, 'この授業のあとの');
+
+        if (before || after) {
           box.style.display = '';
-          document.getElementById('moveLabel').textContent =
-            '　この授業の前の' + mv.label + 'も一緒に登録する（' + mv.time + '）';
           document.getElementById('moveHint').textContent =
             '同じ担当・同じ利用者で、教室はこの授業の教室を引き継ぎます。'
             + '移動が不要ならチェックを外してください。';
@@ -319,6 +329,16 @@
         }
       }
       rebuildStaff();
+    }
+
+    // 前／後それぞれの行を出し入れする
+    function setMoveRow(side, mv, prefix) {
+      var row = document.getElementById('move' + side + 'Row');
+      if (!row) return;
+      if (!mv) { row.style.display = 'none'; return; }
+      row.style.display = '';
+      document.getElementById('move' + side + 'Label').textContent =
+        '　' + prefix + mv.label + 'も一緒に登録する（' + mv.time + '）';
     }
 
     // いま選んでいる時限（サーバーから来た定義）
@@ -398,12 +418,10 @@
         staff_a_id: val('staff_a_id'),
         staff_b_id: document.getElementById('staff_b_id').disabled ? '' : val('staff_b_id'),
         note: val('note').trim(),
-        // 授業前の移動介助も一緒に作るか（D34）。チェックが画面に出ていないときは送らない
-        withMove: (function () {
-          var box = document.getElementById('moveBox');
-          if (!box || box.style.display === 'none') return false;
-          return document.getElementById('withMove').checked;
-        })(),
+        // 授業の前／後の移動介助も一緒に作るか（D34・D35）。
+        // その行が画面に出ていないときは送らない（枠が無い＝作りようがない）
+        withMoveBefore: moveChecked('Before'),
+        withMoveAfter: moveChecked('After'),
       };
       if (!payload.quarter) { showToast('学期を選択してください。', false); return; }
       if (once && !payload.date) { showToast('実施日を選んでください。', false); return; }
@@ -412,13 +430,23 @@
       if (EDIT_ID) { runUpdate(payload); } else { runAdd(payload); }
     }
 
+    // チェックが画面に出ていて、かつオンか
+    function moveChecked(side) {
+      var box = document.getElementById('moveBox');
+      var row = document.getElementById('move' + side + 'Row');
+      if (!box || box.style.display === 'none') return false;
+      if (!row || row.style.display === 'none') return false;
+      return document.getElementById('withMove' + side).checked;
+    }
+
     function runAdd(payload) {
       var btn = document.getElementById('submit');
       btn.disabled = true; btn.textContent = '追加中…';
       google.script.run
         .withSuccessHandler(function (res) {
           showToast('追加しました（' + res.course_id +
-            (res.move_course_id ? ' ／ 移動介助 ' + res.move_course_id : '') + '）。', true);
+            ((res.move_course_ids || []).length
+              ? ' ／ 移動介助 ' + res.move_course_ids.join('・') : '') + '）。', true);
           // 入力しやすいよう、コマ固有の項目だけクリア（曜日・時限・内容・担当は維持）
           ['subject', 'instructor', 'room', 'note', 'user_new'].forEach(function (id) {
             document.getElementById(id).value = '';

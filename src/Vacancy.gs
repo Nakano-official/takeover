@@ -897,32 +897,52 @@ function slotsByTypeOf_(staff) {
 }
 
 /**
- * その時限の**直前にある移動枠**を返す（D34）。無ければ null。
+ * その授業に**くっついている移動枠**を返す（D34・D35）。無ければ null。
  *
- * 「移動枠の終わり＝授業の始まり」で引く。キーの名前（`移動前1` / `移動1-2`）を
- * 解析しないのは、職員がシートで枠を足したり時刻を変えたりできるため。
- * 時刻でつながっているかどうかだけを見れば、名前の付け方に縛られない。
+ * 時刻でつながっているかどうかだけを見る。キーの名前（`移動前3` / `移動後2`）は
+ * 解析しない。職員がシートで枠を足したり時刻を変えたりできるので、
+ * 名前の付け方に縛られないようにするため。
+ *
+ *   前 … 移動枠の**終わり** ＝ 授業の**始まり**（3限の担当が3限の前に動く）
+ *   後 … 移動枠の**始まり** ＝ 授業の**終わり**（2限の担当が2限のあと食堂へ運ぶ）
+ *
+ * **1つのあいだに2つ入りうる**（2限の後と3限の前は別の人の仕事・D35）。
+ * だからこの関数は「あいだ」ではなく「授業の前／後」で引く。
  *
  * @param {string} period       授業の時限
  * @param {string} supportType  その業務で選べる枠だけを対象にする
+ * @param {string} side         'before' / 'after'
  * @return {Object|null} periods の1行
  */
-function precedingMovePeriod_(period, supportType) {
+function attachedMovePeriod_(period, supportType, side) {
   const rows = readRows(SHEET.PERIODS);
   const target = rows.filter(function (p) {
     return String(p.period).trim() === String(period).trim();
   })[0];
-  const start = target ? String(target.start_time || '').trim() : '';
-  if (!start) return null;
+  if (!target) return null;
+
+  const edge = String((side === 'after' ? target.end_time : target.start_time) || '').trim();
+  if (!edge) return null;
 
   const hit = rows.filter(function (p) {
     if (String(p.period).trim() === String(period).trim()) return false;
-    if (String(p.end_time || '').trim() !== start) return false;
-    // 通常の授業時限（support_types が空）は「直前の移動枠」ではない
+    const other = String((side === 'after' ? p.start_time : p.end_time) || '').trim();
+    if (other !== edge) return false;
+    // 通常の授業時限（support_types が空）は移動枠ではない
     if (!String(p.support_types || '').trim()) return false;
     return periodAllowsSupportType_(p, supportType);
   })[0];
   return hit || null;
+}
+
+/** その授業の直前の移動枠（D34） */
+function precedingMovePeriod_(period, supportType) {
+  return attachedMovePeriod_(period, supportType, 'before');
+}
+
+/** その授業の直後の移動枠（D35。例：2限のあとの食堂への移動） */
+function followingMovePeriod_(period, supportType) {
+  return attachedMovePeriod_(period, supportType, 'after');
 }
 
 /**

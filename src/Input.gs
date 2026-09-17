@@ -42,17 +42,10 @@ function getInputData(quarter) {
     return {
       period: String(p.period).trim(),
       label: periodLabelOf_(p.period, p),
-      // その時限の直前にある移動枠（D34）。画面は「授業前の移動介助も一緒に登録」を
-      // 出すかどうかの判断にこれを使う。
-      movePeriod: (function () {
-        const mv = precedingMovePeriod_(p.period, '介助');
-        if (!mv) return null;
-        return {
-          period: String(mv.period).trim(),
-          label: periodLabelOf_(mv.period, mv),
-          time: mv.start_time ? mv.start_time + '〜' + mv.end_time : '',
-        };
-      })(),
+      // その授業にくっついている移動枠（D34・D35）。画面は「一緒に登録」の
+      // チェックを出すかどうかの判断にこれを使う。前と後で別の枠になりうる。
+      moveBefore: moveSlotInfo_(precedingMovePeriod_(p.period, '介助')),
+      moveAfter: moveSlotInfo_(followingMovePeriod_(p.period, '介助')),
       time: p.start_time ? p.start_time + '〜' + p.end_time : '',
       // その時限を選べる業務。画面は内容（テイク/介助）に応じて選択肢を出し分ける（D33）
       supportTypes: SUPPORT_TYPES.filter(function (t) {
@@ -238,10 +231,14 @@ function validateCoursePayload_(p, excludeCourseId) {
 /**
  * 1コマを追加する。
  *
- * `payload.withMove` が真なら、**その授業の直前の移動介助も同時に作る**（D34）。
- * 介助は「授業の前の移動もその人が担当する」のが基本形なので、入力を2回に分けない。
- * 移動ぶんは同じ利用者・同じ担当・同じ日（または曜日）で、教室は授業の教室
- * （＝移動先）を引き継ぐ。
+ * `payload.withMoveBefore` / `withMoveAfter` が真なら、**その授業にくっついた移動介助も
+ * 同時に作る**（D34・D35）。介助は「その授業の担当が、その授業の前後の移動も担当する」のが
+ * 基本形なので、入力を何回にも分けない。
+ *
+ * 前と後は**別の枠**になりうる（2限のあとの食堂への移動は2限の担当、3限の前の移動は
+ * 3限の担当。同じ昼休みの中で2つ並ぶ・D35）。
+ *
+ * 移動ぶんは同じ利用者・同じ担当・同じ日（または曜日）で、教室は授業の教室を引き継ぐ。
  */
 function addCourse(payload) {
   requireStaff_();
@@ -250,13 +247,17 @@ function addCourse(payload) {
 
   // 先に移動ぶんも検証しておく。授業だけ作ってから移動で弾かれると、
   // 「半分だけ登録された」状態を職員が手で片付けることになる。
-  var moveRow = null;
-  if (p.withMove) {
-    const mv = precedingMovePeriod_(row.period, row.support_type);
+  const planned = [];
+  [
+    { on: p.withMoveBefore, side: 'before', word: 'の前の移動' },
+    { on: p.withMoveAfter, side: 'after', word: 'のあとの移動' },
+  ].forEach(function (x) {
+    if (!x.on) return;
+    const mv = attachedMovePeriod_(row.period, row.support_type, x.side);
     if (!mv) {
-      throw new Error(periodLabelOf_(row.period, null) + ' の前に移動介助の枠がありません。');
+      throw new Error(periodLabelOf_(row.period, null) + x.word + 'の枠がありません。');
     }
-    moveRow = validateCoursePayload_({
+    planned.push(validateCoursePayload_({
       quarter: row.quarter,
       day: row.day,
       date: row.date,
@@ -266,24 +267,36 @@ function addCourse(payload) {
       staff_a_id: row.staff_a_id,
       staff_b_id: row.staff_b_id,
       room: row.room,                  // 移動先＝授業の教室
-      note: periodLabelOf_(row.period, null) + 'の前の移動',
-    }, null);
-  }
+      note: periodLabelOf_(row.period, null) + x.word,
+    }, null));
+  });
 
   const id = appendRowWithId(SHEET.COURSES, 'course_id', 'C', row);
 
-  var moveId = '';
-  if (moveRow) {
+  const moveIds = [];
+  for (var i = 0; i < planned.length; i++) {
     try {
-      moveId = appendRowWithId(SHEET.COURSES, 'course_id', 'C', moveRow);
+      moveIds.push(appendRowWithId(SHEET.COURSES, 'course_id', 'C', planned[i]));
     } catch (e) {
-      // 授業は作れているので、消さずに名指しで返す（黙って片方だけ残さない）
-      throw new Error('授業（' + id + '）は登録しましたが、移動介助の登録に失敗しました：'
-        + e.message + '　移動介助はシフト入力からもう一度追加してください。');
+      // 作れたものは消さずに名指しで返す（黙って片方だけ残さない）
+      throw new Error('授業（' + id + '）'
+        + (moveIds.length ? '・移動介助（' + moveIds.join('・') + '）' : '')
+        + 'は登録しましたが、残りの移動介助の登録に失敗しました：' + e.message
+        + '　シフト入力からもう一度追加してください。');
     }
   }
 
-  return { ok: true, course_id: id, move_course_id: moveId };
+  return { ok: true, course_id: id, move_course_ids: moveIds };
+}
+
+/** 画面へ渡す移動枠の情報（無ければ null） */
+function moveSlotInfo_(mv) {
+  if (!mv) return null;
+  return {
+    period: String(mv.period).trim(),
+    label: periodLabelOf_(mv.period, mv),
+    time: mv.start_time ? mv.start_time + '〜' + mv.end_time : '',
+  };
 }
 
 // 1コマを編集する（履修登録時に教室未定 → 後から修正、などに対応）
