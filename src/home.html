@@ -140,7 +140,14 @@
                    color: var(--brand-ink); border-radius: var(--radius-pill);
                    padding: 7px 16px; font-size: .95rem; cursor: pointer; }
     .tabs button.on { background: var(--brand); color: #fff; border-color: var(--brand); font-weight: 600; }
-    .per.between .per-h { background: var(--surface-alt); color: var(--text-muted); }
+    /* 授業のあいだの枠（移動介助・D33）。カードではなく「区切り」に見せて、
+       授業のカードと同じ重さで並ばないようにする（PCの細い帯と同じ考え方）。 */
+    .per.between { box-shadow: none; margin-bottom: 6px; }
+    .per.between .per-h { background: var(--surface-alt); color: var(--text-muted);
+                          font-size: .82rem; font-weight: 600; padding: 5px 12px; }
+    /* 予定が無い日の移動枠。本文を持たず、枠線も落として1行の帯にする */
+    .per.between.bare { background: none; border: none; margin: 2px 0 8px; }
+    .per.between.bare .per-h { border-bottom: none; border-radius: var(--radius-sm); }
     .per { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
            margin-bottom: 10px; box-shadow: var(--shadow-1); overflow: hidden; }
     .per-h { background: var(--surface-alt); padding: 8px 12px; font-size: .95rem; font-weight: 700;
@@ -481,16 +488,22 @@
       // 全時限を枠として並べる（コマが無い時限も空欄で残す）
       host.innerHTML = VIEW.periods.filter(periodVisible).map(function (p) {
         var list = cellCourses(curDay, p.period);
-        // 授業のあいだの枠は、その日に予定が無ければ出さない。空の枠を6つ並べても
-        // 縦に長くなるだけで読み取れる情報が増えない（PCは細い帯なので常に出す）。
-        if (p.limited && list.length === 0) return '';
+        var head = '<div class="per-h">' + escapeHtml(p.label || (p.period + '限')) +
+          (p.time ? '<small>' + escapeHtml(p.time) + '</small>' : '') + '</div>';
+
+        // 授業のあいだの枠は、予定が無ければ**本文を持たない1行の帯**にする。
+        // 以前は丸ごと隠していたが、それだとスマホでだけ枠が存在しないように見え、
+        // 「移動介助はスマホに対応していない」と受け取られた（2026-09-17）。
+        // 「コマなし」のカードを6枚並べたくないだけなので、帯なら両方立つ。
+        if (p.limited && list.length === 0) {
+          return '<div class="per between bare">' + head + '</div>';
+        }
+
         var body = list.length
           ? list.map(card).join('')
           : '<div class="per-empty">コマなし</div>';
         return '<div class="per' + (p.limited ? ' between' : '') + '">' +
-          '<div class="per-h">' + escapeHtml(p.label || (p.period + '限')) +
-          (p.time ? '<small>' + escapeHtml(p.time) + '</small>' : '') +
-          '</div><div class="per-b">' + body + '</div></div>';
+          head + '<div class="per-b">' + body + '</div></div>';
       }).join('');
     }
 
