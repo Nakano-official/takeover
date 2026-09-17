@@ -344,7 +344,9 @@ function getTimetable(quarter) {
     name: user.name,
     role: user.role,
     skills: meRow ? splitList(meRow.skills) : [],
-    slots: meRow ? splitList(meRow.available_slots) : [],
+    // 業務ごとの空きコマ（D32）。home は「テイクの空き枠」しか出さないが、
+    // 判定をこちらに寄せておけば介助を出すときに画面側だけで足りる。
+    slotsByType: meRow ? slotsByTypeOf_(meRow) : {},
   };
 
   // 時限マスタ（時刻と並び順）

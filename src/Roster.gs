@@ -8,7 +8,8 @@
  * ■ この画面が答える問い
  *   - 学生スタッフは今何人登録されているか
  *   - **その人は代行依頼が届くか**（webhook_url）・**職員から電話できるか**（phone）
- *   - **代行候補に出られるか**（available_slots。空だと構造的に永久に出てこない・backlog 10-5）
+ *   - **代行候補に出られるか**（空きコマ。空だと構造的に永久に出てこない・backlog 10-5）。
+ *     空きコマは**業務ごと**に持つので、テイクは埋まっているのに介助が空、も見分けられる（D32）
  *   - **本人が今学期の空きコマを出し直したか**（slots_updated_at。空＝職員が入れたまま・D28）
  *   - 今学期に何コマ持っているか
  *
@@ -55,7 +56,18 @@ function getStaffRoster() {
     const isStudent = role !== ROLE_STAFF;
     const contact = contactBy[staffId] || null;
 
-    const slots = splitSlots_(s.available_slots);
+    const slotsByType = slotsByTypeOf_(s);
+    const mySkills = splitSkills_(s.skills);
+    // skills 空欄は全対応扱い（D9）なので、その人には両方の業務の空きコマが要る。
+    const relevantTypes = SUPPORT_TYPES.filter(function (t) {
+      return !mySkills.length || mySkills.indexOf(t) !== -1;
+    });
+    const missingSlotTypes = relevantTypes.filter(function (t) {
+      return !slotsByType[t].length;
+    });
+    const slotCount = relevantTypes.reduce(function (n, t) {
+      return n + slotsByType[t].length;
+    }, 0);
     const phone = contact ? String(contact.phone || '').trim() : '';
     const webhook = contact ? String(contact.webhook_url || '').trim() : '';
     const updatedAt = rosterTimestamp_(s.slots_updated_at);
@@ -65,7 +77,8 @@ function getStaffRoster() {
     if (!contact) issues.push('contact');
     if (isStudent) {
       // 空きコマが無い人は、候補抽出のどの経路にも乗らない＝依頼が一生飛ばない。
-      if (!slots.length) issues.push('slots');
+      // 対応する業務のうち1つでも空なら出す（テイクは埋めたが介助は空、を見逃さない）。
+      if (missingSlotTypes.length) issues.push('slots');
       // 空きコマはあるが本人の更新履歴が無い＝職員が入れたまま。学期をまたぐと古い値のまま残る。
       else if (!updatedAt) issues.push('slotsStale');
       // 連絡先の行ごと無い人に「通知先が無い」「電話が無い」まで並べても、直す手順は
@@ -86,8 +99,12 @@ function getStaffRoster() {
       // URL は**それを知っている人なら誰でも投稿できる**秘密に近い値なので画面に晒さない。
       hasWebhook: !!webhook,
       hasContact: !!contact,
-      slots: slots,
-      slotCount: slots.length,
+      slotsByType: slotsByType,
+      slotCounts: SUPPORT_TYPES.map(function (t) {
+        return { type: t, count: slotsByType[t].length, relevant: relevantTypes.indexOf(t) !== -1 };
+      }),
+      missingSlotTypes: missingSlotTypes,
+      slotCount: slotCount,
       slots_updated_at: updatedAt,
       courseCount: assigned[staffId] || 0,
       issues: issues,
@@ -107,6 +124,7 @@ function getStaffRoster() {
     rows: rows,
     orphanContacts: rosterOrphanContacts_(staffs, contacts),
     summary: rosterSummary_(rows),
+    supportTypes: SUPPORT_TYPES.slice(),
     termScope: scopeIds,
     pendingRegistrations: rosterPendingCount_(),
     generatedAt: nowString_(),

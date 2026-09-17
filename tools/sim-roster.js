@@ -46,7 +46,8 @@ function setup() {
   // ① 何も欠けていない学生
   h.add('staffs', {
     staff_id: 'S101', name: '完備 太郎', role: '学生', skills: 'テイク',
-    available_slots: '月1,火2', personal_code: 'Y200001', slots_updated_at: '2026-09-01 10:00:00',
+    available_slots: '月1,火2', assist_slots: '', personal_code: 'Y200001',
+    slots_updated_at: '2026-09-01 10:00:00',
   });
   h.add('contacts', {
     staff_id: 'S101', name: '完備 太郎', email: 's101@example.ac.jp',
@@ -55,15 +56,16 @@ function setup() {
 
   // ② 承認直後の状態：通知先も電話も無い
   h.add('staffs', {
-    staff_id: 'S102', name: '承認直後 次郎', role: '学生', skills: '',
-    available_slots: '水3', personal_code: '', slots_updated_at: '2026-09-02 09:00:00',
+    staff_id: 'S102', name: '承認直後 次郎', role: '学生', skills: 'テイク,介助',
+    available_slots: '水3', assist_slots: '水3', personal_code: '',
+    slots_updated_at: '2026-09-02 09:00:00',
   });
   h.add('contacts', { staff_id: 'S102', name: '承認直後 次郎', email: 's102@example.ac.jp' });
 
   // ③ 職員が手で入れたまま本人が出し直していない（slots_updated_at が空）
   h.add('staffs', {
     staff_id: 'S103', name: '未更新 三郎', role: '学生', skills: '介助',
-    available_slots: '木1', personal_code: 'Y200003', slots_updated_at: '',
+    available_slots: '', assist_slots: '木1', personal_code: 'Y200003', slots_updated_at: '',
   });
   h.add('contacts', {
     staff_id: 'S103', name: '未更新 三郎', email: 's103@example.ac.jp',
@@ -83,7 +85,8 @@ function setup() {
   // ⑤ 名簿にはいるが連絡先DBに行が無い＝ログインできない
   h.add('staffs', {
     staff_id: 'S105', name: '連絡先なし 五郎', role: '学生', skills: 'テイク',
-    available_slots: '金2', personal_code: 'Y200005', slots_updated_at: '2026-09-03 09:00:00',
+    available_slots: '金2', assist_slots: '', personal_code: 'Y200005',
+    slots_updated_at: '2026-09-03 09:00:00',
   });
 
   // 担当コマ（今学期）
@@ -144,8 +147,11 @@ h.check(s101.email === 's101@example.ac.jp' && s101.phone === '090-1111-1111',
 h.check(s101.hasWebhook === true, 'Webhook は「あるか」だけを返す');
 h.check(JSON.stringify(res.rows).indexOf(OK_HOOK) === -1,
   'Webhook URL そのものは絶対に返さない（知っていれば誰でも投稿できる値のため）');
-h.check(JSON.stringify(s101.slots) === JSON.stringify(['月1', '火2']) && s101.slotCount === 2,
-  '空きコマを配列と件数で返す');
+h.check(JSON.stringify(s101.slotsByType['テイク']) === JSON.stringify(['月1', '火2']),
+  '空きコマを業務ごとの配列で返す（D32）');
+h.check(s101.slotCount === 2, '件数は「その人が対応する業務」ぶんだけ数える');
+h.check(s101.slotCounts.filter(function (c) { return c.type === '介助'; })[0].relevant === false,
+  '★テイクだけの人にとって介助の空きコマは関係ない（relevant=false）');
 h.check(s101.issues.length === 0, '何も欠けていない人は issues が空');
 
 const t1 = rowOf(res, 'T1');
@@ -161,10 +167,11 @@ const has = (id, code) => rowOf(res, id).issues.indexOf(code) !== -1;
 h.check(has('S102', 'webhook'), '通知先が無ければ webhook（代行依頼が届かない）');
 h.check(has('S102', 'phone'), '電話が無ければ phone');
 h.check(!has('S102', 'slots') && !has('S102', 'slotsStale'),
-  '空きコマがあり本人の更新記録もあるなら空きコマ系の不足は出ない');
+  '両方の業務に空きコマがあり本人の更新記録もあるなら空きコマ系の不足は出ない');
 
 h.check(has('S103', 'slotsStale'), '空きコマはあるが slots_updated_at が空なら slotsStale');
-h.check(!has('S103', 'slots'), '空きコマがあるので slots は出ない');
+h.check(!has('S103', 'slots'),
+  '★介助だけの人はテイクの空きコマが空でも不足にしない（対応しない業務は関係ない）');
 
 h.check(has('S104', 'slots'), '空きコマが1つも無ければ slots');
 h.check(!has('S104', 'slotsStale'), 'slots が出ているときに slotsStale は重ねない');
@@ -186,6 +193,20 @@ h.check(sum.noPhone === 1, '電話なしは1人');
 h.check(sum.noSlots === 1, '空きコマ未登録は1人');
 h.check(sum.slotsStale === 1, '本人未更新は1人');
 h.check(sum.noContact === 1, 'ログイン不可は1人');
+
+// 片方の業務だけ空きコマが空のとき
+h.section('3b) 対応する業務のうち片方だけ空でも拾う（D32）');
+setup();
+h.row('staffs', 'staff_id', 'S101').skills = 'テイク,介助';   // 介助も担当するが assist_slots は空
+asStaff();
+let res2 = G.getStaffRoster();
+const s101b = res2.rows.filter(function (r) { return r.staff_id === 'S101'; })[0];
+h.check(s101b.issues.indexOf('slots') !== -1,
+  '★テイクは埋まっていても介助が空なら「空きコマ未登録」を出す');
+h.check(JSON.stringify(s101b.missingSlotTypes) === JSON.stringify(['介助']),
+  '★足りないのがどの業務かを返す');
+h.check(s101b.slotCounts.filter(function (c) { return c.type === '介助'; })[0].relevant === true,
+  '介助も対応する人なので relevant=true');
 
 // ── 5) 担当コマ数 ──────────────────────────────────────────
 h.section('5) 担当コマ数');

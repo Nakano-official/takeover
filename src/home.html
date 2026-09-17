@@ -248,9 +248,11 @@
     function isMyOpen(c) {
       if (!(c.support_type === 'テイク' && !c.staffB && (!c.status || c.status === '通常'))) return false;
       if (isMine(c)) return false;
-      var me = (DATA && DATA.me) || { skills: [], slots: [] };
+      var me = (DATA && DATA.me) || { skills: [], slotsByType: {} };
       if (me.skills.length && me.skills.indexOf(c.support_type) === -1) return false; // スキル不適合
-      return me.slots.indexOf(c.day + c.period) !== -1;                                // その時限が空き
+      // 空きコマは業務ごと（D32）。このコマの内容の空きコマだけを見る。
+      var slots = (me.slotsByType && me.slotsByType[c.support_type]) || [];
+      return slots.indexOf(c.day + c.period) !== -1;                                   // その時限が空き
     }
 
     function escapeHtml(s) {

@@ -841,8 +841,7 @@ function findCandidates_(course, excludeStaffIds, date, ctx) {
       if (String(s.role).trim() !== '学生') return false;             // 学生のみ候補
       if (exclude.indexOf(id) !== -1) return false;                   // 欠勤者・相方を除外
       if (busy[id]) return false;                                     // 同一スロットで二重起用になる
-      const slots = String(s.available_slots).split(',').map(function (x) { return x.trim(); });
-      if (slots.indexOf(slotKey) === -1) return false;                // 該当スロットに空き
+      if (slotsOf_(s, supportType).indexOf(slotKey) === -1) return false;   // 該当スロットに空き
       // 対応可能な内容（スキル）チェック。skills 未設定は従来どおり全対応扱い
       if (supportType) {
         const skills = String(s.skills || '').split(',')
@@ -857,6 +856,52 @@ function findCandidates_(course, excludeStaffIds, date, ctx) {
 }
 
 // ─── 内部ヘルパー ────────────────────────────────────────────
+
+/**
+ * その業務でのそのスタッフの空きコマを配列で返す（D32）。
+ *
+ * テイクと介助で空いている時間は違う。同じ1本の available_slots で兼ねると、
+ * 「テイクは空いているが介助はできない時間」に介助の依頼が飛ぶ（またはその逆）。
+ *
+ * ⚠️ **移行前のDBで黙って0件にしない。** assist_slots 列がまだ無いシートでは、
+ * 素直に読むと介助の候補が**全員ぶん構造的に消える**（エラーは出ないので気づけない）。
+ * 列の有無を見て、無ければ従来の1本へ寄せる（close_notified_at と同じ手当て）。
+ */
+function slotsOf_(staffRow, supportType) {
+  var col = SLOT_COLUMN_BY_SUPPORT_TYPE[String(supportType || '').trim()] || DEFAULT_SLOT_COLUMN;
+  if (col !== DEFAULT_SLOT_COLUMN && getHeaders_(SHEET.STAFFS).indexOf(col) === -1) {
+    col = DEFAULT_SLOT_COLUMN;   // マイグレーション未実行のDB
+  }
+  return splitSlots_(staffRow && staffRow[col]);
+}
+
+/** '月1,火3' 形式を配列へ（空要素は捨てる） */
+function splitSlots_(csv) {
+  return String(csv || '').split(',')
+    .map(function (x) { return x.trim(); })
+    .filter(Boolean);
+}
+
+/** staffs の1行から「業務 → 空きコマ配列」を作る（D32） */
+function slotsByTypeOf_(staff) {
+  const out = {};
+  SUPPORT_TYPES.forEach(function (type) {
+    out[type] = splitSlots_(staff && staff[SLOT_COLUMN_BY_SUPPORT_TYPE[type]]);
+  });
+  return out;
+}
+
+/**
+ * その時限がその業務で選べるか（D32）。
+ * `periods.support_types` が空なら全業務で使える（通常の授業時限）。
+ * 「介助」だけを入れておけば、授業のあいだの移動枠のように**介助でしか選べない枠**を作れる。
+ */
+function periodAllowsSupportType_(periodRow, supportType) {
+  const allowed = String((periodRow && periodRow.support_types) || '').split(',')
+    .map(function (x) { return x.trim(); }).filter(Boolean);
+  if (!allowed.length) return true;
+  return allowed.indexOf(String(supportType || '').trim()) !== -1;
+}
 
 // スタッフが指定コマの担当（A or B）か
 function courseDate_(course) {

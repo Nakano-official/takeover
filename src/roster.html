@@ -60,6 +60,8 @@
     .dl { display: grid; grid-template-columns: 92px 1fr; gap: 6px 14px; margin: 0 0 10px;
           font-size: .88rem; }
     .dl dt { color: var(--text-muted); font-size: .8rem; }
+    .dl dt small { display: block; color: var(--text-faint); font-size: .95em; font-weight: normal; }
+    th small { display: block; color: var(--text-faint); font-weight: normal; font-size: .9em; }
     .dl dd { margin: 0; word-break: break-all; }
     .dl dd.empty { color: var(--text-faint); }
     .slotlist { display: flex; flex-wrap: wrap; gap: 5px; }
@@ -117,7 +119,7 @@
                 <th>氏名</th>
                 <th>区分</th>
                 <th>対応業務</th>
-                <th class="num">空きコマ</th>
+                <th class="num">空きコマ<small>テイク/介助</small></th>
                 <th>空きコマ更新</th>
                 <th class="num">担当コマ</th>
                 <th>電話</th>
@@ -142,7 +144,7 @@
     // issue コード → 画面の文言。「何が起きるか」まで書く（項目名だけだと重さが伝わらない）
     var ISSUES = {
       contact:    { label: '連絡先DBに行が無い',   why: 'この人はログインできません。承認の途中で片側だけ作られた可能性があります。' },
-      slots:      { label: '空きコマが未登録',     why: '代行依頼の候補に一度も出てきません。マイページから登録してもらってください。' },
+      slots:      { label: '空きコマが未登録',     why: '対応する業務の空きコマが入っていません。その業務の代行依頼の候補に一度も出てきません。マイページから登録してもらってください。' },
       slotsStale: { label: '本人が更新していない', why: '空きコマは入っていますが、本人がマイページで出し直した記録がありません。学期が変わっていれば古い値のままです。' },
       webhook:    { label: '通知先URLが未登録',    why: '代行依頼の通知が届きません。マイページから登録してもらってください。' },
       phone:      { label: '電話番号が未登録',     why: '返信が無いときに職員から連絡できません。' }
@@ -259,9 +261,7 @@
         '<td><span class="role' + (r.isStudent ? '' : ' staff') + '">' +
           escapeHtml(r.role || '—') + '</span></td>' +
         '<td>' + escapeHtml(r.skills || '全対応') + '</td>' +
-        '<td class="num">' + (r.isStudent
-          ? (r.slotCount ? r.slotCount : '<span class="no">0</span>')
-          : '<span class="na">—</span>') + '</td>' +
+        '<td class="num">' + (r.isStudent ? slotCells(r) : '<span class="na">—</span>') + '</td>' +
         '<td>' + updated + '</td>' +
         '<td class="num">' + r.courseCount + '</td>' +
         '<td>' + ((r.isStudent || r.phone) ? mark(!!r.phone, escapeHtml(r.phone), '未登録')
@@ -271,16 +271,28 @@
         '</tr>';
     }
 
+    // 業務ごとの空きコマ件数。対応しない業務は薄く、対応するのに0件なら赤で出す。
+    function slotCells(r) {
+      return (r.slotCounts || []).map(function (c) {
+        if (!c.relevant) return '<span class="na">–</span>';
+        return c.count ? String(c.count) : '<span class="no">0</span>';
+      }).join('<span class="na"> / </span>');
+    }
+
     function detailRow(r) {
       var kv = function (k, v) {
         return '<dt>' + k + '</dt><dd' + (v ? '' : ' class="empty"') + '>' +
           (v ? escapeHtml(v) : '（未登録）') + '</dd>';
       };
-      var slots = r.slots.length
-        ? '<div class="slotlist">' + r.slots.map(function (s) {
-            return '<span class="slot">' + escapeHtml(s) + '</span>';
-          }).join('') + '</div>'
-        : '<span class="na">（未登録）</span>';
+      var slots = (DATA.supportTypes || []).map(function (type) {
+        var list = (r.slotsByType && r.slotsByType[type]) || [];
+        var body = list.length
+          ? '<div class="slotlist">' + list.map(function (s) {
+              return '<span class="slot">' + escapeHtml(s) + '</span>';
+            }).join('') + '</div>'
+          : '<span class="na">（未登録）</span>';
+        return '<dt>空きコマ<small>' + escapeHtml(type) + '</small></dt><dd>' + body + '</dd>';
+      }).join('');
 
       var todo = r.issues.length
         ? '<ul class="todo">' + r.issues.map(function (code) {
@@ -296,7 +308,7 @@
           '<dt>通知先URL</dt><dd' + (r.hasWebhook ? '' : ' class="empty"') + '>' +
             (r.hasWebhook ? '登録あり（URL は表示しません）' : '（未登録・代行依頼が届きません）') +
           '</dd>' +
-          '<dt>空きコマ</dt><dd>' + slots + '</dd>' +
+          slots +
           kv('空きコマ更新', r.slots_updated_at) +
         '</dl>' + todo +
         '<p class="hint">電話・通知先URL・空きコマ・対応業務は<b>本人がマイページから</b>直せます。' +

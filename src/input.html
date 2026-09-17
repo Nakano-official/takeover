@@ -272,7 +272,9 @@
       var type = val('support_type');
       var skillOk = !s.skills ||
         s.skills.split(',').map(function (x) { return x.trim(); }).indexOf(type) !== -1;
-      return skillOk && s.slots.indexOf(slotKey) !== -1;
+      // 空きコマは業務ごとに別（D32）。選んでいる内容の空きコマだけを見る。
+      var slots = (s.slotsByType && s.slotsByType[type]) || [];
+      return skillOk && slots.indexOf(slotKey) !== -1;
     }
 
     function rebuildStaff() {

@@ -39,14 +39,14 @@ const SRC_DIR = path.join(__dirname, '..', 'src');
 // 列が増えたらここも足す。ハーネスは「ヘッダーに無い列は書かない」という
 // writeRowUpdates_ の挙動を再現するので、ここが古いと本番と違う結果になる。
 const DEFAULT_HEADERS = {
-  staffs: ['staff_id', 'name', 'role', 'skills', 'available_slots', 'personal_code',
-    'slots_updated_at'],
+  staffs: ['staff_id', 'name', 'role', 'skills', 'available_slots', 'assist_slots',
+    'personal_code', 'slots_updated_at'],
   courses: ['course_id', 'quarter', 'day', 'period', 'support_type', 'user_student',
     'subject', 'instructor', 'room', 'staff_a_id', 'staff_b_id', 'note', 'date'],
   vacancies: ['vacancy_id', 'date', 'course_id', 'absent_staff_id', 'notify_status',
     'result', 'substitute_staff_id', 'close_notified_at'],
   responses: ['vacancy_id', 'staff_id', 'answer', 'answered_at'],
-  periods: ['period', 'start_time', 'end_time'],
+  periods: ['period', 'start_time', 'end_time', 'support_types'],
   terms: ['term_id', 'system', 'start_date', 'end_date'],
   contacts: ['staff_id', 'name', 'email', 'phone', 'webhook_url'],
   registrations: ['registration_id', 'email', 'name', 'phone', 'webhook_url', 'skills', 'slots',

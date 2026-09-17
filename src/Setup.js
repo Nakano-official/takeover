@@ -212,12 +212,15 @@ function buildDummyData_() {
   // personal_code = 勤怠CSVの「個人ｺｰﾄﾞ」を模した架空の安定ID（D2 例 'Y2xxxxx' に合わせる）。
   // 職員は学生スタッフではない＝勤怠CSVに出ないため空にする。
   const staffs = staff.map(function (st) {
-    return { staff_id: st.id, name: st.name, role: '職員', skills: '', available_slots: '', personal_code: '' };
+    return {
+      staff_id: st.id, name: st.name, role: '職員', skills: '',
+      available_slots: '', assist_slots: '', personal_code: '',
+    };
   }).concat(students.map(function (st, i) {
     const free = allSlots.filter(function (sk) { return !busy[st.id][sk]; });
     return {
       staff_id: st.id, name: st.name, role: '学生',
-      skills: skillById[st.id], available_slots: free.join(','),
+      skills: skillById[st.id], available_slots: free.join(','), assist_slots: free.join(','),
       personal_code: 'Y2' + ('00000' + (i + 1)).slice(-5),
     };
   }));
@@ -348,6 +351,77 @@ function migrateAddStaffSlotsUpdatedAt() {
   invalidateSheetCache_('staffs'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
   Logger.log('✅ staffs に slots_updated_at 列を追加しました。');
   Logger.log('   既存行は空＝「まだ本人が更新していない」扱いになります。');
+}
+
+/**
+ * 既存の staffs シートに assist_slots 列を追加する（D32・業務ごとの空きコマ）。
+ *
+ * テイクと介助では空いている時間が違ううえ、介助には授業のあいだ（移動）のような
+ * 時限に収まらない枠が入りうる。1本の available_slots で兼ねると、どちらかに嘘が混じる。
+ *
+ * **既存の available_slots をそのままコピーして作る。** 空で作ると、移行した瞬間に
+ * 介助の代行候補が**全員ぶん0人**になり、しかもエラーが出ないので誰も気づけない。
+ * コピーしておけば従来どおりの候補が出続け、本人がマイページで直した分だけ精度が上がる。
+ * 冪等。
+ */
+function migrateAddAssistSlots() {
+  const ss = openMainDb_();
+  const sheet = ss.getSheetByName('staffs');
+  if (!sheet) { Logger.log('❌ staffs シートが見つかりません。'); return; }
+
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
+    return String(h).trim();
+  });
+  if (headers.indexOf('assist_slots') !== -1) {
+    Logger.log('✅ staffs には既に assist_slots 列があります（追加なし）。');
+    return;
+  }
+
+  const col = lastCol + 1;
+  sheet.getRange(1, col, 1, 1).setValues([['assist_slots']]);
+  sheet.getRange(2, col, Math.max(sheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+
+  // 既存行へ available_slots をコピーする
+  const srcCol = headers.indexOf('available_slots') + 1;
+  const lastRow = sheet.getLastRow();
+  if (srcCol > 0 && lastRow > 1) {
+    const src = sheet.getRange(2, srcCol, lastRow - 1, 1).getValues();
+    sheet.getRange(2, col, lastRow - 1, 1).setValues(src);
+    Logger.log('   既存 ' + (lastRow - 1) + ' 行に available_slots をコピーしました。');
+  }
+
+  invalidateSheetCache_('staffs'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
+  Logger.log('✅ staffs に assist_slots 列を追加しました。');
+  Logger.log('   以後、テイクの候補は available_slots、介助の候補は assist_slots で絞られます。');
+}
+
+/**
+ * 既存の periods シートに support_types 列を追加する（D32）。
+ *
+ * 「その時限を選べる業務」。空＝全業務で、通常の授業時限は空のままでよい。
+ * 授業のあいだの移動枠を足すときに、この列へ「介助」と入れておくと
+ * テイクの空きコマ表には出てこない。冪等。
+ */
+function migrateAddPeriodSupportTypes() {
+  const ss = openMainDb_();
+  const sheet = ss.getSheetByName('periods');
+  if (!sheet) { Logger.log('❌ periods シートが見つかりません。'); return; }
+
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
+    return String(h).trim();
+  });
+  if (headers.indexOf('support_types') !== -1) {
+    Logger.log('✅ periods には既に support_types 列があります（追加なし）。');
+    return;
+  }
+
+  const col = lastCol + 1;
+  sheet.getRange(1, col, 1, 1).setValues([['support_types']]);
+  sheet.getRange(2, col, Math.max(sheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+  invalidateSheetCache_('periods');
+  Logger.log('✅ periods に support_types 列を追加しました（空＝全業務で選べる）。');
 }
 
 /**
@@ -662,7 +736,8 @@ function setupMainDb_(ss, data) {
   // 扱うためテキスト固定する（日時値に化けると readRows が Date を返す・10-6b と同じ理由）。
   staffsSheet.getRange(2, 7, Math.max(staffsSheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
   writeTable_(staffsSheet,
-    ['staff_id', 'name', 'role', 'skills', 'available_slots', 'personal_code', 'slots_updated_at'],
+    ['staff_id', 'name', 'role', 'skills', 'available_slots', 'assist_slots',
+     'personal_code', 'slots_updated_at'],
     data.staffs);
 
   // courses は「利用者中心の時間割」を表す（decisions.md D8）。
@@ -714,7 +789,9 @@ function setupMainDb_(ss, data) {
   writeTable_(termsSheet, TERM_HEADERS, data.terms || []);
 
   const periodsSheet = ss.insertSheet('periods');
-  periodsSheet.getRange(1, 1, 1, 3).setValues([['period', 'start_time', 'end_time']]);
+  // support_types は「その時限を選べる業務」。空＝全業務（通常の授業時限）。
+  // 「介助」だけを入れれば、授業のあいだの移動枠のように介助でしか選べない枠を作れる（D32）。
+  periodsSheet.getRange(1, 1, 1, 4).setValues([['period', 'start_time', 'end_time', 'support_types']]);
   // period（数値型化を防ぐ）・start_time/end_time（時刻型化を防ぐ）を全てテキスト固定。
   // 既定の7行ぶんだけでなく**列全体**に掛ける（10-6 と同じ理由）。7行だけだと、職員が
   // 8行目以降に時限（8限・課外時限など）を手で足したとき '09:15' が時刻値に化け、

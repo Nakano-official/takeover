@@ -8,7 +8,7 @@
  *
  *   ✅ contacts.phone         … 自分の連絡先。他に影響しない
  *   ✅ contacts.webhook_url   … 自分の Chat スペース。形式は isChatWebhook_ で検証する
- *   ✅ staffs.available_slots … 本命。学期ごとの空きコマ更新
+ *   ✅ staffs.available_slots / assist_slots … 本命。学期ごとの空きコマ更新（業務ごと・D32）
  *   ✅ staffs.skills          … 対応できる業務（テイク / 介助）。D28 では職員管理にしていたが、
  *                               承認後に直す画面が無く職員がシートを開くしかなかったため開放した（D31）。
  *                               **両方外した保存は受け付けない**。skills 空欄は D9 で「全対応」扱いのため、
@@ -37,12 +37,19 @@ function getMyProfile() {
   const isStudent = String(user.role).trim() !== ROLE_STAFF;
 
   // 空きコマの選択肢（曜日 × 時限）。曜日は WORK_DAYS（Constants.gs）、時限は時限マスタが唯一の出所。
-  const periods = readRows(SHEET.PERIODS).map(function (p) {
+  // 業務ごとに選べる時限が違いうるので（介助だけの移動枠など・D32）、どの業務で出せるかも返す。
+  const periodRows = readRows(SHEET.PERIODS).filter(function (p) {
+    return String(p.period).trim();
+  });
+  const periods = periodRows.map(function (p) {
     return {
       period: String(p.period).trim(),
       time: p.start_time ? p.start_time + '〜' + p.end_time : '',
+      supportTypes: SUPPORT_TYPES.filter(function (t) {
+        return periodAllowsSupportType_(p, t);
+      }),
     };
-  }).filter(function (p) { return p.period; });
+  });
 
   return {
     staff_id: user.staff_id,
@@ -56,7 +63,8 @@ function getMyProfile() {
     webhook_url: contact ? String(contact.webhook_url || '').trim() : '',
     skillList: staff ? splitSkills_(staff.skills) : [],
     supportTypes: SUPPORT_TYPES.slice(),
-    slots: staff ? splitSlots_(staff.available_slots) : [],
+    // 業務ごとの空きコマ。画面はこれを切り替えて出す（1ページ内でタブ・D32）
+    slotsByType: slotsByTypeOf_(staff),
     // Date のまま返すと google.script.run が null にするので文字列で返す
     slots_updated_at: staff ? String(staff.slots_updated_at || '').trim() : '',
     // ── 画面の組み立て用 ──
@@ -98,15 +106,29 @@ function updateMyProfile(payload) {
 
   // 空きコマと対応できる業務は学生のみ。職員は代行候補にならない（findCandidates_ が
   // role='学生' で絞る）ので、どちらも職員の行では意味を持たない。
-  var slotsCsv = '';
+  var savedSlots = {};
   var skillsCsv = '';
   var updatedAt = '';
   if (isStudent) {
     const staffRow = findRow(SHEET.STAFFS, 'staff_id', user.staff_id);
-    slotsCsv = normalizeSlots_(p.slots);
     updatedAt = nowString_();
 
-    const updates = { available_slots: slotsCsv, slots_updated_at: updatedAt };
+    const updates = { slots_updated_at: updatedAt };
+
+    // 空きコマは業務ごと（D32）。**送られてきた業務だけ**を書き換える。
+    // 画面が介助のタブを出していないとき（対応できる業務から外している等）に
+    // 空配列を送りつけたことにすると、本人が入れた介助の空きコマを黙って消してしまう。
+    const requested = slotsPayload_(p);
+    SUPPORT_TYPES.forEach(function (type) {
+      const col = SLOT_COLUMN_BY_SUPPORT_TYPE[type];
+      if (requested[type] === undefined) {
+        savedSlots[type] = splitSlots_(staffRow && staffRow[col]);
+        return;
+      }
+      const csv = normalizeSlots_(requested[type], type);
+      updates[col] = csv;
+      savedSlots[type] = splitSlots_(csv);
+    });
 
     // skills は**送られてきたときだけ**触る（D31）。古い画面が開きっぱなしで
     // skills を含まない保存が飛んできても、黙って全対応に倒すより現状維持のほうが安全。
@@ -124,13 +146,42 @@ function updateMyProfile(payload) {
     // 本人の確認なので、職員が「まだ出していない人」を見分けられるようにする（D28）。
     const staffUpdated = updateRow(SHEET.STAFFS, 'staff_id', user.staff_id, updates);
     if (!staffUpdated) throw new Error('名簿の行が見つかりませんでした。職員にお問い合わせください。');
-    if (!slotsCsv) warnings.push('空きコマが1つも選ばれていません。代行の候補に出ません。');
+
+    // 「対応できる業務に入れているのに、その業務の空きコマが空」だけを警告する。
+    // 対応しない業務の空きコマが無いのは当たり前なので、そこを鳴らすとノイズになる。
+    const mySkills = splitSkills_(skillsCsv);
+    SUPPORT_TYPES.forEach(function (type) {
+      if (mySkills.length && mySkills.indexOf(type) === -1) return;
+      if (!savedSlots[type].length) {
+        warnings.push(type + 'の空きコマが1つも選ばれていません。' + type + 'の代行候補に出ません。');
+      }
+    });
   }
 
   return {
-    ok: true, slots: slotsCsv, skills: skillsCsv,
+    ok: true, slotsByType: savedSlots, skills: skillsCsv,
     slots_updated_at: updatedAt, warnings: warnings,
   };
+}
+
+/**
+ * 画面から来た空きコマを「業務 → 配列」の形に揃える（D32）。
+ *
+ * 新しい画面は `slotsByType: { テイク: [...], 介助: [...] }` を送る。
+ * 古い画面が開きっぱなしのときは `slots: [...]` が来るので、**テイクぶんだけ**として扱う
+ * （介助は触らない＝黙って消さない）。
+ */
+function slotsPayload_(p) {
+  const out = {};
+  const byType = (p && p.slotsByType) || null;
+  if (byType) {
+    SUPPORT_TYPES.forEach(function (type) {
+      if (byType[type] !== undefined) out[type] = byType[type];
+    });
+    return out;
+  }
+  if (p && p.slots !== undefined) out['テイク'] = p.slots;
+  return out;
 }
 
 /**
@@ -139,14 +190,18 @@ function updateMyProfile(payload) {
  * 曜日は WORK_DAYS、時限は時限マスタにあるものだけを通す。ここを緩くすると、
  * 実在しないスロット（土9 など）が available_slots に入り、**その人は永久に候補へ出ない**
  * という静かな壊れ方をする（backlog 10-5 と同じ性質）。
+ *
+ * supportType を渡すと、その業務で選べない時限（介助専用の移動枠など・D32）も弾く。
  */
-function normalizeSlots_(slots) {
+function normalizeSlots_(slots, supportType) {
   const validDay = {};
   WORK_DAYS.forEach(function (d) { validDay[d] = true; });
   const validPeriod = {};
   readRows(SHEET.PERIODS).forEach(function (p) {
     const key = String(p.period).trim();
-    if (key) validPeriod[key] = true;
+    if (!key) return;
+    if (supportType && !periodAllowsSupportType_(p, supportType)) return;
+    validPeriod[key] = true;
   });
 
   const seen = {};
@@ -157,7 +212,9 @@ function normalizeSlots_(slots) {
     const day = s.slice(0, 1);
     const period = s.slice(1);
     if (!validDay[day]) throw new Error('曜日が不正です：' + s);
-    if (!validPeriod[period]) throw new Error('時限が不正です：' + s);
+    if (!validPeriod[period]) {
+      throw new Error('時限が不正です：' + s + (supportType ? '（' + supportType + 'では選べません）' : ''));
+    }
     if (seen[s]) return;
     seen[s] = true;
     out.push({ day: day, period: period, key: s });
@@ -227,11 +284,4 @@ function droppedSkillWarning_(staffId, staff, skillsCsv) {
 function splitSkills_(csv) {
   const raw = String(csv || '').split(',').map(function (x) { return x.trim(); });
   return SUPPORT_TYPES.filter(function (name) { return raw.indexOf(name) !== -1; });
-}
-
-/** '月1,火3' 形式を配列へ（空要素は捨てる） */
-function splitSlots_(csv) {
-  return String(csv || '').split(',')
-    .map(function (x) { return x.trim(); })
-    .filter(Boolean);
 }

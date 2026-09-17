@@ -24,6 +24,18 @@ const ROLE_STAFF = '職員';
 // 「両方チェックを外す」を保存させない（外した人が全依頼を受ける側に倒れてしまうため・D31）。
 const SUPPORT_TYPES = ['テイク', '介助'];
 
+// 空きコマは**業務ごとに別で持つ**（D32）。テイクと介助では空いている時間が違ううえ、
+// 介助には授業のあいだ（移動）のような、時限に収まらない枠が入りうるため。
+// テイクは従来の available_slots のまま（フォーム取り込み・既存データを動かさない）。
+const SLOT_COLUMN_BY_SUPPORT_TYPE = {
+  'テイク': 'available_slots',
+  '介助':   'assist_slots',
+};
+
+// 業務が特定できないときに見る列。移行前のDB（assist_slots 列が無い）でも
+// 「候補が構造的に0人」にならないよう、ここへ寄せる。
+const DEFAULT_SLOT_COLUMN = 'available_slots';
+
 // 欠員の決着結果（vacancies.result に記録する確定値）
 const VACANCY_RESULT = {
   FILLED: '補充済',    // 代行者が確定した（先着自動確定 or 職員の手動確定）

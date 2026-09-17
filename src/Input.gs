@@ -29,8 +29,8 @@ function getInputData(quarter) {
         staff_id: id,
         name: s.name,
         skills: String(s.skills || '').trim(),
-        slots: String(s.available_slots || '').split(',')
-          .map(function (x) { return x.trim(); }).filter(Boolean),
+        // 空きコマは業務ごと（D32）。どちらで絞るかは画面が選んだ内容で決まる。
+        slotsByType: slotsByTypeOf_(s),
       });
     }
   });

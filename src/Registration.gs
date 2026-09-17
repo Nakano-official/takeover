@@ -190,7 +190,11 @@ function approveRegistration(registrationId, opts) {
     name: String(reg.name || '').trim(),
     role: role,
     skills: skills,
+    // 申請では空きコマを1つしか聞いていないので、テイク・介助の両方に同じ値を入れる。
+    // 本人がマイページで業務ごとに直せる（D32）。片方を空で作ると、その業務の候補に
+    // **一度も出てこない**状態から始まってしまう。
     available_slots: String(reg.slots || '').trim(),
+    assist_slots: String(reg.slots || '').trim(),
     personal_code: '',              // 列は残っているが使わない（機能Bを実装しないため・2026-09-13）
     slots_updated_at: nowString_(), // 本人の申告なので「本人が出した」扱いにする（D28）
   });

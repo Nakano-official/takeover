@@ -224,4 +224,59 @@ h.check(tick.errors.length === 1 && /close_notified_at/.test(tick.errors[0]),
   '例外で落ちず、列が無いことを理由として返す');
 h.headers.vacancies.push('close_notified_at');
 
+// ── 12) 空きコマは業務ごと（D32）────────────────────────────
+//
+// テイクと介助で空いている時間は違う。1本の available_slots で兼ねると
+// 「テイクは空いているが介助はできない時間」に介助の依頼が飛ぶ。
+// ここが壊れても**エラーは出ず、間違った人に通知が飛ぶ／誰にも飛ばない**だけなので、
+// 候補の中身を名指しで固定しておく。
+h.section('12) 候補抽出は業務ごとの空きコマで絞る');
+setup(90);
+const D12 = T.dayJp();
+// 候補A＝テイクの時間だけ空き／候補B＝介助の時間だけ空き。両方とも両業務に対応できる。
+h.row('staffs', 'staff_id', 'S3').skills = 'テイク,介助';
+h.row('staffs', 'staff_id', 'S3').available_slots = D12 + '3';
+h.row('staffs', 'staff_id', 'S3').assist_slots = '';
+h.row('staffs', 'staff_id', 'S4').skills = 'テイク,介助';
+h.row('staffs', 'staff_id', 'S4').available_slots = '';
+h.row('staffs', 'staff_id', 'S4').assist_slots = D12 + '3';
+
+const course12 = h.row('courses', 'course_id', 'C001');
+const namesOf = (type) => {
+  course12.support_type = type;
+  return G.findCandidates_(course12, ['S1', 'S2']).map(function (c) { return c.staff_id; }).sort();
+};
+
+h.check(JSON.stringify(namesOf('テイク')) === JSON.stringify(['S3']),
+  '★テイクのコマは available_slots で絞る（介助しか空いていない人は出ない）');
+h.check(JSON.stringify(namesOf('介助')) === JSON.stringify(['S4']),
+  '★介助のコマは assist_slots で絞る（テイクしか空いていない人は出ない）');
+
+// 両方空いている人は両方に出る
+h.row('staffs', 'staff_id', 'S3').assist_slots = D12 + '3';
+h.check(JSON.stringify(namesOf('介助')) === JSON.stringify(['S3', 'S4']),
+  '両方の空きコマを入れれば両方の候補に出る');
+
+// skills は従来どおり別に効く（空きコマがあってもスキルが合わなければ出ない）
+h.row('staffs', 'staff_id', 'S3').skills = 'テイク';
+h.check(JSON.stringify(namesOf('介助')) === JSON.stringify(['S4']),
+  'スキルの絞り込みは従来どおり重ねて効く');
+
+// ── 12b) assist_slots 列がまだ無いDB ───────────────────────
+//
+// マイグレーション前は assist_slots を素直に読むと**介助の候補が全員ぶん消える**。
+// エラーが出ないので「なぜか誰にも通知が飛ばない」としてしか現れない。
+// 列が無いときは従来の1本へ寄せる（close_notified_at と同じ手当て）。
+h.section('12b) assist_slots 列が無いDB（マイグレーション未実行）');
+h.reset();
+h.headers.staffs = h.headers.staffs.filter(function (c) { return c !== 'assist_slots'; });
+setup(90);
+h.row('staffs', 'staff_id', 'S3').skills = 'テイク,介助';
+h.row('staffs', 'staff_id', 'S4').skills = 'テイク,介助';
+const course12b = h.row('courses', 'course_id', 'C001');
+course12b.support_type = '介助';
+h.check(G.findCandidates_(course12b, ['S1', 'S2']).length === 2,
+  '★列が無ければ available_slots へ寄せる（介助の候補が0人にならない）');
+h.headers.staffs = h.headers.staffs.concat(['assist_slots']);
+
 process.exitCode = h.report();

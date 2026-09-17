@@ -30,7 +30,7 @@ function setup() {
   });
   h.add('staffs', {
     staff_id: 'S101', name: '学生 太郎', role: '学生', skills: 'テイク',
-    available_slots: '月1,火2', personal_code: 'Y200001',
+    available_slots: '月1,火2', assist_slots: '水3', personal_code: 'Y200001',
   });
   h.add('staffs', { staff_id: 'T1', name: '職員 花子', role: '職員' });
   h.add('contacts', {
@@ -58,7 +58,10 @@ let p = G.getMyProfile();
 h.check(p.staff_id === 'S101', '自分の staff_id');
 h.check(p.name === '学生 太郎' && p.role === '学生', '氏名・区分を返す（表示は読み取り専用）');
 h.check(p.phone === '090-1111-1111' && p.webhook_url === OK_HOOK, '連絡先を返す');
-h.check(JSON.stringify(p.slots) === JSON.stringify(['月1', '火2']), '空きコマを配列で返す');
+h.check(JSON.stringify(p.slotsByType['テイク']) === JSON.stringify(['月1', '火2']),
+  'テイクの空きコマを配列で返す');
+h.check(JSON.stringify(p.slotsByType['介助']) === JSON.stringify(['水3']),
+  '★介助の空きコマは別で返す（D32）');
 h.check(p.isStudent === true, '学生と判定される');
 h.check(p.days.join('') === h.value('WORK_DAYS').join(''), '曜日は WORK_DAYS から');
 h.check(p.periods.length === 3 && p.periods[0].period === '1', '時限は時限マスタから');
@@ -84,7 +87,7 @@ asStudent();
 let res = G.updateMyProfile({
   phone: '080-2222-2222',
   webhook_url: OK_HOOK,
-  slots: ['水3', '月1'],
+  slotsByType: { 'テイク': ['水3', '月1'], '介助': ['火2'] },
   skills: ['テイク', '介助'],
   // ↓ 画面が送ってきても無視されるべきもの
   name: '書き換えた名前',
@@ -110,6 +113,7 @@ h.check(contactRow('S102').phone === '090-9999-9999', '★他人の連絡先も�
 // ── 3) 空きコマの正規化 ────────────────────────────────────
 h.section('3) 空きコマは並べ替えて保存し、実在しないスロットは弾く');
 h.check(staffRow('S101').available_slots === '月1,水3', '曜日→時限の順に並べ替えて保存する');
+h.check(staffRow('S101').assist_slots === '火2', '★介助ぶんは別の列に保存する（D32）');
 
 setup(); asStudent();
 G.updateMyProfile({ phone: '1', webhook_url: OK_HOOK, slots: ['火2', '火2', '月1'] });
@@ -220,5 +224,22 @@ h.check(res.warnings.some(function (w) { return w.indexOf('テイク') !== -1 &&
 setup(); asStaff();
 G.updateMyProfile({ phone: '075-000-0000', webhook_url: OK_HOOK, skills: ['テイク'], slots: ['月1'] });
 h.check(staffRow('T1').skills === '', '★職員の skills は触らない');
+
+// ── 8) 送られてきた業務だけを書き換える（D32）──────────────
+h.section('8) 空きコマは送られてきた業務だけを書き換える');
+setup(); asStudent();
+G.updateMyProfile({
+  phone: '090-1111-1111', webhook_url: OK_HOOK, skills: ['テイク', '介助'],
+  slotsByType: { 'テイク': ['月1'] },
+});
+h.check(staffRow('S101').available_slots === '月1', 'テイクは書き換わる');
+h.check(staffRow('S101').assist_slots === '水3',
+  '★送っていない介助の空きコマは消さない（タブを開いていないだけかもしれない）');
+
+// 古い画面（slots 配列）が開きっぱなしでも介助を消さない
+setup(); asStudent();
+G.updateMyProfile({ phone: '090-1111-1111', webhook_url: OK_HOOK, slots: ['火2'] });
+h.check(staffRow('S101').available_slots === '火2', '古い形の slots はテイクぶんとして受ける');
+h.check(staffRow('S101').assist_slots === '水3', '★古い画面からの保存でも介助を消さない');
 
 process.exitCode = h.report();
