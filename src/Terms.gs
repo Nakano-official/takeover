@@ -107,8 +107,51 @@ function activeTermIds_(courseTermIds) {
   }
   const cur = currentTermIds_(terms);
   if (cur.length) return cur;
+  // 開講中が無いときは今日にいちばん近い学期（D36。従来は開始日が最新の学期だった）
+  const near = nearestTermId_(terms);
+  if (near) return [near];
   const recent = termIdsByRecency_(terms);
   return recent.length ? [recent[0]] : [];
+}
+
+/**
+ * 'yyyy-MM-dd' 同士の日数差（a - b）。文字列の大小比較では「どれだけ離れているか」が出せないため。
+ */
+function dayGap_(a, b) {
+  const pa = String(a).split('-');
+  const pb = String(b).split('-');
+  const da = new Date(Number(pa[0]), Number(pa[1]) - 1, Number(pa[2]));
+  const db = new Date(Number(pb[0]), Number(pb[1]) - 1, Number(pb[2]));
+  return Math.round((da.getTime() - db.getTime()) / 86400000);
+}
+
+/**
+ * 今日にいちばん近い学期（D36）。**今日がどの学期の期間にも入っていないとき**の寄せ先。
+ *
+ * それまでは「開始日がいちばん新しい学期」に寄せていたが、これは**未来へ行きすぎる**。
+ * 後期開始の数日前に開くと、最も新しく始まるのは 4Q なので 4Q へ寄り、
+ * 4Q と期間が重ならない **3Q のコマが「現在（開講中）」から丸ごと消えた**（2026-09-17）。
+ * 学期の境目は毎年必ず来るので、そのたびに「登録したのに出ない」が起きる。
+ *
+ * 距離が同じなら**セメスターを優先**する。セメスターに寄せれば
+ * overlappingTermIds_ が内包するクォーターまで拾うので、表示が広いほうに倒れる。
+ */
+function nearestTermId_(terms) {
+  terms = terms || readTerms_();
+  const today = todayJst_();
+  var best = null;
+  terms.forEach(function (t) {
+    if (!t.start_date || !t.end_date) return;
+    const gap = today < t.start_date ? dayGap_(t.start_date, today)
+      : (today > t.end_date ? dayGap_(today, t.end_date) : 0);
+    const cand = { id: t.term_id, gap: gap, system: String(t.system || '').trim() };
+    if (!best
+      || cand.gap < best.gap
+      || (cand.gap === best.gap && best.system !== 'semester' && cand.system === 'semester')) {
+      best = cand;
+    }
+  });
+  return best ? best.id : '';
 }
 
 /**
@@ -176,16 +219,20 @@ function resolveTermSelection_(requested, courseTermIds, mode) {
     // 無ければ最新1つ＋その重なり（空表示回避＆セメスター保持）。
     const cur = currentScopeTermIds_(terms);
     selected = '';
-    filterIds = cur.length
-      ? cur
-      : (allIdsDesc.length ? overlappingTermIds_(allIdsDesc[0], terms) : []);
+    // 開講中が無いとき（学期の境目）は**今日にいちばん近い学期**へ寄せる。
+    // 「開始日がいちばん新しい学期」に寄せると未来へ行きすぎ、直近のクォーターが消える（D36）。
+    const near = nearestTermId_(terms) || allIdsDesc[0] || '';
+    filterIds = cur.length ? cur : (near ? overlappingTermIds_(near, terms) : []);
   } else {
     // edit 既定：現在のうち最も新しく始まったもの、無ければ最新（完全一致）。
     const cur = currentTermIds_(terms);
     if (cur.length) {
       selected = allIdsDesc.filter(function (id) { return cur.indexOf(id) !== -1; })[0] || cur[0];
     } else {
-      selected = allIdsDesc.length ? allIdsDesc[0] : '';
+      // 開講中が無いときは今日にいちばん近い学期（D36）。
+      // ここが未来へ行きすぎると、シフト入力の既定学期が 4Q になって
+      // これから始まる 3Q のコマを入れようとした職員が毎回選び直すことになる。
+      selected = nearestTermId_(terms) || (allIdsDesc.length ? allIdsDesc[0] : '');
     }
     filterIds = selected ? [selected] : [];
   }
