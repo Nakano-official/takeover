@@ -354,6 +354,47 @@ function migrateAddStaffSlotsUpdatedAt() {
 }
 
 /**
+ * 【本番用・1回実行】業務ごとの空きコマ（D32）と移動介助の枠（D33）に必要な列・行を入れる。
+ *
+ * 個別の migrate を順番に呼ぶだけだが、**順番に意味がある**ので1つにまとめてある。
+ * 移動介助の行を挿入する migrateAddMovePeriods() は、先に support_types と label の列が
+ * 無いと何もせずに終わる。
+ *
+ * 全部いつ実行しても安全（冪等）。途中で失敗しても、直してもう一度実行すればよい。
+ *
+ * ■ 実行する人
+ *   スクリプトの編集権限があり、**スプレッドシート2つを開けるアカウント**なら誰でもよい。
+ *   エディタからの実行は「デプロイした人」ではなく**実行した人**として動くため、
+ *   デプロイ担当（職員）でなくても構わない（D29 はデプロイの話で、ここは対象外）。
+ *
+ * ■ 実行したあと
+ *   画面へ反映するにはデプロイの更新が要る（`/dev` なら不要・CLAUDE.md 注意事項8）。
+ */
+function migrateSlotsAndMovePeriods() {
+  Logger.log('=== 空きコマの業務別分離（D32）と移動介助の枠（D33）===');
+
+  Logger.log('--- 1/4 periods.support_types ---');
+  migrateAddPeriodSupportTypes();
+
+  Logger.log('--- 2/4 periods.label ---');
+  migrateAddPeriodLabel();
+
+  Logger.log('--- 3/4 移動介助の枠を授業のあいだへ挿入 ---');
+  migrateAddMovePeriods();
+
+  Logger.log('--- 4/4 staffs.assist_slots ---');
+  migrateAddAssistSlots();
+
+  Logger.log('');
+  Logger.log('=== 完了 ===');
+  Logger.log('確認：periods シートの行の並びが「1限 → 移動介助 → 2限 → …」になっていること。');
+  Logger.log('　　　行の順番がそのまま時間割の並び順になります。');
+  Logger.log('確認：staffs の assist_slots に available_slots の内容がコピーされていること。');
+  Logger.log('　　　空のままだと介助の代行候補が全員ぶん出なくなります。');
+  Logger.log('このあと画面へ反映するには、デプロイの更新が必要です（/dev なら不要）。');
+}
+
+/**
  * 時限マスタの既定値（D33）。授業時限のあいだに移動介助の枠を挟んだ並び。
  *
  * 列は [period, start_time, end_time, support_types, label]。
