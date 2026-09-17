@@ -183,15 +183,28 @@ function validateCoursePayload_(p, excludeCourseId) {
     throw new Error(periodLabelOf_(period, periodRow) + ' は ' + supportType + ' では選べません。');
   }
   if (!userStudent) throw new Error('利用者を入力してください。');
-  if (!staffA) throw new Error('担当スタッフ（少なくとも1名）を選んでください。');
+
+  // **担当は未定のままでよい（D38）。** 実務では授業（科目・教室・教員・利用学生・曜日時限）が
+  // 学期開始前に確定し、担当の割り当ては学生の空きコマが集まってから決まる。
+  // 必須にしていたせいで、担当が決まる前は「仮の担当」を入れるしかなく、
+  // 実際に本番の全コマが職員アカウント名義になっていた（＝嘘のデータ）。
+  //
+  // 空の担当はどこでも除外済み（候補抽出・決着の提案・二重起用チェックのいずれも
+  // `if (id)` / `filter(Boolean)` を通る）。欠勤連絡は担当者本人しか出せないので、
+  // 担当未定のコマは自動的に対象外になる（正しい挙動）。
   if (staffB && staffA === staffB) throw new Error('担当A・Bに同じスタッフは選べません。');
+  // Bだけ選ばれたらAへ寄せる。`isAssigned_` 等は両方を見るので動作は変わらないが、
+  // 「1人ならA」に揃えておかないとシートを人が読んだときに分かりにくい。
+  var a = staffA;
+  var b = staffB;
+  if (!a && b) { a = b; b = ''; }
 
   // スタッフ実在チェック
   const roleById = {};
   readRows(SHEET.STAFFS).forEach(function (s) {
     roleById[String(s.staff_id).trim()] = String(s.role).trim();
   });
-  [staffA, staffB].forEach(function (id) {
+  [a, b].forEach(function (id) {
     if (id && roleById[id] === undefined) throw new Error('存在しないスタッフIDです：' + id);
   });
 
@@ -210,7 +223,7 @@ function validateCoursePayload_(p, excludeCourseId) {
     });
   });
   const where = (dateStr ? dateStr + '（' + day + '）' : day) + periodLabelOf_(period, periodRow);
-  [staffA, staffB].forEach(function (id) {
+  [a, b].forEach(function (id) {
     if (id && assigned[id]) {
       throw new Error(nameOf_(id) + ' は ' + where + ' に既に別のコマへ入っています。');
     }
@@ -222,7 +235,7 @@ function validateCoursePayload_(p, excludeCourseId) {
     subject: String(p.subject || '').trim(),
     instructor: String(p.instructor || '').trim(),
     room: String(p.room || '').trim(),
-    staff_a_id: staffA, staff_b_id: staffB,
+    staff_a_id: a, staff_b_id: b,
     note: String(p.note || '').trim(),
   };
 }

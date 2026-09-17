@@ -391,4 +391,55 @@ try {
 } catch (e) { bundleBlocked = /のあとの移動の枠がありません/.test(e.message); }
 h.check(bundleBlocked, '後ろに枠が無いのに送ったら理由を返す');
 
+// ── 11) 担当未定のまま授業だけ登録できる（D38）──────────────
+//
+// 実務では授業（科目・教室・教員・利用学生・曜日時限）が学期開始前に確定し、
+// 担当の割り当ては学生の空きコマが集まってから決まる。担当を必須にしていたせいで、
+// 決まる前は「仮の担当」を入れるしかなく、本番の全コマが職員アカウント名義になっていた。
+//
+// 空の担当が既存ロジックを壊さないことを、経路ごとに固定しておく。
+h.section('11) 担当未定のまま授業だけ登録できる');
+h.reset();
+h.add('terms', { term_id: '2026-前期', system: 'semester', start_date: T.dateIn(-30), end_date: T.dateIn(30) });
+h.add('periods', { period: '1', start_time: '09:15', end_time: '10:45' });
+h.add('staffs', { staff_id: 'S1', name: '学生 一郎', role: '学生', skills: 'テイク', available_slots: '月1' });
+h.add('staffs', { staff_id: 'T1', name: '職員', role: '職員' });
+h.add('contacts', { staff_id: 'S1', name: '学生 一郎', phone: '090-0000-0000' });
+h.setUser({ staff_id: 'T1', name: '職員', role: '職員' });
+
+const bare = {
+  quarter: '2026-前期', day: '月', period: '1', support_type: 'テイク',
+  user_student: '利用 学生', subject: 'フーリエ解析', room: '1-542',
+};
+const bareRes = h.G.addCourse(bare);
+h.check(!!bareRes.course_id, '★担当を選ばなくても登録できる');
+const bareRow = h.row('courses', 'course_id', bareRes.course_id);
+h.check(bareRow.staff_a_id === '' && bareRow.staff_b_id === '', '担当は空のまま保存される');
+h.check(bareRow.subject === 'フーリエ解析', '授業の情報は入る');
+
+// Bだけ選んだらAへ寄せる（人が読んだときに「1人ならA」で揃う）
+const bRes = h.G.addCourse(Object.assign({}, bare, {
+  day: '火', staff_b_id: 'S1', user_student: '別の学生',
+}));
+const bRow = h.row('courses', 'course_id', bRes.course_id);
+h.check(bRow.staff_a_id === 'S1' && bRow.staff_b_id === '', '★Bだけ選ばれたらAへ寄せる');
+
+// 既存ロジックが空の担当で壊れないこと
+h.section('11b) 担当未定のコマが既存ロジックを壊さない');
+const unassigned = h.row('courses', 'course_id', bareRes.course_id);
+h.check(h.G.findCandidates_(unassigned, [unassigned.staff_a_id, unassigned.staff_b_id]).length === 1,
+  '★候補抽出：空の担当を除外扱いにして、条件の合う学生を拾う');
+h.check(h.G.isAssigned_(unassigned, 'S1') === false, '担当判定：空の担当は誰とも一致しない');
+
+// 欠勤連絡：担当者本人しか出せないので、担当未定のコマは出てこない
+h.setUser({ staff_id: 'S1', name: '学生 一郎', role: '学生' });
+const myList = h.G.getMyCourses();
+h.check(myList.filter(function (c) { return c.course_id === bareRes.course_id; }).length === 0,
+  '★欠勤連絡に担当未定のコマは出ない（担当者本人しか出せないので当然そうなる）');
+h.setUser({ staff_id: 'T1', name: '職員', role: '職員' });
+
+// 二重起用チェックは空を飛ばす（担当未定のコマが他の登録を邪魔しない）
+const okRes = h.G.addCourse(Object.assign({}, bare, { staff_a_id: 'S1', user_student: '三人目' }));
+h.check(!!okRes.course_id, '★同じ枠に担当未定のコマがあっても、実在の担当で登録できる');
+
 process.exitCode = h.report();

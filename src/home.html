@@ -68,6 +68,7 @@
     .st { display: inline-block; font-size: .8rem; padding: 1px 9px;
           border-radius: var(--radius-pill); margin-top: 5px; }
     .st-open   { background: #d9f1e2; color: var(--ok); font-weight: 700; }
+    .st-todo   { background: var(--warn-bg); color: var(--warn); font-weight: 700; }
     .st-myopen { background: var(--ok); color: #fff; font-weight: 700; }
     .st-mine   { background: var(--brand-soft); color: var(--brand-ink); font-weight: 700; }
     .st-vacant { background: var(--danger-bg); color: var(--danger); font-weight: 700; }
@@ -268,6 +269,9 @@
 
     // 自分が「入れる」募集中の空き枠か（テイク1名・スキル一致・その時限が自分の空き）
     function isMyOpen(c) {
+      // 担当が1人も決まっていないコマは「あなたが入れます」と出さない（D38）。
+      // 相方が決まっていて1枠空いている状態とは別物で、まず職員が割り当てる段階にある。
+      if (!c.staffA) return false;
       if (!(c.support_type === 'テイク' && !c.staffB && (!c.status || c.status === '通常'))) return false;
       if (isMine(c)) return false;
       var me = (DATA && DATA.me) || { skills: [], slotsByType: {} };
@@ -370,6 +374,11 @@
     }
 
     function statusBadge(c) {
+      // 担当が1人も決まっていないコマ（D38）。授業だけ先に登録した状態で、
+      // 「あと1名 募集中」と出すと**1人は決まっている**ように読めてしまうので分ける。
+      if ((!c.status || c.status === '通常') && !c.staffA && !c.staffB) {
+        return '<span class="st st-todo">担当未定</span>';
+      }
       // テイクなのに担当が1名 ＝ 恒常的に枠が空いている（誰でも入れる）
       if ((!c.status || c.status === '通常') && c.support_type === 'テイク' && !c.staffB) {
         return '<span class="st st-open">あと1名 募集中</span>';

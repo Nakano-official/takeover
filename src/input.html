@@ -183,7 +183,8 @@
         '</div>' +
         '<button class="btn primary block" id="submit" onclick="submitCourse()">このコマを追加</button>' +
         '<button class="btn block" id="cancelEdit" onclick="cancelEdit()" style="display:none">編集をやめる</button>' +
-        '<p class="hint">＊は必須。テイクはB欄に2人目を選びます（未定なら「なし」のままでも登録可）。' +
+        '<p class="hint">＊は必須。<b>担当は未定のままでも登録できます</b>'
+        + '（授業だけ先に入れて、あとから割り当てられます）。' +
         '毎週のコマでは、担当欄に「選んだ曜日・時限に空きがあり内容に対応できる人」だけを表示します。' +
         '「この日だけ」（特別授業・説明会など）では<b>全員から選べます</b>' +
         '（空きコマは毎週の予定なので、その日の予定を表さないため）。' +
@@ -393,11 +394,13 @@
       var a = document.getElementById('staff_a_id');
       var b = document.getElementById('staff_b_id');
       var prevA = a.value, prevB = b.value;
-      a.innerHTML = body ||
-        '<option value="">該当者なし（絞り込みを外してください）</option>';
+      // 担当は未定のままでも登録できる（D38）。授業だけ先に入れて、
+      // 学生の空きコマが集まってから割り当てる、という実務の順番に合わせる。
+      a.innerHTML = '<option value="">（未定）</option>' +
+        (body || '<option value="" disabled>該当者なし（絞り込みを外してください）</option>');
       b.innerHTML = '<option value="">（なし・1名）</option>' + body;
       // 直前の選択が候補に残っていれば維持
-      if (list.some(function (s) { return s.staff_id === prevA; })) a.value = prevA;
+      if (prevA && list.some(function (s) { return s.staff_id === prevA; })) a.value = prevA;
       if (prevB && list.some(function (s) { return s.staff_id === prevB; })) b.value = prevB;
     }
 
