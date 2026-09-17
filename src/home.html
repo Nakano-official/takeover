@@ -145,9 +145,6 @@
     .per.between { box-shadow: none; margin-bottom: 6px; }
     .per.between .per-h { background: var(--surface-alt); color: var(--text-muted);
                           font-size: .82rem; font-weight: 600; padding: 5px 12px; }
-    /* 予定が無い日の移動枠。本文を持たず、枠線も落として1行の帯にする */
-    .per.between.bare { background: none; border: none; margin: 2px 0 8px; }
-    .per.between.bare .per-h { border-bottom: none; border-radius: var(--radius-sm); }
     .per { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
            margin-bottom: 10px; box-shadow: var(--shadow-1); overflow: hidden; }
     .per-h { background: var(--surface-alt); padding: 8px 12px; font-size: .95rem; font-weight: 700;
@@ -453,7 +450,7 @@
              '<small>' + escapeHtml(dayLabel(day)) + '</small></th>';
       });
       h += '</tr></thead><tbody>';
-      d.periods.filter(periodVisible).forEach(function (p) {
+      d.periods.filter(function (p) { return periodVisible(p); }).forEach(function (p) {
         h += '<tr' + (p.limited ? ' class="between"' : '') + '>' +
              '<th class="ph">' + escapeHtml(p.label || (p.period + '限')) +
              (p.time ? '<small>' + escapeHtml(p.time) + '</small>' : '') + '</th>';
@@ -485,26 +482,19 @@
     function renderDayView() {
       var host = document.getElementById('dayView');
       if (!host) return;
-      // 全時限を枠として並べる（コマが無い時限も空欄で残す）
-      host.innerHTML = VIEW.periods.filter(periodVisible).map(function (p) {
-        var list = cellCourses(curDay, p.period);
-        var head = '<div class="per-h">' + escapeHtml(p.label || (p.period + '限')) +
-          (p.time ? '<small>' + escapeHtml(p.time) + '</small>' : '') + '</div>';
-
-        // 授業のあいだの枠は、予定が無ければ**本文を持たない1行の帯**にする。
-        // 以前は丸ごと隠していたが、それだとスマホでだけ枠が存在しないように見え、
-        // 「移動介助はスマホに対応していない」と受け取られた（2026-09-17）。
-        // 「コマなし」のカードを6枚並べたくないだけなので、帯なら両方立つ。
-        if (p.limited && list.length === 0) {
-          return '<div class="per between bare">' + head + '</div>';
-        }
-
-        var body = list.length
-          ? list.map(card).join('')
-          : '<div class="per-empty">コマなし</div>';
-        return '<div class="per' + (p.limited ? ' between' : '') + '">' +
-          head + '<div class="per-b">' + body + '</div></div>';
-      }).join('');
+      // 授業時限はコマが無くても枠として残す。授業のあいだの枠だけは予定がある日にしか出さない（D33）
+      host.innerHTML = VIEW.periods
+        .filter(function (p) { return periodVisible(p, curDay); })
+        .map(function (p) {
+          var list = cellCourses(curDay, p.period);
+          var body = list.length
+            ? list.map(card).join('')
+            : '<div class="per-empty">コマなし</div>';
+          return '<div class="per' + (p.limited ? ' between' : '') + '">' +
+            '<div class="per-h">' + escapeHtml(p.label || (p.period + '限')) +
+            (p.time ? '<small>' + escapeHtml(p.time) + '</small>' : '') +
+            '</div><div class="per-b">' + body + '</div></div>';
+        }).join('');
     }
 
     function selDay(day) {
@@ -518,16 +508,28 @@
     /**
      * その時限の行を出すか（D33）。
      *
-     * 通常の授業時限は常に出す。特定の業務でしか使えない枠（移動介助）は、
-     * 内容の絞り込みが「テイク」のときに**行ごと消す** — テイクを見たい人にとっては
-     * 一度も使われない行で、残すと表が読みにくくなるだけなので。
+     * 通常の授業時限は、コマが無くても**枠として常に出す**（時間割の形が週ごとに
+     * 変わらないほうが読みやすいため。「コマなし」が出る）。
+     *
+     * 授業のあいだの枠（移動介助）は逆で、**予定が入っているときだけ出す**。
+     * 常に出すと、1日ぶんで最大6本の空の帯が授業のあいだに挟まり、
+     * 肝心の授業が読み取りにくくなる。移動介助は毎日あるものではないので、
+     * 「ある日だけ現れる」ほうが実態に合う。枠そのものはシフト入力画面の
+     * 時限プルダウンから選べるので、時間割に出ていなくても登録に困らない。
+     *
+     * @param {Object} p   時限
+     * @param {string} [day] 曜日を渡すとその日だけで判定する（スマホの曜日別表示）。
+     *                       省略時は表示中の週ぜんぶで判定する（PCのグリッド）。
      */
-    function periodVisible(p) {
+    function periodVisible(p, day) {
       if (!p.limited) return true;
-      if (MYVIEW) return true;          // マイビューは自分の担当で決まるので枠は残す
-      var t = val('fType');
-      if (t === '__all__') return true;
-      return (p.supportTypes || []).indexOf(t) !== -1;
+      // 内容の絞り込み（マイビュー中は無効なので見ない）
+      if (!MYVIEW) {
+        var t = val('fType');
+        if (t !== '__all__' && (p.supportTypes || []).indexOf(t) === -1) return false;
+      }
+      if (day) return cellCourses(day, p.period).length > 0;
+      return VIEW.days.some(function (d) { return cellCourses(d, p.period).length > 0; });
     }
 
     // 時間割の枠は固定（サーバーが返した曜日・時限を常に全部使う）。
