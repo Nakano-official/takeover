@@ -44,7 +44,7 @@ const DEFAULT_HEADERS = {
   courses: ['course_id', 'quarter', 'day', 'period', 'support_type', 'user_student',
     'subject', 'instructor', 'room', 'staff_a_id', 'staff_b_id', 'note', 'date'],
   vacancies: ['vacancy_id', 'date', 'course_id', 'absent_staff_id', 'notify_status',
-    'result', 'substitute_staff_id', 'close_notified_at'],
+    'result', 'substitute_staff_id', 'close_notified_at', 'group_id'],
   responses: ['vacancy_id', 'staff_id', 'answer', 'answered_at'],
   periods: ['period', 'start_time', 'end_time', 'support_types', 'label'],
   terms: ['term_id', 'system', 'start_date', 'end_date'],

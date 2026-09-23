@@ -87,6 +87,7 @@
 
     // 選択中コマに合わせて「欠勤日」の選択肢を組み直す（授業のある日だけ）
     function rebuildDates() {
+      renderAttached();
       var c = selectedCourse();
       var wrap = document.getElementById('dateWrap');
       var btn = document.getElementById('submit');
@@ -178,6 +179,11 @@
         '<select id="course" onchange="rebuildDates()">' + opts + '</select>' +
         '<label for="date">欠勤日</label>' +
         '<div id="dateWrap"></div>' +
+        '<div id="attachBox" style="display:none">' +
+          '<label style="font-weight:600;cursor:pointer;display:block;margin:10px 0 0">' +
+          '<input type="checkbox" id="withAttached" checked style="width:auto">' +
+          '<span id="attachLabel"></span></label>' +
+          '<p class="hint" id="attachHint" style="margin:4px 0 0"></p></div>' +
         '<button id="submit" class="btn danger block" onclick="submit()">欠勤を登録して代行候補を探す</button>' +
         '<p class="hint" id="datehint"></p>';
 
@@ -193,10 +199,39 @@
       renderPreNote();
     }
 
+    /**
+     * 選んだコマに移動介助がくっついていれば、「一緒に休む」を出す（D45）。
+     *
+     * 介助の担当が休むと、授業だけでなく前後の移動も同じ人の仕事なので一緒に欠員になる。
+     * **既定はオン**（実務では「どちらかに出られないならその日は休む」）。
+     * 移動だけ／授業だけ休むときはチェックを外す。
+     */
+    function renderAttached() {
+      var box = document.getElementById('attachBox');
+      if (!box) return;
+      var c = currentCourse();
+      var list = (c && c.attached) || [];
+      if (list.length === 0) { box.style.display = 'none'; return; }
+      box.style.display = '';
+      document.getElementById('attachLabel').textContent =
+        '　前後の移動介助（' + list.join('・') + '）も一緒に休む';
+      document.getElementById('attachHint').textContent =
+        'まとめて1つの代行募集になります（通知は1回、承諾した人がすべて引き受けます）。'
+        + 'この授業だけ休む場合はチェックを外してください。';
+    }
+
+    function currentCourse() {
+      var id = document.getElementById('course').value;
+      return COURSES.filter(function (x) { return x.course_id === id; })[0] || null;
+    }
+
     function submit() {
       var courseId = document.getElementById('course').value;
       var date = document.getElementById('date').value;
       if (!date) { alert('欠勤日を選んでください。'); return; }
+      var box = document.getElementById('attachBox');
+      var withAttached = !(box && box.style.display !== 'none')
+        ? false : document.getElementById('withAttached').checked;
 
       var btn = document.getElementById('submit');
       btn.disabled = true;
@@ -205,7 +240,7 @@
       google.script.run
         .withSuccessHandler(onDone)
         .withFailureHandler(onFail)
-        .submitAbsence(courseId, date);
+        .submitAbsence(courseId, date, withAttached);
     }
 
     function onDone(res) {

@@ -382,8 +382,11 @@ function migrateSlotsAndMovePeriods() {
   Logger.log('--- 3/4 移動介助の枠を授業のあいだへ挿入 ---');
   migrateAddMovePeriods();
 
-  Logger.log('--- 4/4 staffs.assist_slots ---');
+  Logger.log('--- 4/5 staffs.assist_slots ---');
   migrateAddAssistSlots();
+
+  Logger.log('--- 5/5 vacancies.group_id ---');
+  migrateAddVacancyGroupId();
 
   Logger.log('');
   Logger.log('=== 完了 ===');
@@ -629,6 +632,35 @@ function migrateAddMovePeriods() {
   }
 }
 
+
+/**
+ * 既存の vacancies シートに group_id 列を追加する（D45・欠勤のかたまり）。
+ *
+ * 介助の担当が休むと、授業だけでなく**その前後の移動介助も同じ人の仕事**なので
+ * 一緒に欠員になる。1回の欠勤連絡で複数の欠員ができるが、**募集は1本**にしたい
+ * （通知1通・承諾1回で全部確定）。その「まとまり」を表すのがこの列。
+ *
+ * 空＝単独の欠員（従来どおり）。後方互換なので、既存行は空のままでよい。冪等。
+ */
+function migrateAddVacancyGroupId() {
+  const ss = openMainDb_();
+  const sheet = ss.getSheetByName('vacancies');
+  if (!sheet) { Logger.log('❌ vacancies シートが見つかりません。'); return; }
+
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
+    return String(h).trim();
+  });
+  if (headers.indexOf('group_id') !== -1) {
+    Logger.log('✅ vacancies には既に group_id 列があります（追加なし）。');
+    return;
+  }
+  const col = lastCol + 1;
+  sheet.getRange(1, col, 1, 1).setValues([['group_id']]);
+  sheet.getRange(2, col, Math.max(sheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+  invalidateSheetCache_('vacancies');
+  Logger.log('✅ vacancies に group_id 列を追加しました（空＝単独の欠員）。');
+}
 
 /**
  * 既存の staffs シートに assist_slots 列を追加する（D32・業務ごとの空きコマ）。
@@ -1042,9 +1074,9 @@ function setupMainDb_(ss, data) {
   writeTable_(coursesSheet, COURSE_HEADERS, data.courses);
 
   const vacanciesSheet = ss.insertSheet('vacancies');
-  vacanciesSheet.getRange(1, 1, 1, 8).setValues([
+  vacanciesSheet.getRange(1, 1, 1, 9).setValues([
     ['vacancy_id', 'date', 'course_id', 'absent_staff_id', 'notify_status', 'result',
-     'substitute_staff_id', 'close_notified_at'],
+     'substitute_staff_id', 'close_notified_at', 'group_id'],
   ]);
   // date（B列）と close_notified_at（H列）は日付・時刻値への自動変換を避けてテキスト固定。
   // 列全体に掛ける（10-6 / 10-6b の教訓：初期データの行数ぶんだと後から足した行で型が変わる）。

@@ -279,4 +279,96 @@ h.check(G.findCandidates_(course12b, ['S1', 'S2']).length === 2,
   '★列が無ければ available_slots へ寄せる（介助の候補が0人にならない）');
 h.headers.staffs = h.headers.staffs.concat(['assist_slots']);
 
+// ── 13) 欠勤は「授業＋前後の移動介助」のかたまりで出す（D45）──
+//
+// 介助の担当が休むと、授業だけでなく前後の移動も同じ人の仕事なので一緒に欠員になる。
+// **1回の欠勤登録＝1つの募集＝1回の通知＝まとめて承諾**にする。
+// 別々に募集すると、同じ欠勤で通知が3通飛び、別々の人が別々の枠を承諾しうる。
+h.section('13) 欠勤のかたまり（授業＋前後の移動介助）');
+
+function setupBlock(startInMin) {
+  h.reset();
+  const D = T.dayJp();
+  h.add('periods', { period: '移動前2', start_time: T.hhmmIn(startInMin - 15), end_time: T.hhmmIn(startInMin), support_types: '介助', label: '移動介助' });
+  h.add('periods', { period: '2', start_time: T.hhmmIn(startInMin), end_time: T.hhmmIn(startInMin + 90) });
+  h.add('periods', { period: '移動後2', start_time: T.hhmmIn(startInMin + 90), end_time: T.hhmmIn(startInMin + 105), support_types: '介助', label: '移動介助' });
+
+  const slots = D + '移動前2,' + D + '2,' + D + '移動後2';
+  h.add('staffs', { staff_id: 'S1', name: '欠勤する人', role: '学生', skills: '介助', assist_slots: '' });
+  // 全枠空いている人（まとめて受けられる）
+  h.add('staffs', { staff_id: 'S3', name: '全部いける人', role: '学生', skills: '介助', assist_slots: slots });
+  // 授業の時間しか空いていない人（まとめては受けられない）
+  h.add('staffs', { staff_id: 'S4', name: '授業だけの人', role: '学生', skills: '介助', assist_slots: D + '2' });
+  h.add('staffs', { staff_id: 'T1', name: '職員', role: '職員' });
+  h.add('contacts', { staff_id: 'S3', name: '全部いける人', phone: '090-3333-3333' });
+  h.add('contacts', { staff_id: 'S4', name: '授業だけの人', phone: '090-4444-4444' });
+
+  [['CB1', '移動前2'], ['CB2', '2'], ['CB3', '移動後2']].forEach(function (c) {
+    h.add('courses', {
+      course_id: c[0], quarter: '2026-前期', day: D, period: c[1], support_type: '介助',
+      user_student: '利用 学生', staff_a_id: 'S1', staff_b_id: '',
+    });
+  });
+  h.setUser({ staff_id: 'S1', name: '欠勤する人', role: '学生' });
+}
+
+setupBlock(90);
+let b = G.submitAbsence('CB2', T.today());
+h.check(b.vacancy_ids.length === 3, '★1回の欠勤連絡で3件の欠員ができる（前・授業・後）');
+h.check(h.db.vacancies.length === 3, 'vacancies は3行');
+
+const gids = h.db.vacancies.map(function (v) { return String(v.group_id || ''); });
+h.check(gids[0] && gids.every(function (g) { return g === gids[0]; }),
+  '★3件が同じ group_id で束ねられる');
+
+h.check(b.vacancy_id === b.vacancy_ids[1], '代表は授業そのもの（かたまりの中心）');
+h.check(JSON.stringify(b.course.block).indexOf('移動介助') !== -1, '画面へ枠の一覧を返す');
+
+h.check(b.candidates.length === 1 && b.candidates[0].staff_id === 'S3',
+  '★候補は全枠に空きがある人だけ（授業の時間しか空いていない人は呼ばない）');
+h.check(h.notifiesOf('new').length === 1, '★通知は1回だけ（3件ぶん送らない）');
+
+// まとめて承諾
+h.section('13b) 承諾1回でかたまり全部が確定する');
+h.setUser({ staff_id: 'S3', name: '全部いける人', role: '学生' });
+const acc = G.respondToVacancy(b.vacancy_id, '承諾');
+h.check(acc.confirmed === true, '承諾できる');
+h.check(acc.also_confirmed.length === 2, '★残り2件も一緒に確定する');
+h.check(h.db.vacancies.every(function (v) {
+  return String(v.result).trim() === '補充済' && String(v.substitute_staff_id).trim() === 'S3';
+}), '★3件とも同じ人で補充済みになる（別の人に分かれない）');
+
+// 一部だけ休む（移動だけ／授業だけ）も従来どおり出せる
+h.section('13c) 一部だけの欠勤も出せる');
+setupBlock(90);
+const single = G.submitAbsence('CB2', T.today(), false);
+h.check(single.vacancy_ids.length === 1, '★includeAttached=false なら1件だけ');
+h.check(!String(h.row('vacancies', 'vacancy_id', single.vacancy_id).group_id || '').trim(),
+  '単独の欠員に group_id は付けない（従来と同じ形）');
+h.check(single.candidates.length === 2,
+  '単独なら、その枠に空きがある人は全員候補（授業だけの人も呼べる）');
+
+// 移動コマ単独の欠勤
+setupBlock(90);
+const moveOnly = G.submitAbsence('CB1', T.today());
+h.check(moveOnly.vacancy_ids.length === 1,
+  '★移動コマを選んだときは、その枠だけ（移動の前の移動、にはならない）');
+
+// 二重登録の防止がかたまりに広がる
+h.section('13d) かたまりの一部が既に出ていたら止める');
+setupBlock(90);
+G.submitAbsence('CB1', T.today());              // 移動だけ先に出しておく
+let blocked = false;
+try { G.submitAbsence('CB2', T.today()); } catch (e) { blocked = /既に登録されています/.test(e.message); }
+h.check(blocked, '★かたまりのうち1件でも未解決で残っていれば、重ねて登録させない');
+
+// 担当が違う移動は巻き込まない
+h.section('13e) 担当が違う移動は巻き込まない');
+setupBlock(90);
+h.row('courses', 'course_id', 'CB3').staff_a_id = 'S4';   // 食堂への移動だけ別の人
+h.setUser({ staff_id: 'S1', name: '欠勤する人', role: '学生' });
+const partial = G.submitAbsence('CB2', T.today());
+h.check(partial.vacancy_ids.length === 2,
+  '★別の人が担当している移動は、かたまりに入れない（その人の仕事なので）');
+
 process.exitCode = h.report();
