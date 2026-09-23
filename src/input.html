@@ -21,6 +21,27 @@
 
     .req { color: var(--danger); margin-left: 3px; }
 
+    /* ===== 入力カード（D44）=====
+       1カード＝1コマ。複数枚あるときだけ番号と×を出す（1枚のときは従来と同じ見た目）。 */
+    .shiftcard { border: 1px solid var(--border); border-radius: var(--radius);
+                 padding: 14px 16px; margin-bottom: 12px; background: var(--surface); }
+    .shiftcard.busy { border-color: var(--brand-border); background: var(--brand-soft); }
+    .shiftcard.ok   { border-color: var(--ok-border);    background: var(--ok-bg); }
+    .shiftcard.err  { border-color: var(--danger-border); background: var(--danger-bg); }
+
+    .cardhead { display: flex; align-items: center; gap: 10px; min-height: 22px; margin-bottom: 8px; }
+    .cardno { font-size: .82rem; font-weight: 700; color: var(--text-muted); }
+    .cardstate { font-size: .82rem; flex: 1; }
+    .cardstate.ok  { color: var(--ok); font-weight: 700; }
+    .cardstate.err { color: var(--danger); font-weight: 700; }
+    .cardstate.busy { color: var(--brand-ink); }
+    .cardx { margin-left: auto; border: 1px solid var(--border-strong); background: var(--surface);
+             color: var(--text-muted); border-radius: var(--radius-sm); cursor: pointer;
+             font-size: 1rem; line-height: 1; padding: 3px 9px; font-family: inherit; }
+    .cardx:hover { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
+
+    .addcard { border-style: dashed; margin-bottom: 12px; }
+
     #submit { margin-top: 16px; }
     #cancelEdit { margin-top: 8px; }
     /* 一覧の行内ボタン（編集＝青の枠線／削除＝赤の枠線） */
@@ -66,6 +87,20 @@
     <div class="card">
       <h2 id="formTitle">コマを追加</h2>
       <div id="form" class="state">読み込み中…</div>
+
+      <button type="button" class="btn block addcard" id="addCard" onclick="onAddCard()"
+              style="display:none">＋ カードを追加</button>
+      <button class="btn primary block" id="submit" onclick="submitCourse()">このコマを追加</button>
+      <button class="btn block" id="cancelEdit" onclick="cancelEdit()" style="display:none">編集をやめる</button>
+
+      <p class="hint">＊は必須。<b>担当は未定のままでも登録できます</b>
+        （授業だけ先に入れて、あとから割り当てられます）。
+        <b>「＋ カードを追加」で複数のコマをまとめて登録できます</b>
+        （直前のカードの曜日・時限・内容・利用者・担当を引き継ぎます）。
+        毎週のコマでは、担当欄に「選んだ曜日・時限に空きがあり内容に対応できる人」だけを表示します。
+        「この日だけ」（特別授業・説明会など）では<b>全員から選べます</b>
+        （空きコマは毎週の予定なので、その日の予定を表さないため）。
+        登録済みのコマは下の一覧の「編集」から修正できます（教室が後から決まった場合など）。</p>
       <div id="toast" class="toast"></div>
     </div>
 
@@ -128,119 +163,213 @@
       if (q) load(q);
     }
 
+    // ===== 入力カード（D44）=====
+    //
+    // 1カード＝1コマ。「＋」で増やし、最後に1回の操作でまとめて登録する。
+    // 登録は**上から順に addCourse を呼ぶだけ**で、サーバーは変えていない。
+    // 順に呼べばカード①はカード②の検証時にはもうシートに入っているので、
+    // 二重起用チェックがそのまま効く（appendRowWithId が書き込み後に
+    // invalidateSheetCache_ を呼ぶため、同一実行内でも読み直される）。
+    //
+    // 編集モード（EDIT_ID あり）はカード1枚に固定する。既存の1コマを直す操作なので
+    // 増やす意味が無く、更新は addCourse ではなく updateCourse を通す。
+
+    var CARDS = [];      // 表示中のカード番号（新しいものほど後ろ）
+    var CARD_SEQ = 0;    // カード番号の採番（DOM の id に使う）
+
+    // カード n の要素・値（id は '<name>-<n>' で一意にしてある）
+    function el(n, name) { return document.getElementById(name + '-' + n); }
+    function v(n, name) { var e = el(n, name); return e ? e.value : ''; }
+
     function buildForm() {
-      EDIT_ID = null;  // フォーム再構築時は新規追加モードに戻す
+      EDIT_ID = null;
+      CARDS = [];
+      CARD_SEQ = 0;
+      document.getElementById('form').className = '';
+      addCard(null);
+      renderFormChrome();
+    }
+
+    // カードを1枚足す。from を渡すと、その内容を引き継ぐ（科目・教員・教室・備考は空）。
+    // 引き継ぐのは曜日・時限・内容・利用者・担当・移動のチェックで、
+    // 「同じ利用者の別のコマを続けて入れる」という実際の使い方に合わせている。
+    function addCard(from) {
+      var n = ++CARD_SEQ;
+      CARDS.push(n);
+      var host = document.getElementById('form');
+      var wrap = document.createElement('div');
+      wrap.className = 'shiftcard';
+      wrap.id = 'card-' + n;
+      wrap.innerHTML = cardHtml(n);
+      host.appendChild(wrap);
+
+      fillUserOptions(n);
+      rebuildPeriods(n);
+      if (from) copyCard(from, n);
+      onRecurrenceChange(n);
+      onTypeChange(n);
+      renderFormChrome();
+      return n;
+    }
+
+    function removeCard(n) {
+      if (CARDS.length <= 1) return;           // 最後の1枚は残す
+      var node = document.getElementById('card-' + n);
+      if (node) node.parentNode.removeChild(node);
+      CARDS = CARDS.filter(function (x) { return x !== n; });
+      renderFormChrome();
+    }
+
+    function copyCard(from, to) {
+      ['recurrence', 'day', 'date', 'support_type'].forEach(function (name) {
+        var src = el(from, name);
+        var dst = el(to, name);
+        if (src && dst) dst.value = src.value;
+      });
+      // 時限は内容によって選択肢が変わるので、内容を移してから組み直す
+      rebuildPeriods(to);
+      var p = el(from, 'period');
+      if (p && el(to, 'period')) el(to, 'period').value = p.value;
+
+      var us = el(from, 'user_sel');
+      if (us && el(to, 'user_sel')) {
+        el(to, 'user_sel').value = us.value;
+        if (us.value === '__new__') {
+          onUserSel(to);
+          el(to, 'user_new').value = el(from, 'user_new').value;
+        }
+      }
+      el(to, 'eligOnly').checked = el(from, 'eligOnly').checked;
+      ['withMoveBefore', 'withMoveAfter'].forEach(function (name) {
+        if (el(from, name) && el(to, name)) el(to, name).checked = el(from, name).checked;
+      });
+      rebuildStaff(to);
+      ['staff_a_id', 'staff_b_id'].forEach(function (name) {
+        var src = el(from, name);
+        var dst = el(to, name);
+        if (src && dst && !dst.disabled) dst.value = src.value;
+      });
+    }
+
+    function cardHtml(n) {
       var dayOpts = DATA.days.map(function (d) {
         return '<option value="' + escapeHtml(d) + '">' + escapeHtml(d) + '</option>';
       }).join('');
-      // 時限の選択肢は内容（テイク/介助）が決まってから組む。移動介助の枠は
-      // 介助でしか選べないため（D33）。組み直しは onTypeChange から呼ぶ。
-      var perOpts = periodOptions('テイク');
 
-      document.getElementById('form').className = '';
-      document.getElementById('form').innerHTML =
+      return '<div class="cardhead">' +
+          '<span class="cardno" id="cardno-' + n + '"></span>' +
+          '<span class="cardstate" id="cardstate-' + n + '"></span>' +
+          '<button type="button" class="cardx" id="cardx-' + n + '" ' +
+            'onclick="removeCard(' + n + ')" title="このカードを削除">×</button>' +
+        '</div>' +
         '<div class="grid">' +
           '<div class="full"><label>種別<span class="req">*</span></label>' +
-            '<select id="recurrence" onchange="onRecurrenceChange()">' +
+            '<select id="recurrence-' + n + '" onchange="onRecurrenceChange(' + n + ')">' +
             '<option value="weekly">毎週（学期中くり返す授業）</option>' +
             '<option value="once">この日だけ（特別授業・説明会などのイベント）</option>' +
             '</select></div>' +
-          '<div id="dayBox"><label>曜日<span class="req">*</span></label>' +
-            '<select id="day" onchange="rebuildStaff()">' + dayOpts + '</select></div>' +
-          '<div id="dateBox" style="display:none"><label>実施日<span class="req">*</span></label>' +
-            '<input type="date" id="date" onchange="onDateChange()">' +
-            '<div class="hint" id="dateDay" style="margin:4px 0 0"></div></div>' +
+          '<div id="dayBox-' + n + '"><label>曜日<span class="req">*</span></label>' +
+            '<select id="day-' + n + '" onchange="rebuildStaff(' + n + ')">' + dayOpts + '</select></div>' +
+          '<div id="dateBox-' + n + '" style="display:none"><label>実施日<span class="req">*</span></label>' +
+            '<input type="date" id="date-' + n + '" onchange="onDateChange(' + n + ')">' +
+            '<div class="hint" id="dateDay-' + n + '" style="margin:4px 0 0"></div></div>' +
           '<div><label>時限<span class="req">*</span></label>' +
-            '<select id="period" onchange="onPeriodChange()">' + perOpts + '</select>' +
-            '<div class="hint" id="periodNote" style="margin:4px 0 0"></div></div>' +
+            '<select id="period-' + n + '" onchange="onPeriodChange(' + n + ')"></select>' +
+            '<div class="hint" id="periodNote-' + n + '" style="margin:4px 0 0"></div></div>' +
           '<div><label>内容<span class="req">*</span></label>' +
-            '<select id="support_type" onchange="onTypeChange()">' +
+            '<select id="support_type-' + n + '" onchange="onTypeChange(' + n + ')">' +
             '<option value="テイク">テイク（原則2名）</option>' +
             '<option value="介助">介助（1名）</option></select></div>' +
           '<div><label>利用者（被支援者）<span class="req">*</span></label>' +
-            '<select id="user_sel" onchange="onUserSel()"></select>' +
-            '<input id="user_new" style="display:none;margin-top:6px" placeholder="新しい利用者名"></div>' +
-          '<div><label>科目名</label><input id="subject" placeholder="例：基礎数学"></div>' +
-          '<div><label>担当教員</label><input id="instructor" placeholder="例：（仮）教員A"></div>' +
-          '<div><label>教室</label><input id="room" placeholder="例：1-101"></div>' +
+            '<select id="user_sel-' + n + '" onchange="onUserSel(' + n + ')"></select>' +
+            '<input id="user_new-' + n + '" style="display:none;margin-top:6px" placeholder="新しい利用者名"></div>' +
+          '<div><label>科目名</label><input id="subject-' + n + '" placeholder="例：基礎数学"></div>' +
+          '<div><label>担当教員</label><input id="instructor-' + n + '" placeholder="例：（仮）教員A"></div>' +
+          '<div><label>教室</label><input id="room-' + n + '" placeholder="例：1-101"></div>' +
           '<div></div>' +
-          '<div class="full" id="moveBox" style="display:none">' +
-            '<label id="moveBeforeRow" style="font-weight:600;cursor:pointer;display:none">' +
-            '<input type="checkbox" id="withMoveBefore" checked style="width:auto">' +
-            '<span id="moveBeforeLabel"></span></label>' +
-            '<label id="moveAfterRow" style="font-weight:600;cursor:pointer;display:none">' +
-            '<input type="checkbox" id="withMoveAfter" checked style="width:auto">' +
-            '<span id="moveAfterLabel"></span></label>' +
-            '<div class="hint" id="moveHint" style="margin:4px 0 0"></div></div>' +
+          '<div class="full" id="moveBox-' + n + '" style="display:none">' +
+            '<label id="moveBeforeRow-' + n + '" style="font-weight:600;cursor:pointer;display:none">' +
+            '<input type="checkbox" id="withMoveBefore-' + n + '" checked style="width:auto">' +
+            '<span id="moveBeforeLabel-' + n + '"></span></label>' +
+            '<label id="moveAfterRow-' + n + '" style="font-weight:600;cursor:pointer;display:none">' +
+            '<input type="checkbox" id="withMoveAfter-' + n + '" checked style="width:auto">' +
+            '<span id="moveAfterLabel-' + n + '"></span></label>' +
+            '<div class="hint" id="moveHint-' + n + '" style="margin:4px 0 0"></div></div>' +
           '<div class="full"><label style="font-weight:600;cursor:pointer">' +
-            '<input type="checkbox" id="eligOnly" checked onchange="rebuildStaff()" style="width:auto">' +
+            '<input type="checkbox" id="eligOnly-' + n + '" checked onchange="rebuildStaff(' + n + ')" style="width:auto">' +
             ' このコマに空きがあり、スキルも合う人だけ表示</label>' +
-            '<div class="hint" id="eligNote" style="margin:4px 0 0;display:none"></div></div>' +
-          '<div><label>担当スタッフA<span class="req">*</span></label>' +
-            '<select id="staff_a_id"></select></div>' +
-          '<div><label>担当スタッフB</label><select id="staff_b_id"></select></div>' +
-          '<div class="full"><label>備考</label><textarea id="note" placeholder="任意"></textarea></div>' +
-        '</div>' +
-        '<button class="btn primary block" id="submit" onclick="submitCourse()">このコマを追加</button>' +
-        '<button class="btn block" id="cancelEdit" onclick="cancelEdit()" style="display:none">編集をやめる</button>' +
-        '<p class="hint">＊は必須。<b>担当は未定のままでも登録できます</b>'
-        + '（授業だけ先に入れて、あとから割り当てられます）。' +
-        '毎週のコマでは、担当欄に「選んだ曜日・時限に空きがあり内容に対応できる人」だけを表示します。' +
-        '「この日だけ」（特別授業・説明会など）では<b>全員から選べます</b>' +
-        '（空きコマは毎週の予定なので、その日の予定を表さないため）。' +
-        '登録済みのコマは下の一覧の「編集」から修正できます（教室が後から決まった場合など）。</p>';
-
-      fillUserOptions();
-      rebuildStaff();
+            '<div class="hint" id="eligNote-' + n + '" style="margin:4px 0 0;display:none"></div></div>' +
+          '<div><label>担当スタッフA</label>' +
+            '<select id="staff_a_id-' + n + '"></select></div>' +
+          '<div><label>担当スタッフB</label><select id="staff_b_id-' + n + '"></select></div>' +
+          '<div class="full"><label>備考</label><textarea id="note-' + n + '" placeholder="任意"></textarea></div>' +
+        '</div>';
     }
 
-    // 利用者プルダウン（既存名＋「新規追加」）
-    function fillUserOptions() {
-      var sel = document.getElementById('user_sel');
+    // カードの番号・×の出し分け・ボタンの文言をまとめて描き直す
+    function renderFormChrome() {
+      var multi = CARDS.length > 1;
+      CARDS.forEach(function (n, i) {
+        var no = document.getElementById('cardno-' + n);
+        if (no) no.textContent = multi ? (i + 1) + 'コマ目' : '';
+        var x = document.getElementById('cardx-' + n);
+        if (x) x.style.display = (multi && !EDIT_ID) ? '' : 'none';
+      });
+      document.getElementById('addCard').style.display = EDIT_ID ? 'none' : '';
+      var btn = document.getElementById('submit');
+      btn.disabled = false;
+      btn.textContent = EDIT_ID ? 'このコマを更新'
+        : (multi ? CARDS.length + 'コマをまとめて登録' : 'このコマを追加');
+      document.getElementById('cancelEdit').style.display = EDIT_ID ? '' : 'none';
+    }
+
+    function onAddCard() {
+      var from = CARDS[CARDS.length - 1];
+      var n = addCard(from);
+      document.getElementById('card-' + n).scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    function fillUserOptions(n) {
+      var sel = el(n, 'user_sel');
       if (!sel) return;
-      var opts = '<option value="">（選択してください）</option>' +
+      sel.innerHTML = '<option value="">（選択してください）</option>' +
         DATA.users.map(function (u) {
           return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>';
         }).join('') +
         '<option value="__new__">＋ 新しい利用者を追加…</option>';
-      sel.innerHTML = opts;
     }
 
-    function onUserSel() {
-      var box = document.getElementById('user_new');
-      if (val('user_sel') === '__new__') { box.style.display = ''; box.focus(); }
+    function onUserSel(n) {
+      var box = el(n, 'user_new');
+      if (v(n, 'user_sel') === '__new__') { box.style.display = ''; box.focus(); }
       else { box.style.display = 'none'; }
     }
 
     // 入力された利用者名（既存選択 or 新規入力）
-    function userValue() {
-      return val('user_sel') === '__new__'
-        ? document.getElementById('user_new').value.trim()
-        : val('user_sel');
+    function userValue(n) {
+      return v(n, 'user_sel') === '__new__' ? el(n, 'user_new').value.trim() : v(n, 'user_sel');
     }
 
-    // 介助のときはB欄を無効化（1名）。内容が変わると候補も組み直す。
-    function onTypeChange() {
-      rebuildStaff();
-      var b = document.getElementById('staff_b_id');
-      rebuildPeriods();
-      onPeriodChange();
-      if (val('support_type') === '介助') { b.value = ''; b.disabled = true; }
+    // 介助のときはB欄を無効化（1名）。内容が変わると候補も時限も組み直す。
+    function onTypeChange(n) {
+      rebuildPeriods(n);
+      onPeriodChange(n);
+      var b = el(n, 'staff_b_id');
+      if (v(n, 'support_type') === '介助') { b.value = ''; b.disabled = true; }
       else { b.disabled = false; }
     }
 
     // ===== 種別（毎週 / この日だけ）=====
-    function isOnce() {
-      var el = document.getElementById('recurrence');
-      return !!el && el.value === 'once';
+    function isOnce(n) {
+      var e = el(n, 'recurrence');
+      return !!e && e.value === 'once';
     }
 
     // 'yyyy-MM-dd' を一覧向けの日本語表記にする（例：9/12（土））。
     // 年は学期の中では冗長なので落とし、週バー（home）の日付ラベルと同じ M/D に揃える。
-    // サーバーが必ず 'yyyy-MM-dd' に正規化して返す前提（courseDate_ が Date も吸収する）。
     function dateLabel(iso) {
       var m = String(iso || '').split('-');
-      if (m.length !== 3) return String(iso || '');   // 想定外の値はそのまま出す
+      if (m.length !== 3) return String(iso || '');
       var w = weekdayOfISO(iso);
       return (+m[1]) + '/' + (+m[2]) + (w ? '（' + w + '）' : '');
     }
@@ -254,31 +383,33 @@
     }
 
     // 毎週＝曜日を選ぶ／この日だけ＝日付を選ぶ。曜日は日付から自動で決まる（サーバーも同じ導出）。
-    function onRecurrenceChange() {
-      var once = isOnce();
-      document.getElementById('dayBox').style.display = once ? 'none' : '';
-      document.getElementById('dateBox').style.display = once ? '' : 'none';
+    function onRecurrenceChange(n) {
+      var once = isOnce(n);
+      el(n, 'dayBox').style.display = once ? 'none' : '';
+      el(n, 'dateBox').style.display = once ? '' : 'none';
 
       // 単発コマでは「空き×スキル」の絞り込みを使わない。available_slots は
       // 毎週の空きコマであって、その日に空いているかを表さないため（全員から選ぶ）。
-      var elig = document.getElementById('eligOnly');
-      var note = document.getElementById('eligNote');
+      var elig = el(n, 'eligOnly');
+      var note = el(n, 'eligNote');
       elig.disabled = once;
       note.style.display = once ? '' : 'none';
       note.textContent = once
         ? '「この日だけ」では絞り込みは使いません（空きコマは毎週の予定で、その日の空き状況を表さないため）。全員から選べます。'
         : '';
-      onDateChange();
-      onPeriodChange();
+      onDateChange(n);
+      onPeriodChange(n);
     }
 
-    function onDateChange() {
-      var lab = document.getElementById('dateDay');
-      if (isOnce()) {
-        var w = weekdayOfISO(val('date'));
-        lab.textContent = w ? w + '曜日として登録されます' : '実施日を選んでください';
+    function onDateChange(n) {
+      var lab = el(n, 'dateDay');
+      if (isOnce(n)) {
+        var w = weekdayOfISO(v(n, 'date'));
+        lab.textContent = w ? '（' + w + '曜）として登録されます' : '';
+      } else {
+        lab.textContent = '';
       }
-      rebuildStaff();
+      rebuildStaff(n);
     }
 
     /**
@@ -297,72 +428,20 @@
       }).join('');
     }
 
-    /**
-     * 選んでいる授業にくっついた移動枠があれば、「一緒に登録」を出す（D34・D35）。
-     *
-     * 介助は「その授業の担当が、その授業の前後の移動も担当する」のが基本形なので
-     * **既定でオン**にする。移動が要らないときだけ外してもらう。
-     *
-     * 前と後は別の枠。2限のあと（食堂へ運ぶ）と3限の前は、同じ昼休みの中に並ぶが
-     * 担当する人が違う（D35）。だから片方だけ出ることもある。
-     * 移動枠そのものを選んでいるときは出さない（移動の前の移動、になってしまう）。
-     */
-    function onPeriodChange() {
-      var box = document.getElementById('moveBox');
-      if (box) {
-        var per = currentPeriod();
-        // 移動枠を選んでいるとき（supportTypes が1つに限定された枠）は対象外
-        var isMoveItself = per && (per.supportTypes || []).length < 2;
-        var eligible = per && !isMoveItself && val('support_type') === '介助' && !isOnce();
-
-        var before = eligible ? per.moveBefore : null;
-        var after = eligible ? per.moveAfter : null;
-        setMoveRow('Before', before, 'この授業の前の');
-        setMoveRow('After', after, 'この授業のあとの');
-
-        if (before || after) {
-          box.style.display = '';
-          document.getElementById('moveHint').textContent =
-            '同じ担当・同じ利用者で、教室はこの授業の教室を引き継ぎます。'
-            + '移動が不要ならチェックを外してください。';
-        } else {
-          box.style.display = 'none';
-        }
-      }
-      rebuildStaff();
-    }
-
-    // 前／後それぞれの行を出し入れする
-    function setMoveRow(side, mv, prefix) {
-      var row = document.getElementById('move' + side + 'Row');
-      if (!row) return;
-      if (!mv) { row.style.display = 'none'; return; }
-      row.style.display = '';
-      document.getElementById('move' + side + 'Label').textContent =
-        '　' + prefix + mv.label + 'も一緒に登録する（' + mv.time + '）';
-    }
-
-    // いま選んでいる時限（サーバーから来た定義）
-    function currentPeriod() {
-      var key = val('period');
-      return (DATA.periods || []).filter(function (p) { return p.period === key; })[0] || null;
-    }
-
     // 内容を変えたら時限の選択肢を組み直す（選択中の時限は選べるなら維持する）
-    function rebuildPeriods() {
-      var sel = document.getElementById('period');
+    function rebuildPeriods(n) {
+      var sel = el(n, 'period');
       if (!sel) return;
       var keep = sel.value;
-      var type = val('support_type');
+      var type = v(n, 'support_type');
       sel.innerHTML = periodOptions(type);
       if (keep) sel.value = keep;
       if (!sel.value && sel.options.length) sel.selectedIndex = 0;
 
-      var note = document.getElementById('periodNote');
+      var note = el(n, 'periodNote');
       if (note) {
         var limited = DATA.periods.filter(function (p) {
-          return (p.supportTypes || []).indexOf(type) !== -1 &&
-            (p.supportTypes || []).length < 2;
+          return (p.supportTypes || []).indexOf(type) !== -1 && (p.supportTypes || []).length < 2;
         });
         note.textContent = limited.length
           ? '「' + limited[0].label + '」は授業のあいだの枠です（' + type + 'のみ）。'
@@ -370,10 +449,60 @@
       }
     }
 
+    // いま選んでいる時限（サーバーから来た定義）
+    function currentPeriod(n) {
+      var key = v(n, 'period');
+      return (DATA.periods || []).filter(function (p) { return p.period === key; })[0] || null;
+    }
+
+    /**
+     * 選んでいる授業にくっついた移動枠があれば、「一緒に登録」を出す（D34・D35）。
+     * 前と後は別の枠。2限のあと（食堂へ運ぶ）と3限の前は、同じ昼休みの中に並ぶが
+     * 担当する人が違うので、片方だけ出ることもある。
+     */
+    function onPeriodChange(n) {
+      var box = el(n, 'moveBox');
+      if (box) {
+        var per = currentPeriod(n);
+        var isMoveItself = per && (per.supportTypes || []).length < 2;
+        var eligible = per && !isMoveItself && v(n, 'support_type') === '介助' && !isOnce(n);
+        var before = eligible ? per.moveBefore : null;
+        var after = eligible ? per.moveAfter : null;
+        setMoveRow(n, 'Before', before, 'この授業の前の');
+        setMoveRow(n, 'After', after, 'この授業のあとの');
+        if (before || after) {
+          box.style.display = '';
+          el(n, 'moveHint').textContent =
+            '同じ担当・同じ利用者で、教室はこの授業の教室を引き継ぎます。移動が不要ならチェックを外してください。';
+        } else {
+          box.style.display = 'none';
+        }
+      }
+      rebuildStaff(n);
+    }
+
+    function setMoveRow(n, side, mv, prefix) {
+      var row = el(n, 'move' + side + 'Row');
+      if (!row) return;
+      if (!mv) { row.style.display = 'none'; return; }
+      row.style.display = '';
+      el(n, 'move' + side + 'Label').textContent =
+        '　' + prefix + mv.label + 'も一緒に登録する（' + mv.time + '）';
+    }
+
+    // チェックが画面に出ていて、かつオンか
+    function moveChecked(n, side) {
+      var box = el(n, 'moveBox');
+      var row = el(n, 'move' + side + 'Row');
+      if (!box || box.style.display === 'none') return false;
+      if (!row || row.style.display === 'none') return false;
+      return el(n, 'withMove' + side).checked;
+    }
+
     // 担当A/Bの候補を「空き＋スキル」で組み直す（選択中の値は可能なら維持）
-    function staffEligible(s) {
-      var slotKey = val('day') + val('period');
-      var type = val('support_type');
+    function staffEligible(s, n) {
+      var slotKey = v(n, 'day') + v(n, 'period');
+      var type = v(n, 'support_type');
       var skillOk = !s.skills ||
         s.skills.split(',').map(function (x) { return x.trim(); }).indexOf(type) !== -1;
       // 空きコマは業務ごとに別（D32）。選んでいる内容の空きコマだけを見る。
@@ -381,88 +510,135 @@
       return skillOk && slots.indexOf(slotKey) !== -1;
     }
 
-    function rebuildStaff() {
+    function rebuildStaff(n) {
       // 単発コマは常に全員から選ぶ（絞り込みの条件そのものが成り立たない）
-      var eligOnly = !isOnce() && document.getElementById('eligOnly').checked;
-      var list = eligOnly ? DATA.staff.filter(staffEligible) : DATA.staff.slice();
+      var eligOnly = !isOnce(n) && el(n, 'eligOnly').checked;
+      var list = eligOnly
+        ? DATA.students.filter(function (s) { return staffEligible(s, n); })
+        : DATA.students;
+
       var opt = function (s) {
         var label = s.name + (s.skills ? '（' + s.skills + '）' : '');
         return '<option value="' + escapeHtml(s.staff_id) + '">' + escapeHtml(label) + '</option>';
       };
       var body = list.map(opt).join('');
 
-      var a = document.getElementById('staff_a_id');
-      var b = document.getElementById('staff_b_id');
+      var a = el(n, 'staff_a_id');
+      var b = el(n, 'staff_b_id');
       var prevA = a.value, prevB = b.value;
       // 担当は未定のままでも登録できる（D38）。授業だけ先に入れて、
       // 学生の空きコマが集まってから割り当てる、という実務の順番に合わせる。
       a.innerHTML = '<option value="">（未定）</option>' +
         (body || '<option value="" disabled>該当者なし（絞り込みを外してください）</option>');
       b.innerHTML = '<option value="">（なし・1名）</option>' + body;
-      // 直前の選択が候補に残っていれば維持
       if (prevA && list.some(function (s) { return s.staff_id === prevA; })) a.value = prevA;
       if (prevB && list.some(function (s) { return s.staff_id === prevB; })) b.value = prevB;
     }
 
-    // 追加 or 更新（EDIT_ID の有無で分岐）
-    function submitCourse() {
-      var once = isOnce();
-      var payload = {
+    // ===== 送信 =====
+    // カード1枚ぶんの payload（画面で止めるべきものはここで返す）
+    function payloadOf(n) {
+      var once = isOnce(n);
+      return {
         quarter: val('quarter').trim(),
-        // 単発コマは曜日を送らない（サーバーが実施日から導出する・D27）
-        day: once ? '' : val('day'),
-        date: once ? val('date') : '',
-        period: val('period'),
-        support_type: val('support_type'),
-        user_student: userValue(),
-        subject: val('subject').trim(),
-        instructor: val('instructor').trim(),
-        room: val('room').trim(),
-        staff_a_id: val('staff_a_id'),
-        staff_b_id: document.getElementById('staff_b_id').disabled ? '' : val('staff_b_id'),
-        note: val('note').trim(),
-        // 授業の前／後の移動介助も一緒に作るか（D34・D35）。
-        // その行が画面に出ていないときは送らない（枠が無い＝作りようがない）
-        withMoveBefore: moveChecked('Before'),
-        withMoveAfter: moveChecked('After'),
+        day: once ? '' : v(n, 'day'),
+        date: once ? v(n, 'date') : '',
+        period: v(n, 'period'),
+        support_type: v(n, 'support_type'),
+        user_student: userValue(n),
+        subject: v(n, 'subject').trim(),
+        instructor: v(n, 'instructor').trim(),
+        room: v(n, 'room').trim(),
+        staff_a_id: v(n, 'staff_a_id'),
+        staff_b_id: el(n, 'staff_b_id').disabled ? '' : v(n, 'staff_b_id'),
+        note: v(n, 'note').trim(),
+        withMoveBefore: moveChecked(n, 'Before'),
+        withMoveAfter: moveChecked(n, 'After'),
       };
-      if (!payload.quarter) { showToast('学期を選択してください。', false); return; }
-      if (once && !payload.date) { showToast('実施日を選んでください。', false); return; }
-      if (!payload.user_student) { showToast('利用者を入力してください。', false); return; }
-
-      if (EDIT_ID) { runUpdate(payload); } else { runAdd(payload); }
     }
 
-    // チェックが画面に出ていて、かつオンか
-    function moveChecked(side) {
-      var box = document.getElementById('moveBox');
-      var row = document.getElementById('move' + side + 'Row');
-      if (!box || box.style.display === 'none') return false;
-      if (!row || row.style.display === 'none') return false;
-      return document.getElementById('withMove' + side).checked;
+    function clientError(n, p) {
+      if (!p.quarter) return '学期を選択してください。';
+      if (isOnce(n) && !p.date) return '実施日を選んでください。';
+      if (!p.user_student) return '利用者を入力してください。';
+      return '';
     }
 
-    function runAdd(payload) {
+    function submitCourse() {
+      if (EDIT_ID) {
+        var one = payloadOf(CARDS[0]);
+        var err = clientError(CARDS[0], one);
+        if (err) { showToast(err, false); return; }
+        runUpdate(one);
+        return;
+      }
+
+      // 先に全カードを見る。1枚でも入力漏れがあれば、1件も登録せずにそのカードを指す。
+      for (var i = 0; i < CARDS.length; i++) {
+        var e = clientError(CARDS[i], payloadOf(CARDS[i]));
+        if (e) {
+          markCard(CARDS[i], 'err', e);
+          showToast((CARDS.length > 1 ? (i + 1) + 'コマ目：' : '') + e, false);
+          document.getElementById('card-' + CARDS[i]).scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
+        }
+      }
+      CARDS.forEach(function (n) { markCard(n, '', ''); });
+      runQueue(CARDS.slice(), []);
+    }
+
+    // カードの状態表示（登録中／済み／失敗）
+    function markCard(n, state, text) {
+      var s = document.getElementById('cardstate-' + n);
+      var card = document.getElementById('card-' + n);
+      if (s) { s.className = 'cardstate ' + state; s.textContent = text; }
+      if (card) card.className = 'shiftcard' + (state ? ' ' + state : '');
+    }
+
+    /**
+     * 上から順に1枚ずつ登録する（D44）。
+     *
+     * **サーバーは変えていない。** 順に呼べば、カード①はカード②の検証時には
+     * もうシートに入っているので二重起用チェックがそのまま効く。
+     * GASにトランザクションは無いので、途中で失敗したら**そこで止めて、
+     * どこまで登録できたかを見せる**。成功したカードは消し、失敗したカードは残す。
+     */
+    function runQueue(queue, doneIds) {
       var btn = document.getElementById('submit');
-      btn.disabled = true; btn.textContent = '追加中…';
+      btn.disabled = true;
+
+      if (queue.length === 0) {
+        var q = val('quarter').trim();
+        showToast(doneIds.length + 'コマを登録しました（' + doneIds.join('・') + '）。', true);
+        buildForm();          // カードを1枚に戻す
+        refreshList(q);
+        return;
+      }
+
+      var n = queue[0];
+      var rest = queue.slice(1);
+      btn.textContent = '登録中… （残り ' + queue.length + '）';
+      markCard(n, 'busy', '登録中…');
+
       google.script.run
         .withSuccessHandler(function (res) {
-          showToast('追加しました（' + res.course_id +
-            ((res.move_course_ids || []).length
-              ? ' ／ 移動介助 ' + res.move_course_ids.join('・') : '') + '）。', true);
-          // 入力しやすいよう、コマ固有の項目だけクリア（曜日・時限・内容・担当は維持）
-          ['subject', 'instructor', 'room', 'note', 'user_new'].forEach(function (id) {
-            document.getElementById(id).value = '';
-          });
-          document.getElementById('user_new').style.display = 'none';
-          btn.disabled = false; btn.textContent = 'このコマを追加';
-          refreshList(payload.quarter); // フォームは保ったまま一覧だけ更新
+          var ids = [res.course_id].concat(res.move_course_ids || []);
+          markCard(n, 'ok', '✅ ' + ids.join('・'));
+          var node = document.getElementById('card-' + n);
+          if (node) node.parentNode.removeChild(node);
+          CARDS = CARDS.filter(function (x) { return x !== n; });
+          runQueue(rest, doneIds.concat(ids));
         })
         .withFailureHandler(function (err) {
-          showToast(err.message, false);
-          btn.disabled = false; btn.textContent = 'このコマを追加';
+          markCard(n, 'err', '❌ ' + err.message);
+          renderFormChrome();
+          var q = val('quarter').trim();
+          showToast(
+            (doneIds.length ? doneIds.length + 'コマを登録しました（' + doneIds.join('・') + '）。残りは止めました。' : '')
+            + ' ' + err.message, false);
+          refreshList(q);   // 登録済みのぶんを一覧へ反映
         })
-        .addCourse(payload);
+        .addCourse(payloadOf(n));
     }
 
     function runUpdate(payload) {
@@ -476,12 +652,12 @@
         })
         .withFailureHandler(function (err) {
           showToast(err.message, false);
-          btn.disabled = false; btn.textContent = 'このコマを更新';
+          renderFormChrome();
         })
         .updateCourse(payload);
     }
 
-    // 一覧の「編集」→ 上のフォームに値を流し込み、更新モードに切り替える
+    // ===== 編集（カードは1枚に固定）=====
     function editCourse(id) {
       var c = null;
       for (var i = 0; i < DATA.courses.length; i++) {
@@ -489,65 +665,56 @@
       }
       if (!c) { showToast('対象のコマが見つかりません。一覧を更新してください。', false); return; }
 
+      buildForm();               // カードを1枚に戻してから流し込む
       EDIT_ID = id;
+      var n = CARDS[0];
+
       // 担当に現在の人が必ず出るよう、まず絞り込みを外して全員表示にする
-      document.getElementById('eligOnly').checked = false;
-      document.getElementById('recurrence').value = c.date ? 'once' : 'weekly';
-      document.getElementById('date').value = c.date || '';
-      onRecurrenceChange();          // 表示の出し分け（この中で rebuildStaff も走る）
-      document.getElementById('day').value = c.day;
-      document.getElementById('period').value = c.period;
-      document.getElementById('support_type').value = c.support_type;
-      onTypeChange(); // 候補を組み直し（介助ならB無効化）
+      el(n, 'eligOnly').checked = false;
+      el(n, 'recurrence').value = c.date ? 'once' : 'weekly';
+      el(n, 'date').value = c.date || '';
+      onRecurrenceChange(n);
+      el(n, 'day').value = c.day;
+      el(n, 'support_type').value = c.support_type;
+      rebuildPeriods(n);
+      el(n, 'period').value = c.period;
+      onTypeChange(n);
 
       // 利用者（既存名なら選択、無ければ新規入力欄へ）
-      var sel = document.getElementById('user_sel');
+      var sel = el(n, 'user_sel');
       var inList = false;
       for (var j = 0; j < sel.options.length; j++) {
         if (sel.options[j].value === c.user_student) { inList = true; break; }
       }
       if (inList) {
         sel.value = c.user_student;
-        document.getElementById('user_new').style.display = 'none';
+        el(n, 'user_new').style.display = 'none';
       } else {
         sel.value = '__new__';
-        onUserSel();
-        document.getElementById('user_new').value = c.user_student;
+        onUserSel(n);
+        el(n, 'user_new').value = c.user_student;
       }
 
-      document.getElementById('subject').value = c.subject || '';
-      document.getElementById('instructor').value = c.instructor || '';
-      document.getElementById('room').value = c.room || '';
-      document.getElementById('note').value = c.note || '';
-      document.getElementById('staff_a_id').value = c.staff_a_id || '';
-      var b = document.getElementById('staff_b_id');
+      el(n, 'subject').value = c.subject || '';
+      el(n, 'instructor').value = c.instructor || '';
+      el(n, 'room').value = c.room || '';
+      el(n, 'note').value = c.note || '';
+      el(n, 'staff_a_id').value = c.staff_a_id || '';
+      var b = el(n, 'staff_b_id');
       if (!b.disabled) b.value = c.staff_b_id || '';
+      // 編集では移動介助の同時作成を出さない（既存の1コマを直す操作のため・D34）
+      el(n, 'moveBox').style.display = 'none';
 
       document.getElementById('formTitle').textContent = 'コマを編集（' + id + '）';
-      var btn = document.getElementById('submit');
-      btn.disabled = false; btn.textContent = 'このコマを更新';
-      document.getElementById('cancelEdit').style.display = '';
-      renderList(); // 編集中の行をハイライト
+      renderFormChrome();
+      renderList();
       document.getElementById('formTitle').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     // 編集をやめて新規追加モードへ戻す
     function cancelEdit() {
-      EDIT_ID = null;
+      buildForm();
       document.getElementById('formTitle').textContent = 'コマを追加';
-      var btn = document.getElementById('submit');
-      btn.disabled = false; btn.textContent = 'このコマを追加';
-      document.getElementById('cancelEdit').style.display = 'none';
-      document.getElementById('eligOnly').checked = true;
-      document.getElementById('recurrence').value = 'weekly';
-      document.getElementById('date').value = '';
-      onRecurrenceChange();
-      ['subject', 'instructor', 'room', 'note', 'user_new'].forEach(function (id) {
-        document.getElementById(id).value = '';
-      });
-      document.getElementById('user_new').style.display = 'none';
-      document.getElementById('user_sel').value = '';
-      rebuildStaff();
       renderList();
     }
 
