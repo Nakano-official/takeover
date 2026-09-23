@@ -159,6 +159,9 @@ Web App は `executeAs: USER_DEPLOYING`＝**最後にデプロイした人とし
 3. 実行ログの確認事項を見る。あわせてシートも目で確かめる。
    - `periods` の並びが **「移動介助 → 1限 → 移動介助 → 2限 → …」** になっているか。
      **行の順番がそのまま時間割の並び順**になる。先頭は1限の前（登校の付き添い）の枠
+     - ⚠️ この並びは**構築時にここで確定**させる。運用では誰も触らない（D40）。
+       枠の構成を変えるときは `Setup.js` の `CLASS_PERIOD_ROWS_` / `MOVE_AFTER_PERIODS` を
+       直してから `migrateAddMovePeriods()` を実行する
    - `staffs.assist_slots` に `available_slots` の内容が**コピーされている**か
 
 > ⚠️ **`assist_slots` を空のまま運用しない。** 空の人は**介助の代行候補に一度も出てこない**。
