@@ -16,3 +16,25 @@
 function isChatWebhook_(url) {
   return /^https:\/\/chat\.googleapis\.com\//.test(String(url).trim());
 }
+
+/**
+ * 時刻のパース（機能Aの締切判定が使う）。
+ *
+ * もとは Attendance.gs（機能B）にあり、`Vacancy.gs` の `periodStartMinutes_` が
+ * 借りていた。機能Bを今回のリリースから外す（D41）にあたって、
+ * **生きている機能が道連れにならないよう**ここへ移した。
+ *
+ * periods.start_time は文字列（'09:15'）と Date の両方がありうるので、両方を受ける。
+ */
+// 'H:mm' / 'HH:mm'（前後空白可）→ 0時からの分。空・不正なら null。
+function hhmmToMin_(v) {
+  const m = String(v == null ? '' : v).trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+// Date を日本時間の「0時からの分」に変換
+function jstMinutes_(d) {
+  const hm = Utilities.formatDate(d, 'Asia/Tokyo', 'HH:mm');
+  return hhmmToMin_(hm);
+}

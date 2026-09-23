@@ -341,12 +341,6 @@ function normDate_(s) {
   return m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2);
 }
 
-// 'H:mm' / 'HH:mm'（前後空白可）→ 0時からの分。空・不正なら null。
-function hhmmToMin_(v) {
-  const m = String(v == null ? '' : v).trim().match(/^(\d{1,2}):(\d{2})$/);
-  if (!m) return null;
-  return Number(m[1]) * 60 + Number(m[2]);
-}
 
 // 分 → 'HH:mm'
 function minToHHmm_(min) {
@@ -354,11 +348,6 @@ function minToHHmm_(min) {
   return ('0' + h).slice(-2) + ':' + ('0' + m).slice(-2);
 }
 
-// Date を日本時間の「0時からの分」に変換
-function jstMinutes_(d) {
-  const hm = Utilities.formatDate(d, 'Asia/Tokyo', 'HH:mm');
-  return hhmmToMin_(hm);
-}
 
 // 'yyyy-MM-dd' → その日 0:00（実行環境TZ基準のDate）。getEvents範囲指定に使う。
 function dateStrToJst_(dateStr) {

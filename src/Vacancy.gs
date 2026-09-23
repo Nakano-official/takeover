@@ -1086,7 +1086,7 @@ function buildNameMap_() {
  * Sheets が '09:15' を時刻値として解釈し、読み戻すと Date になる。
  * 締切判定がその1点で黙って壊れる（＝常に「締切前」に倒れる）ため、両方を受ける。
  *
- * パースは Attendance.gs の既存ヘルパーを使い分ける（hhmmToMin_ / jstMinutes_）。
+ * パースは Util.gs のヘルパーを使い分ける（hhmmToMin_ / jstMinutes_）。
  */
 function periodStartMinutes_(value) {
   if (value instanceof Date) return jstMinutes_(value);
