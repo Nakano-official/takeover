@@ -17,7 +17,6 @@ node tools/check-syntax.js    # src/ 全体の構文チェック
 node tools/check-pages.js     # 画面が未定義の関数・存在しないサーバー関数を呼んでいないか
 node tools/sim-vacancy.js     # 欠員補充（機能A）のロジック
 node tools/sim-attendance.js  # 勤怠CSVの解析と15分丸め突合（機能B）
-node tools/sim-forms.js       # フォーム設問 → DB値のマッピング
 node tools/sim-oneoff.js      # 単発コマ（特別授業・イベント・D27）
 node tools/sim-profile.js     # マイページ（本人が変更できる項目の境界・D28）
 node tools/sim-registration.js # 利用登録の申請と承認（D28）
@@ -103,12 +102,6 @@ D1（先着確定）・D21（締切）・D22（募集クローズ／決着は職
 
 **検出できないこと**：実CSVの文字コード（Shift_JIS / MS932）と実ヘッダー文字列（backlog 9-6）、
 実カレンダーからの予定抽出（D7③）。合成データで**構造**だけを見ている。
-
-## sim-forms.js
-
-`Constants.gs` / `Forms.gs` を読み込み、フォーム送信の `namedValues` から DB に入る値の
-組み立てを検証する。元は GAS の `testIntakeMapping`。
-`available_slots` が1つずれると、その学生は代行候補に**構造的に出てこなくなる**（backlog 10-5）。
 
 ## sim-oneoff.js（単発コマ・D27）
 

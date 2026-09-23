@@ -32,6 +32,7 @@ const NOTIFY_STATUS = {
  * Webhook URL にテキストメッセージを1件送る。
  * 成功で true。失敗時は例外を投げる（呼び出し側で握りつぶすか判断する）。
  */
+
 function postToWebhook_(webhookUrl, text) {
   if (!webhookUrl) throw new Error('Webhook URL が空です。');
   const res = UrlFetchApp.fetch(webhookUrl, {
