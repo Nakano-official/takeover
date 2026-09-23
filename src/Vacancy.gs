@@ -59,9 +59,15 @@ function getMyCourses() {
         quarter: c.quarter,
         day: c.day,
         period: String(c.period).trim(),
+      periodLabel: periodLabelOf_(c.period, p),
         time: p.start_time ? p.start_time + '〜' + p.end_time : '',
         partner: nameById[String(partnerId).trim()] || partnerId || '',
         oneOffDate: courseDate_(c),      // 単発コマの実施日（空＝毎週・D27）
+        // このコマにくっついている移動介助のうち、**自分が担当のもの**（D45）。
+        // 欠勤するとこれも一緒に休むことになるので、画面で見せて確認させる。
+        attached: absenceBlockOf_(c, user.staff_id, '')
+          .filter(function (x) { return String(x.course_id).trim() !== String(c.course_id).trim(); })
+          .map(labelOfCourse_),
         termStart: term.start_date || '',
         termEnd: term.end_date || '',
       };
@@ -74,7 +80,7 @@ function getMyCourses() {
  * @param {string} date     欠勤日（YYYY-MM-DD）
  * @return {{vacancy_id:string, course:Object, candidates:Array}}
  */
-function submitAbsence(courseId, date) {
+function submitAbsence(courseId, date, includeAttached) {
   const user = getCurrentUser_();
   if (!user) throw new Error('利用登録がありません。');
 
@@ -125,30 +131,50 @@ function submitAbsence(courseId, date) {
     }
   }
 
-  // 二重登録の防止（同じ人・同じコマ・同じ日で未解決の欠員が既にある）
-  const dup = readRows(SHEET.VACANCIES).filter(function (v) {
-    return String(v.course_id).trim() === String(courseId).trim() &&
-           dateToStr_(v.date) === dateStr &&
+  // 欠勤のかたまり（D45）。介助の担当が休むと、授業だけでなく前後の移動介助も
+  // 同じ人の欠員になる。**募集は1本**にして、通知1通・承諾1回で全部確定させる。
+  // includeAttached を false にすれば従来どおり1コマだけ出せる（移動だけ休む等）。
+  const block = (includeAttached === false)
+    ? [course]
+    : absenceBlockOf_(course, user.staff_id, dateStr);
+
+  // 二重登録の防止（同じ人・同じコマ・同じ日で未解決の欠員が既にある）。
+  // かたまりのうち1つでも既に出ていれば止める（部分的に重なった登録を作らない）。
+  const open = readRows(SHEET.VACANCIES).filter(function (v) {
+    return dateToStr_(v.date) === dateStr &&
            String(v.absent_staff_id).trim() === user.staff_id &&
            !String(v.result).trim();
   });
-  if (dup.length > 0) {
-    throw new Error('この日のこのコマの欠勤は既に登録されています。');
+  const already = block.filter(function (c) {
+    return open.some(function (v) {
+      return String(v.course_id).trim() === String(c.course_id).trim();
+    });
+  });
+  if (already.length > 0) {
+    throw new Error('この日の「' + labelOfCourse_(already[0]) + '」の欠勤は既に登録されています。');
   }
 
-  // 欠員を登録（採番と追記を同一ロックで）
-  const vacancyId = appendRowWithId(SHEET.VACANCIES, 'vacancy_id', 'V', {
-    date: dateStr,
-    course_id: courseId,
-    absent_staff_id: user.staff_id,
-    notify_status: NOTIFY_STATUS_PENDING,
-    result: '',
+  // 欠員を登録する。2件以上なら group_id で束ね、1件なら空のまま（従来と同じ形）。
+  const groupId = block.length > 1 ? 'G' + nowString_().replace(/[^0-9]/g, '') : '';
+  const vacancyIds = block.map(function (c) {
+    return appendRowWithId(SHEET.VACANCIES, 'vacancy_id', 'V', {
+      date: dateStr,
+      course_id: String(c.course_id).trim(),
+      absent_staff_id: user.staff_id,
+      notify_status: NOTIFY_STATUS_PENDING,
+      result: '',
+      group_id: groupId,
+    });
   });
+  // 通知・回答の入口になる代表の欠員（かたまりの中心＝授業そのもの）
+  const vacancyId = vacancyIds[block.indexOf(course)];
 
   const courseInfo = {
     course_id: course.course_id,
     day: course.day,
     period: String(course.period).trim(),
+    periodLabel: periodLabelOf_(course.period, buildPeriodMap_()[String(course.period).trim()]),
+    block: block.map(labelOfCourse_),
   };
 
   // 代行を募集せずに閉じる共通処理（候補0人・締切超過の両方から使う）。
@@ -162,7 +188,9 @@ function submitAbsence(courseId, date) {
     const suggestion = suggestSettleResult_(course, dateStr, user.staff_id);
     // 締切到達を処理済みとしてマークし、時間トリガーが同じ欠員をもう一度拾わないようにする。
     try {
-      updateRow(SHEET.VACANCIES, 'vacancy_id', vacancyId, { close_notified_at: nowString_() });
+      vacancyIds.forEach(function (id) {
+        updateRow(SHEET.VACANCIES, 'vacancy_id', id, { close_notified_at: nowString_() });
+      });
     } catch (e) { /* マークに失敗してもトリガー側が拾い直すだけなので握りつぶす */ }
     var closeNotify;
     try {
@@ -172,6 +200,7 @@ function submitAbsence(courseId, date) {
     }
     return {
       vacancy_id: vacancyId,
+      vacancy_ids: vacancyIds,
       course: courseInfo,
       candidates: [],
       recruitClosed: true,
@@ -192,8 +221,11 @@ function submitAbsence(courseId, date) {
     return late;
   }
 
-  // 代行候補を抽出（欠勤者と相方＋当日のダブルブッキングを除外）
-  const candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id], dateStr);
+  // 代行候補を抽出（欠勤者と相方＋当日のダブルブッキングを除外）。
+  // かたまりのときは**すべての枠に空きがある人だけ**（D45）。1枠でも空いていない人は
+  // 一部しか受けられず、「その人じゃないと頼めない」という業務の形に合わない。
+  const candidates = findCandidatesForBlock_(
+    block, [course.staff_a_id, course.staff_b_id], dateStr);
 
   // 補充候補が0人 → 募集せずに閉じ、職員へ決着を要求する（review #4・D22）。
   // 以前はここで「1人テイク／職員対応」まで自動で書き込んでいた（D10）が、その判断は職員が行う。
@@ -211,10 +243,18 @@ function submitAbsence(courseId, date) {
 
   return {
     vacancy_id: vacancyId,
+    vacancy_ids: vacancyIds,
     course: courseInfo,
     candidates: candidates,
     notify: notify,
   };
+}
+
+/** コマ1件の呼び名（例：月2限 / 月移動介助）。画面と通知で同じ言い方に揃える */
+function labelOfCourse_(course) {
+  if (!course) return '';
+  const p = buildPeriodMap_()[String(course.period).trim()];
+  return String(course.day).trim() + periodLabelOf_(course.period, p);
 }
 
 // ─── 回答フロー（respond画面用）────────────────────────────
@@ -246,6 +286,8 @@ function getVacancyForRespond(vacancyId) {
     date: dateToStr_(vacancy.date),   // Date型のまま返すと google.script.run で null になるため文字列化
     day: course ? course.day : '',
     period: course ? String(course.period).trim() : '',
+    periodLabel: course
+      ? periodLabelOf_(course.period, buildPeriodMap_()[String(course.period).trim()]) : '',
     time: p.start_time ? p.start_time + '〜' + p.end_time : '',
     absentName: nameById[String(vacancy.absent_staff_id).trim()] || vacancy.absent_staff_id,
     closed: !!String(vacancy.result).trim(),       // 対応確定済みなら true
@@ -313,6 +355,9 @@ function respondToVacancy(vacancyId, answer) {
 
   // 承諾 → 先着確保（result が空のときだけ自分を代行に確定・settle 遷移）。
   // throwしない低レベル版を使い、負けたら「埋まりました」を穏当に返す。
+  //
+  // かたまり（D45）のときは**まとめて確定させる**。授業と前後の移動介助は同じ人の仕事で、
+  // 別々の人が受けると引き継ぎが成立しない。代表の欠員を先に確保してから残りを埋める。
   const claim = tryTransitionVacancy_(
     vacancyId, 'settle',
     { result: VACANCY_RESULT.FILLED, substitute_staff_id: user.staff_id }
@@ -324,6 +369,19 @@ function respondToVacancy(vacancyId, answer) {
     return { ok: false, filled: true, closed: true };
   }
 
+  // 同じかたまりの残りも同じ人で確定する。代表を取れた時点でこの人に決まっているので、
+  // ここは競合しない（取れなかった枠があれば、その枠だけ職員の決着に回る）。
+  const groupIds = [];
+  vacancyGroupOf_(vacancy).forEach(function (v) {
+    const id = String(v.vacancy_id).trim();
+    if (id === String(vacancyId).trim()) return;
+    const more = tryTransitionVacancy_(
+      id, 'settle',
+      { result: VACANCY_RESULT.FILLED, substitute_staff_id: user.staff_id }
+    );
+    if (more.ok && more.applied) groupIds.push(id);
+  });
+
   // 確定できた → 関係者へ通知（通知失敗でも確定は確定）
   var notify;
   try {
@@ -332,7 +390,11 @@ function respondToVacancy(vacancyId, answer) {
     notify = { error: e.message };
   }
 
-  return { ok: true, answer: answer, confirmed: true, notify: notify };
+  return {
+    ok: true, answer: answer, confirmed: true,
+    also_confirmed: groupIds,   // 一緒に確定した前後の移動介助（D45）
+    notify: notify,
+  };
 }
 
 // ─── 欠員ライフサイクルの状態遷移（状態機械・backlog 11-2）──────
@@ -567,6 +629,7 @@ function getVacanciesForManage() {
       date: dateToStr_(v.date),
       day: course.day || '',
       period: String(course.period || '').trim(),
+      periodLabel: periodLabelOf_(course.period, periodById[String(course.period || '').trim()]),
       time: p.start_time ? p.start_time + '〜' + p.end_time : '',
       absentName: nameById[String(v.absent_staff_id).trim()] || v.absent_staff_id,
       result: String(v.result || '').trim(),
@@ -841,8 +904,7 @@ function findCandidates_(course, excludeStaffIds, date, ctx) {
       if (String(s.role).trim() !== '学生') return false;             // 学生のみ候補
       if (exclude.indexOf(id) !== -1) return false;                   // 欠勤者・相方を除外
       if (busy[id]) return false;                                     // 同一スロットで二重起用になる
-      const slots = String(s.available_slots).split(',').map(function (x) { return x.trim(); });
-      if (slots.indexOf(slotKey) === -1) return false;                // 該当スロットに空き
+      if (slotsOf_(s, supportType).indexOf(slotKey) === -1) return false;   // 該当スロットに空き
       // 対応可能な内容（スキル）チェック。skills 未設定は従来どおり全対応扱い
       if (supportType) {
         const skills = String(s.skills || '').split(',')
@@ -857,6 +919,218 @@ function findCandidates_(course, excludeStaffIds, date, ctx) {
 }
 
 // ─── 内部ヘルパー ────────────────────────────────────────────
+
+/**
+ * その業務でのそのスタッフの空きコマを配列で返す（D32）。
+ *
+ * テイクと介助で空いている時間は違う。同じ1本の available_slots で兼ねると、
+ * 「テイクは空いているが介助はできない時間」に介助の依頼が飛ぶ（またはその逆）。
+ *
+ * ⚠️ **移行前のDBで黙って0件にしない。** assist_slots 列がまだ無いシートでは、
+ * 素直に読むと介助の候補が**全員ぶん構造的に消える**（エラーは出ないので気づけない）。
+ * 列の有無を見て、無ければ従来の1本へ寄せる（close_notified_at と同じ手当て）。
+ */
+function slotsOf_(staffRow, supportType) {
+  var col = SLOT_COLUMN_BY_SUPPORT_TYPE[String(supportType || '').trim()] || DEFAULT_SLOT_COLUMN;
+  if (col !== DEFAULT_SLOT_COLUMN && getHeaders_(SHEET.STAFFS).indexOf(col) === -1) {
+    col = DEFAULT_SLOT_COLUMN;   // マイグレーション未実行のDB
+  }
+  return splitSlots_(staffRow && staffRow[col]);
+}
+
+/** '月1,火3' 形式を配列へ（空要素は捨てる） */
+function splitSlots_(csv) {
+  return String(csv || '').split(',')
+    .map(function (x) { return x.trim(); })
+    .filter(Boolean);
+}
+
+/** staffs の1行から「業務 → 空きコマ配列」を作る（D32） */
+function slotsByTypeOf_(staff) {
+  const out = {};
+  SUPPORT_TYPES.forEach(function (type) {
+    out[type] = splitSlots_(staff && staff[SLOT_COLUMN_BY_SUPPORT_TYPE[type]]);
+  });
+  return out;
+}
+
+/**
+ * 移動枠のキーが「どの授業のどちら側か」を宣言していれば返す（D35）。
+ *
+ *   移動前3 → 3限の前 ／ 移動後2 → 2限の後
+ *
+ * 時刻だけでは**前と後を見分けられない場合がある**。授業間が15分ちょうどだと
+ * 「次の授業の前の枠」の開始時刻が「前の授業の終了時刻」と一致するため、
+ * 1限のあとを探すと `移動前2` が拾われてしまう（実際に起きた）。
+ * キーはどの授業の仕事かを明示しているので、こちらを先に見る。
+ *
+ * @return {{side:string, period:string}|null}
+ */
+function declaredMoveAttachment_(key) {
+  const m = String(key == null ? '' : key).trim().match(/^移動(前|後)(.+)$/);
+  if (!m) return null;
+  return { side: m[1] === '前' ? 'before' : 'after', period: m[2].trim() };
+}
+
+/**
+ * 欠勤の「かたまり」を返す（D45）。授業と、**その前後の移動介助のコマ**。
+ *
+ * 移動介助は必ず授業と同じ人が担当する（シフト入力がそう作る・D34/D35）。
+ * したがって介助の担当が休むと、授業だけでなく前後の移動も同じ人の欠員になる。
+ * 実務でも「どちらかに出られないならその日は休む」という運用（職員確認・2026-09-23）。
+ *
+ * **同じ人・同じ日・同じ利用者**のコマだけを束ねる。担当が違うなら別の人の仕事なので
+ * かたまりに入れない（2限のあとの移動は2限の担当、3限の前の移動は3限の担当・D35）。
+ *
+ * @param {Object} course  中心になるコマ（授業）
+ * @param {string} staffId 欠勤する人
+ * @param {string} dateStr 欠勤日 'yyyy-MM-dd'
+ * @return {Array<Object>} courses の行。前→授業→後の順。移動が無ければ授業1件だけ
+ */
+function absenceBlockOf_(course, staffId, dateStr) {
+  const out = [];
+  const type = String(course.support_type || '').trim();
+  const id = String(staffId).trim();
+  const all = readRows(SHEET.COURSES);
+
+  const attached = function (side) {
+    const mv = attachedMovePeriod_(course.period, type, side);
+    if (!mv) return null;
+    const key = String(mv.period).trim();
+    return all.filter(function (c) {
+      if (String(c.period).trim() !== key) return false;
+      if (String(c.quarter).trim() !== String(course.quarter).trim()) return false;
+      if (String(c.day).trim() !== String(course.day).trim()) return false;
+      if (String(c.user_student).trim() !== String(course.user_student).trim()) return false;
+      if (!isAssigned_(c, id)) return false;                       // 同じ人の仕事だけ
+      return occurrencesOverlap_(courseDate_(course), courseDate_(c));
+    })[0] || null;
+  };
+
+  const before = attached('before');
+  if (before) out.push(before);
+  out.push(course);
+  const after = attached('after');
+  if (after) out.push(after);
+  return out;
+}
+
+/** かたまりに含まれるコマの行（通知や候補抽出で使う・D45） */
+function blockCoursesOfVacancy_(vacancy) {
+  return vacancyGroupOf_(vacancy)
+    .map(function (v) { return findRow(SHEET.COURSES, 'course_id', String(v.course_id).trim()); })
+    .filter(Boolean);
+}
+
+/** 同じ group_id の欠員をすべて返す（group_id が空なら自分だけ） */
+function vacancyGroupOf_(vacancy) {
+  const gid = String((vacancy && vacancy.group_id) || '').trim();
+  if (!gid) return vacancy ? [vacancy] : [];
+  return readRows(SHEET.VACANCIES).filter(function (v) {
+    return String(v.group_id || '').trim() === gid;
+  });
+}
+
+/**
+ * かたまり全体で代行できる人（D45）。**すべての枠に空きがある人だけ**。
+ *
+ * 1枠でも空いていない人を呼ぶと、その人は一部しか受けられない。
+ * 「その人じゃないと頼めない」（職員確認）ので、積集合を取る。
+ */
+function findCandidatesForBlock_(courses, excludeStaffIds, dateStr) {
+  var acc = null;
+  courses.forEach(function (c) {
+    const here = findCandidates_(c, excludeStaffIds, dateStr);
+    const ids = {};
+    here.forEach(function (x) { ids[String(x.staff_id).trim()] = true; });
+    acc = acc === null ? here : acc.filter(function (x) { return ids[String(x.staff_id).trim()]; });
+  });
+  return acc || [];
+}
+
+/**
+ * その授業に**くっついている移動枠**を返す（D34・D35）。無ければ null。
+ *
+ *   前 … 3限の担当が3限の開始前に動く（`移動前3`）
+ *   後 … 2限の担当が2限のあと食堂へ運ぶ（`移動後2`）
+ *
+ * **1つのあいだに2つ入りうる**（2限の後と3限の前は別の人の仕事・D35）。
+ * だから「あいだ」ではなく「授業の前／後」で引く。
+ *
+ * 探し方は2段階。
+ *   1. **キーが宣言している所属**（`移動前3` / `移動後2`）で引く。これが正。
+ *   2. 宣言の無いキー（職員が独自の名前で足した枠）は**時刻でつながっているか**で引く。
+ *      このとき、別の授業に宣言済みの枠は候補から外す（取り違えを防ぐ）。
+ *
+ * @param {string} period       授業の時限
+ * @param {string} supportType  その業務で選べる枠だけを対象にする
+ * @param {string} side         'before' / 'after'
+ * @return {Object|null} periods の1行
+ */
+function attachedMovePeriod_(period, supportType, side) {
+  const key = String(period == null ? '' : period).trim();
+  const rows = readRows(SHEET.PERIODS).filter(function (p) {
+    if (String(p.period).trim() === key) return false;
+    // 通常の授業時限（support_types が空）は移動枠ではない
+    if (!String(p.support_types || '').trim()) return false;
+    return periodAllowsSupportType_(p, supportType);
+  });
+
+  // 1) キーが「この授業のこちら側」と宣言しているもの
+  const declared = rows.filter(function (p) {
+    const at = declaredMoveAttachment_(p.period);
+    return at && at.side === side && at.period === key;
+  })[0];
+  if (declared) return declared;
+
+  // 2) 宣言の無い枠だけを、時刻でつながっているかで探す
+  const target = readRows(SHEET.PERIODS).filter(function (p) {
+    return String(p.period).trim() === key;
+  })[0];
+  if (!target) return null;
+  const edge = String((side === 'after' ? target.end_time : target.start_time) || '').trim();
+  if (!edge) return null;
+
+  const hit = rows.filter(function (p) {
+    if (declaredMoveAttachment_(p.period)) return false;   // 別の授業に宣言済み
+    const other = String((side === 'after' ? p.start_time : p.end_time) || '').trim();
+    return other === edge;
+  })[0];
+  return hit || null;
+}
+
+/** その授業の直前の移動枠（D34） */
+function precedingMovePeriod_(period, supportType) {
+  return attachedMovePeriod_(period, supportType, 'before');
+}
+
+/** その授業の直後の移動枠（D35。例：2限のあとの食堂への移動） */
+function followingMovePeriod_(period, supportType) {
+  return attachedMovePeriod_(period, supportType, 'after');
+}
+
+/**
+ * 画面に出す時限の呼び名（D33）。`periods.label` があればそれ、無ければ従来どおり「3限」。
+ *
+ * 授業のあいだの移動介助のように「n限」と呼べない枠を時限マスタに足せるようにするため。
+ * **画面側で `period + '限'` を組み立てない**こと（16か所に散っていたのをここへ寄せた）。
+ */
+function periodLabelOf_(period, periodRow) {
+  const label = String((periodRow && periodRow.label) || '').trim();
+  return label || (String(period == null ? '' : period).trim() + '限');
+}
+
+/**
+ * その時限がその業務で選べるか（D32）。
+ * `periods.support_types` が空なら全業務で使える（通常の授業時限）。
+ * 「介助」だけを入れておけば、授業のあいだの移動枠のように**介助でしか選べない枠**を作れる。
+ */
+function periodAllowsSupportType_(periodRow, supportType) {
+  const allowed = String((periodRow && periodRow.support_types) || '').split(',')
+    .map(function (x) { return x.trim(); }).filter(Boolean);
+  if (!allowed.length) return true;
+  return allowed.indexOf(String(supportType || '').trim()) !== -1;
+}
 
 // スタッフが指定コマの担当（A or B）か
 function courseDate_(course) {
@@ -946,7 +1220,7 @@ function buildNameMap_() {
  * Sheets が '09:15' を時刻値として解釈し、読み戻すと Date になる。
  * 締切判定がその1点で黙って壊れる（＝常に「締切前」に倒れる）ため、両方を受ける。
  *
- * パースは Attendance.gs の既存ヘルパーを使い分ける（hhmmToMin_ / jstMinutes_）。
+ * パースは Util.gs のヘルパーを使い分ける（hhmmToMin_ / jstMinutes_）。
  */
 function periodStartMinutes_(value) {
   if (value instanceof Date) return jstMinutes_(value);

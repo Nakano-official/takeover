@@ -29,18 +29,30 @@ function getInputData(quarter) {
         staff_id: id,
         name: s.name,
         skills: String(s.skills || '').trim(),
-        slots: String(s.available_slots || '').split(',')
-          .map(function (x) { return x.trim(); }).filter(Boolean),
+        // 空きコマは業務ごと（D32）。どちらで絞るかは画面が選んだ内容で決まる。
+        slotsByType: slotsByTypeOf_(s),
       });
     }
   });
 
-  const periods = readRows(SHEET.PERIODS).map(function (p) {
+  const periodRows = readRows(SHEET.PERIODS);
+  const periodById = {};
+  periodRows.forEach(function (p) { periodById[String(p.period).trim()] = p; });
+  const periods = periodRows.map(function (p) {
     return {
       period: String(p.period).trim(),
+      label: periodLabelOf_(p.period, p),
+      // その授業にくっついている移動枠（D34・D35）。画面は「一緒に登録」の
+      // チェックを出すかどうかの判断にこれを使う。前と後で別の枠になりうる。
+      moveBefore: moveSlotInfo_(precedingMovePeriod_(p.period, '介助')),
+      moveAfter: moveSlotInfo_(followingMovePeriod_(p.period, '介助')),
       time: p.start_time ? p.start_time + '〜' + p.end_time : '',
+      // その時限を選べる業務。画面は内容（テイク/介助）に応じて選択肢を出し分ける（D33）
+      supportTypes: SUPPORT_TYPES.filter(function (t) {
+        return periodAllowsSupportType_(p, t);
+      }),
     };
-  });
+  }).filter(function (p) { return p.period; });
   const periodIndex = {};
   periods.forEach(function (p, i) { periodIndex[p.period] = i; });
 
@@ -82,6 +94,7 @@ function getInputData(quarter) {
         quarter: String(c.quarter).trim(),
         day: String(c.day).trim(),
         period: String(c.period).trim(),
+        periodLabel: periodLabelOf_(c.period, periodById[String(c.period).trim()]),
         date: courseDate_(c),          // 単発コマの実施日（空＝毎週・D27）
         support_type: String(c.support_type || '').trim(),
         user_student: String(c.user_student || '').trim(),
@@ -156,19 +169,42 @@ function validateCoursePayload_(p, excludeCourseId) {
   }
 
   if (!period) throw new Error('時限を選んでください。');
-  if (supportType !== 'テイク' && supportType !== '介助') {
-    throw new Error('内容（テイク / 介助）を選んでください。');
+  if (SUPPORT_TYPES.indexOf(supportType) === -1) {
+    throw new Error('内容（' + SUPPORT_TYPES.join(' / ') + '）を選んでください。');
+  }
+
+  // その時限が実在し、その業務で選べるか（D32/D33）。
+  // ここを素通しにすると、たとえばテイクを移動介助の枠に登録できてしまう。
+  // テイクの空きコマ表に移動枠は無いので、そのコマは**代行候補が永久に0人**になる。
+  // エラーは出ないので誰も気づけない。
+  const periodRow = buildPeriodMap_()[period];
+  if (!periodRow) throw new Error('存在しない時限です：' + period);
+  if (!periodAllowsSupportType_(periodRow, supportType)) {
+    throw new Error(periodLabelOf_(period, periodRow) + ' は ' + supportType + ' では選べません。');
   }
   if (!userStudent) throw new Error('利用者を入力してください。');
-  if (!staffA) throw new Error('担当スタッフ（少なくとも1名）を選んでください。');
+
+  // **担当は未定のままでよい（D38）。** 実務では授業（科目・教室・教員・利用学生・曜日時限）が
+  // 学期開始前に確定し、担当の割り当ては学生の空きコマが集まってから決まる。
+  // 必須にしていたせいで、担当が決まる前は「仮の担当」を入れるしかなく、
+  // 実際に本番の全コマが職員アカウント名義になっていた（＝嘘のデータ）。
+  //
+  // 空の担当はどこでも除外済み（候補抽出・決着の提案・二重起用チェックのいずれも
+  // `if (id)` / `filter(Boolean)` を通る）。欠勤連絡は担当者本人しか出せないので、
+  // 担当未定のコマは自動的に対象外になる（正しい挙動）。
   if (staffB && staffA === staffB) throw new Error('担当A・Bに同じスタッフは選べません。');
+  // Bだけ選ばれたらAへ寄せる。`isAssigned_` 等は両方を見るので動作は変わらないが、
+  // 「1人ならA」に揃えておかないとシートを人が読んだときに分かりにくい。
+  var a = staffA;
+  var b = staffB;
+  if (!a && b) { a = b; b = ''; }
 
   // スタッフ実在チェック
   const roleById = {};
   readRows(SHEET.STAFFS).forEach(function (s) {
     roleById[String(s.staff_id).trim()] = String(s.role).trim();
   });
-  [staffA, staffB].forEach(function (id) {
+  [a, b].forEach(function (id) {
     if (id && roleById[id] === undefined) throw new Error('存在しないスタッフIDです：' + id);
   });
 
@@ -186,8 +222,8 @@ function validateCoursePayload_(p, excludeCourseId) {
       if (id) assigned[id] = true;
     });
   });
-  const where = (dateStr ? dateStr + '（' + day + '）' : day) + period + '限';
-  [staffA, staffB].forEach(function (id) {
+  const where = (dateStr ? dateStr + '（' + day + '）' : day) + periodLabelOf_(period, periodRow);
+  [a, b].forEach(function (id) {
     if (id && assigned[id]) {
       throw new Error(nameOf_(id) + ' は ' + where + ' に既に別のコマへ入っています。');
     }
@@ -199,17 +235,81 @@ function validateCoursePayload_(p, excludeCourseId) {
     subject: String(p.subject || '').trim(),
     instructor: String(p.instructor || '').trim(),
     room: String(p.room || '').trim(),
-    staff_a_id: staffA, staff_b_id: staffB,
+    staff_a_id: a, staff_b_id: b,
     note: String(p.note || '').trim(),
   };
 }
 
 // 1コマを追加する
+/**
+ * 1コマを追加する。
+ *
+ * `payload.withMoveBefore` / `withMoveAfter` が真なら、**その授業にくっついた移動介助も
+ * 同時に作る**（D34・D35）。介助は「その授業の担当が、その授業の前後の移動も担当する」のが
+ * 基本形なので、入力を何回にも分けない。
+ *
+ * 前と後は**別の枠**になりうる（2限のあとの食堂への移動は2限の担当、3限の前の移動は
+ * 3限の担当。同じ昼休みの中で2つ並ぶ・D35）。
+ *
+ * 移動ぶんは同じ利用者・同じ担当・同じ日（または曜日）で、教室は授業の教室を引き継ぐ。
+ */
 function addCourse(payload) {
   requireStaff_();
-  const row = validateCoursePayload_(payload || {}, null);
+  const p = payload || {};
+  const row = validateCoursePayload_(p, null);
+
+  // 先に移動ぶんも検証しておく。授業だけ作ってから移動で弾かれると、
+  // 「半分だけ登録された」状態を職員が手で片付けることになる。
+  const planned = [];
+  [
+    { on: p.withMoveBefore, side: 'before', word: 'の前の移動' },
+    { on: p.withMoveAfter, side: 'after', word: 'のあとの移動' },
+  ].forEach(function (x) {
+    if (!x.on) return;
+    const mv = attachedMovePeriod_(row.period, row.support_type, x.side);
+    if (!mv) {
+      throw new Error(periodLabelOf_(row.period, null) + x.word + 'の枠がありません。');
+    }
+    planned.push(validateCoursePayload_({
+      quarter: row.quarter,
+      day: row.day,
+      date: row.date,
+      period: String(mv.period).trim(),
+      support_type: row.support_type,
+      user_student: row.user_student,
+      staff_a_id: row.staff_a_id,
+      staff_b_id: row.staff_b_id,
+      room: row.room,                  // 移動先＝授業の教室
+      note: periodLabelOf_(row.period, null) + x.word,
+    }, null));
+  });
+
   const id = appendRowWithId(SHEET.COURSES, 'course_id', 'C', row);
-  return { ok: true, course_id: id };
+
+  const moveIds = [];
+  for (var i = 0; i < planned.length; i++) {
+    try {
+      moveIds.push(appendRowWithId(SHEET.COURSES, 'course_id', 'C', planned[i]));
+    } catch (e) {
+      // 作れたものは消さずに名指しで返す（黙って片方だけ残さない）
+      throw new Error('授業（' + id + '）'
+        + (moveIds.length ? '・移動介助（' + moveIds.join('・') + '）' : '')
+        + 'は登録しましたが、残りの移動介助の登録に失敗しました：' + e.message
+        + '　シフト入力からもう一度追加してください。');
+    }
+  }
+
+  return { ok: true, course_id: id, move_course_ids: moveIds };
+}
+
+/** 画面へ渡す移動枠の情報（無ければ null） */
+function moveSlotInfo_(mv) {
+  if (!mv) return null;
+  return {
+    period: String(mv.period).trim(),
+    label: periodLabelOf_(mv.period, mv),
+    time: mv.start_time ? mv.start_time + '〜' + mv.end_time : '',
+  };
 }
 
 // 1コマを編集する（履修登録時に教室未定 → 後から修正、などに対応）

@@ -32,6 +32,7 @@ const NOTIFY_STATUS = {
  * Webhook URL にテキストメッセージを1件送る。
  * 成功で true。失敗時は例外を投げる（呼び出し側で握りつぶすか判断する）。
  */
+
 function postToWebhook_(webhookUrl, text) {
   if (!webhookUrl) throw new Error('Webhook URL が空です。');
   const res = UrlFetchApp.fetch(webhookUrl, {
@@ -146,6 +147,25 @@ function getStaffWebhook_(staffId) {
  * @param  {boolean} [reopened]  再オープンによる再募集なら true（文言に「再募集」を付す・backlog 10-4）
  * @return {{staff:boolean, candidates:Array, errors:Array, notify_status:string}}
  */
+/**
+ * かたまりの枠を並べた文字列（D45）。単独の欠員なら空文字を返す。
+ *
+ *   月移動介助（10:45〜11:00） ／ 月2限（11:00〜12:30） ／ 月移動介助（12:30〜12:45）　※ 3枠まとめて
+ *
+ * 「この3つをまとめて代わってほしい」ことが一読で分かる形にする。
+ */
+function blockSlotsText_(vacancy) {
+  const courses = blockCoursesOfVacancy_(vacancy);
+  if (courses.length <= 1) return '';
+  const periodById = buildPeriodMap_();
+  const parts = courses.map(function (c) {
+    const pp = periodById[String(c.period).trim()] || {};
+    const t = pp.start_time ? '（' + pp.start_time + '〜' + pp.end_time + '）' : '';
+    return String(c.day).trim() + periodLabelOf_(c.period, pp) + t;
+  });
+  return parts.join(' ／ ') + '　※ ' + parts.length + '枠まとめて';
+}
+
 function notifyNewVacancy(vacancyId, reopened) {
   const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
   if (!vacancy) throw new Error('対象の欠員が見つかりません。');
@@ -157,7 +177,7 @@ function notifyNewVacancy(vacancyId, reopened) {
   const p = periodById[String(course.period).trim()] || {};
   const timeText = p.start_time ? p.start_time + '〜' + p.end_time : '';
   const dateText = dateToStr_(vacancy.date);
-  const slot = String(course.day).trim() + String(course.period).trim() + '限';
+  const slot = String(course.day).trim() + periodLabelOf_(course.period, p);
   const absentName = nameById[String(vacancy.absent_staff_id).trim()] || vacancy.absent_staff_id;
   const respondUrl = getAppUrl_() + '?page=respond&vacancy=' + encodeURIComponent(vacancyId);
 
@@ -168,10 +188,15 @@ function notifyNewVacancy(vacancyId, reopened) {
   const targets = [];
 
   // 1) 職員スペース宛
+  // かたまり（D45）＝授業＋前後の移動介助。**1通で全部の枠を伝える**。
+  // 別々に通知すると同じ欠勤で3通届き、別の人が別の枠を承諾しうる。
+  const blockText = blockSlotsText_(vacancy);
+  const slotText = blockText || (slot + (timeText ? '（' + timeText + '）' : ''));
+
   const staffMsg =
     '🚨 *欠員が発生しました' + tag + '*\n' +
     '日付: ' + dateText + '\n' +
-    'コマ: ' + slot + (timeText ? '（' + timeText + '）' : '') + '\n' +
+    'コマ: ' + slotText + '\n' +
     '欠勤: ' + absentName + '\n' +
     '欠員ID: ' + vacancyId + '\n' +
     '対応状況は管理画面で確認してください。';
@@ -183,7 +208,8 @@ function notifyNewVacancy(vacancyId, reopened) {
   }
 
   // 2) 代行候補者宛（当日のダブルブッキングも除外）
-  const candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id], vacancy.date);
+  const candidates = findCandidatesForBlock_(
+    blockCoursesOfVacancy_(vacancy), [course.staff_a_id, course.staff_b_id], vacancy.date);
   const webhookById = buildWebhookMap_();
   candidates.forEach(function (cand) {
     const sid = String(cand.staff_id).trim();
@@ -195,7 +221,7 @@ function notifyNewVacancy(vacancyId, reopened) {
         cand.name + ' さん\n' +
         '代行のお願いです' + tag + '。下記コマで欠員が出ました。\n' +
         '日付: ' + dateText + '\n' +
-        'コマ: ' + slot + (timeText ? '（' + timeText + '）' : '') + '\n' +
+        'コマ: ' + slotText + '\n' +
         '対応可能か、こちらから回答してください:\n' + respondUrl,
     });
   });
@@ -259,7 +285,7 @@ function notifyVacancyFilled(vacancyId, substituteStaffId) {
   const p = periodById[String(course.period).trim()] || {};
   const timeText = p.start_time ? p.start_time + '〜' + p.end_time : '';
   const dateText = dateToStr_(vacancy.date);
-  const slot = String(course.day).trim() + String(course.period).trim() + '限';
+  const slot = String(course.day).trim() + periodLabelOf_(course.period, p);
   const subId = String(substituteStaffId).trim();
   const subName = nameById[subId] || subId;
 
@@ -301,7 +327,8 @@ function notifyVacancyFilled(vacancyId, substituteStaffId) {
   }
 
   // 3) 他の候補者へ「募集終了」（当日のダブルブッキングも除外）
-  const candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id], vacancy.date);
+  const candidates = findCandidatesForBlock_(
+    blockCoursesOfVacancy_(vacancy), [course.staff_a_id, course.staff_b_id], vacancy.date);
   candidates.forEach(function (cand) {
     const sid = String(cand.staff_id).trim();
     if (sid === subId) return; // 確定本人は除外（キーの衝突も起きない）
@@ -359,10 +386,11 @@ function notifyVacancyClosed(vacancyId, resultLabel) {
   const p = periodById[String(course.period).trim()] || {};
   const timeText = p.start_time ? p.start_time + '〜' + p.end_time : '';
   const dateText = dateToStr_(vacancy.date);
-  const slot = String(course.day).trim() + String(course.period).trim() + '限';
+  const slot = String(course.day).trim() + periodLabelOf_(course.period, p);
 
   const result = { others: [], errors: [] };
-  const candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id], vacancy.date);
+  const candidates = findCandidatesForBlock_(
+    blockCoursesOfVacancy_(vacancy), [course.staff_a_id, course.staff_b_id], vacancy.date);
   const webhookById = buildWebhookMap_();
   const targets = candidates.map(function (cand) {
     const sid = String(cand.staff_id).trim();
@@ -407,7 +435,7 @@ function notifySubstituteReleased(vacancyId, substituteStaffId) {
   const p = periodById[String(course.period).trim()] || {};
   const timeText = p.start_time ? p.start_time + '〜' + p.end_time : '';
   const dateText = dateToStr_(vacancy.date);
-  const slot = String(course.day).trim() + String(course.period).trim() + '限';
+  const slot = String(course.day).trim() + periodLabelOf_(course.period, p);
   const name = buildNameMap_()[String(substituteStaffId).trim()] || substituteStaffId;
 
   const url = getStaffWebhook_(substituteStaffId);
@@ -459,7 +487,7 @@ function notifyRecruitClosed(vacancyId, reason, suggestion) {
   const p = periodById[String(course.period).trim()] || {};
   const timeText = p.start_time ? p.start_time + '〜' + p.end_time : '';
   const dateText = dateToStr_(vacancy.date);
-  const slot = String(course.day).trim() + String(course.period).trim() + '限';
+  const slot = String(course.day).trim() + periodLabelOf_(course.period, p);
   const absentName = nameById[String(vacancy.absent_staff_id).trim()] || vacancy.absent_staff_id;
   const manageUrl = getAppUrl_() + '?page=manage';
 
@@ -497,7 +525,8 @@ function notifyRecruitClosed(vacancyId, reason, suggestion) {
 
   // 依頼を受け取っていた候補者へ「締め切りました」を送る（DEADLINE_REACHED のみ）
   if (reason === RECRUIT_CLOSE_REASON.DEADLINE_REACHED) {
-    const candidates = findCandidates_(course, [course.staff_a_id, course.staff_b_id], vacancy.date);
+    const candidates = findCandidatesForBlock_(
+    blockCoursesOfVacancy_(vacancy), [course.staff_a_id, course.staff_b_id], vacancy.date);
     const webhookById = buildWebhookMap_();
     const targets = candidates.map(function (cand) {
       const sid = String(cand.staff_id).trim();

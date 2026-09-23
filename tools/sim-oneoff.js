@@ -13,7 +13,7 @@
 const { Harness } = require('./gas-harness');
 
 const h = new Harness();
-h.load(['Constants.gs', 'Attendance.gs', 'Terms.gs', 'Vacancy.gs', 'Input.gs']);
+h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Input.gs']);
 const G = h.G;
 const T = h.time;
 
@@ -199,5 +199,247 @@ h.check(G.courseDate_({ date: '2026-09-12T00:00:00.000Z' }) === '2026-09-12', 'I
 h.check(G.courseDate_({ date: '' }) === '', '空欄は空（毎週のコマ）');
 h.check(G.courseDate_({}) === '', 'date 列が無い行も空');
 h.check(G.courseDate_(null) === '', 'コマが無くても落ちない');
+
+
+// ── 9) 授業のあいだの「移動介助」の枠（D33）──────────────────
+//
+// 介助は授業間の移動を含むが、移動は時限に収まらない。時限マスタに
+// support_types='介助' の行を足して表現する。テイクでこの枠に登録できてしまうと、
+// テイクの空きコマ表に移動枠は無いので**代行候補が永久に0人**になる（エラーは出ない）。
+h.section('9) 移動介助の枠は介助でしか選べない');
+h.reset();
+h.add('terms', { term_id: '2026-前期', system: 'semester', start_date: T.dateIn(-30), end_date: T.dateIn(30) });
+h.add('periods', { period: '1', start_time: '09:15', end_time: '11:00' });
+h.add('periods', { period: '移動1-2', start_time: '11:00', end_time: '11:15', support_types: '介助', label: '移動介助' });
+h.add('periods', { period: '2', start_time: '11:15', end_time: '12:30' });
+h.add('staffs', { staff_id: 'S1', name: '介助できる人', role: '学生', skills: '介助',
+  available_slots: '', assist_slots: '月移動1-2' });
+h.add('staffs', { staff_id: 'T1', name: '職員', role: '職員' });
+h.setUser({ staff_id: 'T1', name: '職員', role: '職員' });
+
+h.check(h.G.periodLabelOf_('1', h.row('periods', 'period', '1')) === '1限',
+  'label が空なら従来どおり「1限」');
+h.check(h.G.periodLabelOf_('移動1-2', h.row('periods', 'period', '移動1-2')) === '移動介助',
+  '★label があればそれを呼び名にする（「移動1-2限」にしない）');
+
+const movePayload = {
+  quarter: '2026-前期', day: '月', period: '移動1-2',
+  user_student: '利用 学生', staff_a_id: 'S1',
+};
+let blocked = false;
+try {
+  h.G.validateCoursePayload_(Object.assign({}, movePayload, { support_type: 'テイク' }));
+} catch (e) { blocked = /移動介助 は テイク では選べません/.test(e.message); }
+h.check(blocked, '★テイクを移動介助の枠に登録できない（サーバー側で弾く）');
+
+let ok = null;
+try {
+  ok = h.G.validateCoursePayload_(Object.assign({}, movePayload, { support_type: '介助' }));
+} catch (e) { ok = e.message; }
+h.check(ok && ok.period === '移動1-2', '介助なら登録できる');
+
+blocked = false;
+try {
+  h.G.validateCoursePayload_(Object.assign({}, movePayload, { support_type: '介助', period: '9' }));
+} catch (e) { blocked = /存在しない時限/.test(e.message); }
+h.check(blocked, '★時限マスタに無い時限は弾く');
+
+// 候補抽出：移動枠のコマは assist_slots の「月移動1-2」で拾う
+const moveCourse = {
+  course_id: 'CM1', quarter: '2026-前期', day: '月', period: '移動1-2',
+  support_type: '介助', user_student: '利用 学生', staff_a_id: '', staff_b_id: '',
+};
+h.check(h.G.findCandidates_(moveCourse, []).length === 1,
+  '★移動枠の空きコマ（月移動1-2）を持つ人が候補に出る');
+
+h.row('staffs', 'staff_id', 'S1').assist_slots = '月1';
+h.check(h.G.findCandidates_(moveCourse, []).length === 0,
+  '授業の時限が空いていても、移動枠の空きが無ければ候補に出ない');
+
+// 入力画面へ渡す時限の選択肢
+const ctx = h.G.getInputData('2026-前期');
+const movePeriod = ctx.periods.filter(function (p) { return p.period === '移動1-2'; })[0];
+h.check(movePeriod && movePeriod.label === '移動介助', '入力画面へ表示名を渡す');
+h.check(JSON.stringify(movePeriod.supportTypes) === JSON.stringify(['介助']),
+  '★その枠を選べる業務を渡す（画面はこれでプルダウンを絞る）');
+const normal = ctx.periods.filter(function (p) { return p.period === '1'; })[0];
+h.check(JSON.stringify(normal.supportTypes) === JSON.stringify(['テイク', '介助']),
+  'support_types が空の時限は全業務で選べる');
+
+
+// ── 10) 授業の前後の移動介助をまとめて登録する（D34・D35）──
+//
+// 介助は「その授業の担当が、その授業の前後の移動も担当する」のが基本形。
+// **1つのあいだに2つ枠が入りうる**のが肝で、2限のあと（食堂へ運ぶ＝2限の担当）と
+// 3限の前（＝3限の担当）は、同じ昼休みの中に並ぶが別の人の仕事（D35・職員確認）。
+// だから「あいだ」ではなく「授業の前／後」で引く。
+h.section('10) 授業の前後の移動介助をまとめて登録する');
+h.reset();
+h.add('terms', { term_id: '2026-前期', system: 'semester', start_date: T.dateIn(-30), end_date: T.dateIn(30) });
+h.add('periods', { period: '移動前2', start_time: '11:00', end_time: '11:15', support_types: '介助', label: '移動介助' });
+h.add('periods', { period: '2', start_time: '11:15', end_time: '12:30' });
+h.add('periods', { period: '移動後2', start_time: '12:30', end_time: '12:45', support_types: '介助', label: '移動介助' });
+h.add('periods', { period: '移動前3', start_time: '13:15', end_time: '13:30', support_types: '介助', label: '移動介助' });
+h.add('periods', { period: '3', start_time: '13:30', end_time: '15:00' });
+h.add('staffs', { staff_id: 'S1', name: '介助 一郎', role: '学生', skills: '介助' });
+h.add('staffs', { staff_id: 'S2', name: '介助 二郎', role: '学生', skills: '介助' });
+h.add('staffs', { staff_id: 'T1', name: '職員', role: '職員' });
+h.setUser({ staff_id: 'T1', name: '職員', role: '職員' });
+
+// 引き当て
+h.check(h.G.precedingMovePeriod_('2', '介助').period === '移動前2', '2限の前は「移動前2」');
+h.check(h.G.followingMovePeriod_('2', '介助').period === '移動後2',
+  '★2限の後は「移動後2」（食堂へ運ぶ15分）');
+h.check(h.G.precedingMovePeriod_('3', '介助').period === '移動前3',
+  '★3限の前は「移動前3」（昼休みの中にもう1つ別の枠がある）');
+h.check(h.G.followingMovePeriod_('3', '介助') === null, '3限の後には枠が無い');
+h.check(h.G.precedingMovePeriod_('2', 'テイク') === null,
+  'テイクでは移動枠を対象にしない（その業務で選べない枠のため）');
+h.check(h.G.precedingMovePeriod_('移動前2', '介助') === null,
+  '移動枠そのものに「前の移動枠」は無い（授業時限は移動枠として扱わない）');
+
+// ★ 時刻だけで引くと取り違える組み合わせ。
+// 授業間が15分ちょうどだと「次の授業の前の枠」の開始時刻が「前の授業の終了時刻」と
+// 一致するので、1限のあとを探すと 移動前2 が拾われてしまう（実際に画面へ出た）。
+// キーが「2限の前」と宣言しているので、そちらを優先して外す。
+h.add('periods', { period: '1', start_time: '09:15', end_time: '11:00' });
+h.check(h.G.followingMovePeriod_('1', '介助') === null,
+  '★1限のあとに枠は無い（移動前2 を「1限のあと」と取り違えない）');
+h.check(h.G.precedingMovePeriod_('1', '介助') === null,
+  '1限の前の枠を置いていないので null');
+h.add('periods', { period: '移動前1', start_time: '09:00', end_time: '09:15', support_types: '介助', label: '移動介助' });
+h.check(h.G.precedingMovePeriod_('1', '介助').period === '移動前1', '置けば引ける');
+h.check(h.G.followingMovePeriod_('2', '介助').period === '移動後2',
+  '2限のあとは取り違えの修正後も正しく引ける');
+
+// 宣言の無いキー（職員が独自の名前で足した枠）は時刻で引く
+h.add('periods', { period: '昼の付き添い', start_time: '15:00', end_time: '15:10', support_types: '介助', label: '移動介助' });
+h.add('periods', { period: '4', start_time: '15:15', end_time: '16:45' });
+h.check(h.G.followingMovePeriod_('3', '介助').period === '昼の付き添い',
+  '★宣言の無い枠は時刻でつながっていれば引ける（職員が独自名で足せる）');
+
+// 2限＝前と後の両方が付く
+const bundleBase = {
+  quarter: '2026-前期', day: '月', period: '2', support_type: '介助',
+  user_student: '利用 学生', staff_a_id: 'S1', room: 'A101', subject: '英語I',
+};
+let bundleRes = h.G.addCourse(
+  Object.assign({}, bundleBase, { withMoveBefore: true, withMoveAfter: true }));
+h.check(bundleRes.move_course_ids.length === 2, '★2限は前と後の2件が同時に作られる');
+h.check(h.db.courses.length === 3, 'courses は授業1＋移動2の3行');
+
+const before = h.row('courses', 'course_id', bundleRes.move_course_ids[0]);
+const after = h.row('courses', 'course_id', bundleRes.move_course_ids[1]);
+h.check(before.period === '移動前2' && after.period === '移動後2', '前・後それぞれの枠に入る');
+h.check(before.staff_a_id === 'S1' && after.staff_a_id === 'S1',
+  '★どちらも授業と同じ担当（その人の仕事なので）');
+h.check(before.room === 'A101' && after.room === 'A101', '教室は授業の教室を引き継ぐ');
+h.check(before.note.indexOf('前') !== -1 && after.note.indexOf('あと') !== -1,
+  '備考で前後が分かる');
+
+// 3限の担当は別の人。同じ昼休みだが「移動前3」なので競合しない
+const res3 = h.G.addCourse({
+  quarter: '2026-前期', day: '月', period: '3', support_type: '介助',
+  user_student: '利用 学生', staff_a_id: 'S2', room: 'B203',
+  withMoveBefore: true,
+});
+h.check(res3.move_course_ids.length === 1, '★3限は前の1件だけ（後ろには枠が無い）');
+h.check(h.row('courses', 'course_id', res3.move_course_ids[0]).period === '移動前3',
+  '3限の前の枠に入る');
+h.check(h.db.courses.length === 5, '★昼休みに2つの移動が別々に並ぶ（2限の後・3限の前）');
+
+// 片方だけ
+h.reset();
+h.add('terms', { term_id: '2026-前期', system: 'semester', start_date: T.dateIn(-30), end_date: T.dateIn(30) });
+h.add('periods', { period: '移動前2', start_time: '11:00', end_time: '11:15', support_types: '介助', label: '移動介助' });
+h.add('periods', { period: '2', start_time: '11:15', end_time: '12:30' });
+h.add('periods', { period: '移動後2', start_time: '12:30', end_time: '12:45', support_types: '介助', label: '移動介助' });
+h.add('staffs', { staff_id: 'S1', name: '介助 一郎', role: '学生', skills: '介助' });
+h.add('staffs', { staff_id: 'T1', name: '職員', role: '職員' });
+h.setUser({ staff_id: 'T1', name: '職員', role: '職員' });
+
+h.G.addCourse(Object.assign({}, bundleBase, { withMoveAfter: true }));
+h.check(h.db.courses.length === 2, '後ろだけチェックすれば後ろだけ作る');
+h.check(h.row('courses', 'course_id', 'C002').period === '移動後2', '作られたのは移動後2');
+
+h.reset();
+h.add('terms', { term_id: '2026-前期', system: 'semester', start_date: T.dateIn(-30), end_date: T.dateIn(30) });
+h.add('periods', { period: '移動前2', start_time: '11:00', end_time: '11:15', support_types: '介助', label: '移動介助' });
+h.add('periods', { period: '2', start_time: '11:15', end_time: '12:30' });
+h.add('staffs', { staff_id: 'S1', name: '介助 一郎', role: '学生', skills: '介助' });
+h.add('staffs', { staff_id: 'T1', name: '職員', role: '職員' });
+h.setUser({ staff_id: 'T1', name: '職員', role: '職員' });
+h.G.addCourse(bundleBase);
+h.check(h.db.courses.length === 1, '★どちらも送らなければ授業だけ作る');
+
+// 二重起用になるなら授業ごと止める（半分だけ登録しない）
+h.G.addCourse(Object.assign({}, bundleBase, { period: '移動前2', user_student: '別の学生' }));
+let bundleBlocked = false;
+try {
+  h.G.addCourse(Object.assign({}, bundleBase, { withMoveBefore: true, user_student: '三人目' }));
+} catch (e) { bundleBlocked = /既に別のコマ/.test(e.message); }
+h.check(bundleBlocked, '★移動ぶんが二重起用になるなら、授業を作る前に止める');
+h.check(h.db.courses.length === 2, '★止めたときは授業も作らない');
+
+// 枠が無いのに送ったら理由を返す
+bundleBlocked = false;
+try {
+  // 別の曜日にする（同じ曜日だと先に二重起用で弾かれ、移動枠の判定まで届かない）
+  h.G.addCourse(Object.assign({}, bundleBase, {
+    day: '火', withMoveAfter: true, user_student: '四人目',
+  }));
+} catch (e) { bundleBlocked = /のあとの移動の枠がありません/.test(e.message); }
+h.check(bundleBlocked, '後ろに枠が無いのに送ったら理由を返す');
+
+// ── 11) 担当未定のまま授業だけ登録できる（D38）──────────────
+//
+// 実務では授業（科目・教室・教員・利用学生・曜日時限）が学期開始前に確定し、
+// 担当の割り当ては学生の空きコマが集まってから決まる。担当を必須にしていたせいで、
+// 決まる前は「仮の担当」を入れるしかなく、本番の全コマが職員アカウント名義になっていた。
+//
+// 空の担当が既存ロジックを壊さないことを、経路ごとに固定しておく。
+h.section('11) 担当未定のまま授業だけ登録できる');
+h.reset();
+h.add('terms', { term_id: '2026-前期', system: 'semester', start_date: T.dateIn(-30), end_date: T.dateIn(30) });
+h.add('periods', { period: '1', start_time: '09:15', end_time: '10:45' });
+h.add('staffs', { staff_id: 'S1', name: '学生 一郎', role: '学生', skills: 'テイク', available_slots: '月1' });
+h.add('staffs', { staff_id: 'T1', name: '職員', role: '職員' });
+h.add('contacts', { staff_id: 'S1', name: '学生 一郎', phone: '090-0000-0000' });
+h.setUser({ staff_id: 'T1', name: '職員', role: '職員' });
+
+const bare = {
+  quarter: '2026-前期', day: '月', period: '1', support_type: 'テイク',
+  user_student: '利用 学生', subject: 'フーリエ解析', room: '1-542',
+};
+const bareRes = h.G.addCourse(bare);
+h.check(!!bareRes.course_id, '★担当を選ばなくても登録できる');
+const bareRow = h.row('courses', 'course_id', bareRes.course_id);
+h.check(bareRow.staff_a_id === '' && bareRow.staff_b_id === '', '担当は空のまま保存される');
+h.check(bareRow.subject === 'フーリエ解析', '授業の情報は入る');
+
+// Bだけ選んだらAへ寄せる（人が読んだときに「1人ならA」で揃う）
+const bRes = h.G.addCourse(Object.assign({}, bare, {
+  day: '火', staff_b_id: 'S1', user_student: '別の学生',
+}));
+const bRow = h.row('courses', 'course_id', bRes.course_id);
+h.check(bRow.staff_a_id === 'S1' && bRow.staff_b_id === '', '★Bだけ選ばれたらAへ寄せる');
+
+// 既存ロジックが空の担当で壊れないこと
+h.section('11b) 担当未定のコマが既存ロジックを壊さない');
+const unassigned = h.row('courses', 'course_id', bareRes.course_id);
+h.check(h.G.findCandidates_(unassigned, [unassigned.staff_a_id, unassigned.staff_b_id]).length === 1,
+  '★候補抽出：空の担当を除外扱いにして、条件の合う学生を拾う');
+h.check(h.G.isAssigned_(unassigned, 'S1') === false, '担当判定：空の担当は誰とも一致しない');
+
+// 欠勤連絡：担当者本人しか出せないので、担当未定のコマは出てこない
+h.setUser({ staff_id: 'S1', name: '学生 一郎', role: '学生' });
+const myList = h.G.getMyCourses();
+h.check(myList.filter(function (c) { return c.course_id === bareRes.course_id; }).length === 0,
+  '★欠勤連絡に担当未定のコマは出ない（担当者本人しか出せないので当然そうなる）');
+h.setUser({ staff_id: 'T1', name: '職員', role: '職員' });
+
+// 二重起用チェックは空を飛ばす（担当未定のコマが他の登録を邪魔しない）
+const okRes = h.G.addCourse(Object.assign({}, bare, { staff_a_id: 'S1', user_student: '三人目' }));
+h.check(!!okRes.course_id, '★同じ枠に担当未定のコマがあっても、実在の担当で登録できる');
 
 process.exitCode = h.report();

@@ -21,11 +21,13 @@ const PAGES = {
   absence: { file: 'absence', title: '欠勤連絡',           staffOnly: false, hideInStaffNav: true },
   respond: { file: 'respond', title: '代行依頼への回答',   staffOnly: false },
   manage:  { file: 'manage',  title: '欠員補充管理',       staffOnly: true  },
-  check:   { file: 'check',   title: '整合性チェック',     staffOnly: true  },
   terms:   { file: 'terms',   title: '学期設定',           staffOnly: true  },
   // マイページ（D28）。本人が自分の連絡先と空きコマを直す画面なので、職員・学生とも入れる。
   // 編集できる項目はサーバー側（Profile.gs）で固定してあり、画面からは増やせない。
   mypage:  { file: 'mypage',  title: 'マイページ',         staffOnly: false },
+  // 登録済みスタッフの一覧（職員限定）。連絡先を含むので staffOnly。読み取り専用で、
+  // 名簿を作るのは承認（approvals）だけ・本人の情報を直すのはマイページだけ、という経路は崩さない。
+  roster:  { file: 'roster',  title: 'スタッフ名簿',       staffOnly: true  },
   // 利用登録の申請（D28）。**名簿（contacts）に無いアカウントでも開ける唯一の画面**。
   // doGet が未登録者をここへ回す。ナビには出さない（登録済みの人には用が無いため）。
   signup:  { file: 'signup',  title: '利用登録の申請',     staffOnly: false },
@@ -46,7 +48,7 @@ const MYPAGE_PAGE = 'mypage';
 // respond は通知リンクから ?vacancy= 付きで開く画面なので、ナビには出さない。
 // ここに足せば全画面のナビに一斉に反映される（staffOnly は PAGES 側で自動判定）。
 // マイページはここに入れない。ヘッダー右上のユーザーアイコンから入る（renderChrome_）。
-const NAV_PAGES = ['home', 'absence', 'input', 'manage', 'approvals', 'check', 'terms'];
+const NAV_PAGES = ['home', 'absence', 'input', 'manage', 'roster', 'approvals', 'terms'];
 
 const DEFAULT_PAGE = 'home';
 // ROLE_STAFF（'職員'）はドメイン定数なので Constants.gs にある（関数内から参照すること）。
@@ -341,40 +343,53 @@ function getTimetable(quarter) {
     name: user.name,
     role: user.role,
     skills: meRow ? splitList(meRow.skills) : [],
-    slots: meRow ? splitList(meRow.available_slots) : [],
+    // 業務ごとの空きコマ（D32）。home は「テイクの空き枠」しか出さないが、
+    // 判定をこちらに寄せておけば介助を出すときに画面側だけで足りる。
+    slotsByType: meRow ? slotsByTypeOf_(meRow) : {},
   };
 
-  // 時限マスタ（時刻と並び順）
+  // 時限マスタ（表示名・時刻・並び順・その枠を使える業務）
   const periodTime = {};
   const periodIndex = {};
+  const periodRowById = {};
   readRows(SHEET.PERIODS).forEach(function (p, i) {
     const key = String(p.period).trim();
     periodTime[key] = p.start_time ? p.start_time + '〜' + p.end_time : '';
     periodIndex[key] = i;
+    periodRowById[key] = p;
   });
 
   const vacancies = readRows(SHEET.VACANCIES);
   const allCourses = readRows(SHEET.COURSES);
 
-  // 学期の選択を term マスタで解決する（11-3/D16）。
-  // home は閲覧用なので既定は「現在（開講中）」＝今日を含む学期すべての和集合
-  // （先端理工のクォーターと他学部のセメスターが同時に並ぶ）。
-  const courseTermIds = [];
-  allCourses.forEach(function (c) {
-    const q = String(c.quarter).trim();
-    if (q && courseTermIds.indexOf(q) === -1) courseTermIds.push(q);
-  });
-  const sel = resolveTermSelection_(quarter, courseTermIds, 'view');
-  const filterSet = {};
-  sel.filterIds.forEach(function (id) { filterSet[id] = true; });
   const sysMap = termSystemMap_(); // term_id → system（詳細表示で体系を出すため）
 
-  // 単発コマ（D27）は学期フィルタを通さない。学期外の説明会・行事もありうるうえ、
-  // どの週に出すかは date で決まるので、学期で落とすと「その日なのに出ない」が起きる。
-  // 実際にどの週へ出すかはクライアントが date で判定する（週送りはサーバー往復なし・D23）。
+  // 学期の開講期間（term_id → {start, end}）。
+  // 週表示では「その週のその日が学期の期間内か」をコマ単位で判定する。
+  // これが無いと、後期の終了後の週へ送っても後期のコマが並び続ける
+  // （授業が無い日に授業があるように見える）。
+  const termRange = {};
+  readTerms_().forEach(function (t) {
+    if (t.start_date && t.end_date) {
+      termRange[t.term_id] = { start: t.start_date, end: t.end_date };
+    }
+  });
+
+  // **学期では絞らない（D37）。** 表示する範囲を決めるのは「見ている週」だけ。
+  //
+  // 週送り（D23）を入れた時点で、学期フィルタは二重チェックになっていた。
+  // 二重だったせいで「サーバー側の学期だけが未来へ飛び、週では出るはずのコマが消える」
+  // という食い違いが起き、実際に3Qのコマが丸ごと消えた（D36）。軸を1本にすれば起きない。
+  //
+  // 代わりに**終了が1年以上前の学期は送らない**。courses は過去分を消さない運用なので、
+  // 何もしないと年々重くなる。1年より前の時間割を画面で見る場面は無いと判断した。
+  const cutoff = shiftDateStr_(todayJst_(), -365);
   const courses = allCourses
     .filter(function (c) {
-      return courseDate_(c) ? true : !!filterSet[String(c.quarter).trim()];
+      if (courseDate_(c)) return true;                   // 単発コマは date が出す週を決める（D27）
+      const r = termRange[String(c.quarter).trim()];
+      if (!r) return true;                               // 日付未設定の学期は落とさない（画面で警告する）
+      return r.end >= cutoff;
     })
     .map(function (c) {
       const courseId = String(c.course_id).trim();
@@ -394,6 +409,7 @@ function getTimetable(quarter) {
         staffB: nameById[String(c.staff_b_id).trim()] || String(c.staff_b_id || '').trim(),
         note: String(c.note || '').trim(),
         oneOffDate: courseDate_(c),          // 単発コマの実施日（空＝毎週・D27）
+        periodLabel: periodLabelOf_(c.period, periodRowById[String(c.period).trim()]),
         // status / substitute / absent / date は週によって変わるのでサーバーでは埋めない。
         // 下の vacancy（course_id|日付 の索引）から、クライアントが表示中の週ぶんだけ組み立てる。
       };
@@ -461,24 +477,38 @@ function getTimetable(quarter) {
       const ib = periodIndex[b] !== undefined ? periodIndex[b] : 999;
       return ia - ib;
     })
-    .map(function (p) { return { period: p, time: periodTime[p] || '' }; });
+    .map(function (p) {
+      const row = periodRowById[p];
+      // limited＝特定の業務でしか使えない枠（移動介助など・D33）。時間割では
+      // 授業と同じ高さの行にすると、ほぼ空の行で表が倍近くに伸びるため細い帯で描く。
+      const types = SUPPORT_TYPES.filter(function (t) {
+        return periodAllowsSupportType_(row, t);
+      });
+      return {
+        period: p,
+        label: periodLabelOf_(p, row),
+        time: periodTime[p] || '',
+        supportTypes: types,
+        limited: types.length < SUPPORT_TYPES.length,
+      };
+    });
 
-  // 学期の開講期間（term_id → {start, end}）。
-  // 週表示では「その週のその日が学期の期間内か」をコマ単位で判定する必要がある。
-  // これが無いと、後期の終了後の週へ送っても後期のコマが並び続ける（授業が無い日に
-  // 授業があるように見える）。期間が未設定の学期は判定せず従来どおり表示する（D16 と同じ後方互換）。
-  const termRange = {};
-  readTerms_().forEach(function (t) {
-    if (t.start_date && t.end_date) {
-      termRange[t.term_id] = { start: t.start_date, end: t.end_date };
+  // 日付が未設定の学期にコマがぶら下がっていると、どの週に出すか判定できず
+  // **毎週出続ける**。黙って毎週出すと「先週も来週も同じ授業がある」ことになるので、
+  // 画面で名指しの警告を出せるようにここで拾っておく（学期設定へ誘導する）。
+  const undatedTerms = [];
+  courses.forEach(function (c) {
+    if (c.oneOffDate) return;
+    if (c.term && !termRange[c.term] && undatedTerms.indexOf(c.term) === -1) {
+      undatedTerms.push(c.term);
     }
   });
 
   return {
-    quarters: sel.options, quarter: sel.selected,
     days: days, periods: periods, courses: courses, me: me,
     vacancy: vacancy,   // 'course_id|yyyy-MM-dd' → {status, substitute, absent[]}
-    termRange: termRange, // term_id → {start, end}（週が開講期間内かの判定用）
+    termRange: termRange,     // term_id → {start, end}（週が開講期間内かの判定用）
+    undatedTerms: undatedTerms, // 日付未設定のまま使われている学期（警告用）
     today: todayJst_(), // 「今週」の基準（端末の時計ではなくサーバーのJSTで判定する）
   };
 }

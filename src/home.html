@@ -68,6 +68,7 @@
     .st { display: inline-block; font-size: .8rem; padding: 1px 9px;
           border-radius: var(--radius-pill); margin-top: 5px; }
     .st-open   { background: #d9f1e2; color: var(--ok); font-weight: 700; }
+    .st-todo   { background: var(--warn-bg); color: var(--warn); font-weight: 700; }
     .st-myopen { background: var(--ok); color: #fff; font-weight: 700; }
     .st-mine   { background: var(--brand-soft); color: var(--brand-ink); font-weight: 700; }
     .st-vacant { background: var(--danger-bg); color: var(--danger); font-weight: 700; }
@@ -77,7 +78,14 @@
 
     /* ===== 週ナビ（欠員は日付に紐づくので、表示する週を必ず1つに決める・D23）===== */
     .weekbar { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; flex-wrap: wrap; }
-    .weekbar .wk-range { font-weight: 700; font-size: 1rem; min-width: 12.5em; text-align: center; }
+    /* 週の範囲は押せる（カレンダーでその週へ飛ぶ・D37）ので、ボタンだと分かる見た目にする */
+    .weekbar .wk-range { font-weight: 700; font-size: 1rem; min-width: 12.5em; text-align: center;
+                         font-family: inherit; cursor: pointer; color: var(--text);
+                         background: var(--surface); border: 1px solid var(--border-strong);
+                         border-radius: var(--radius-sm); padding: 5px 12px; }
+    .weekbar .wk-range:hover { background: var(--brand-soft); border-color: var(--brand-border);
+                               color: var(--brand-ink); }
+    .weekbar .wk-pick input { font-size: .9rem; padding: 4px 8px; }
     .weekbar .wk-now { background: var(--brand-soft); color: var(--brand-ink);
                        border-color: var(--brand-border); font-weight: 700; }
     .weekbar .wk-tag { font-size: .78rem; color: var(--text-muted); }
@@ -124,6 +132,13 @@
     .pc .ph small { display: block; color: var(--text-faint); font-weight: normal;
                     font-size: .72rem; margin-top: 2px; }
     .pc td.cell, .pc td.empty { padding: 5px; height: 56px; }
+
+    /* 授業のあいだの枠（移動介助・D33）。授業と同じ高さにすると、ほぼ空の行で
+       表が倍近くに伸びて授業が読みにくくなるので、半分以下の高さの帯として描く。 */
+    .pc tr.between td.cell, .pc tr.between td.empty { height: 22px; padding: 2px 5px; }
+    .pc tr.between td { background: var(--surface-alt); }
+    .pc tr.between .ph { font-size: .74rem; color: var(--text-muted); line-height: 1.25; }
+    .pc tr.between .ph small { font-size: .66rem; }
     .pc td.empty { background: #fbfcfd; }
 
     /* ===== スマホ：曜日タブ＋その日のカード ===== */
@@ -133,6 +148,11 @@
                    color: var(--brand-ink); border-radius: var(--radius-pill);
                    padding: 7px 16px; font-size: .95rem; cursor: pointer; }
     .tabs button.on { background: var(--brand); color: #fff; border-color: var(--brand); font-weight: 600; }
+    /* 授業のあいだの枠（移動介助・D33）。カードではなく「区切り」に見せて、
+       授業のカードと同じ重さで並ばないようにする（PCの細い帯と同じ考え方）。 */
+    .per.between { box-shadow: none; margin-bottom: 6px; }
+    .per.between .per-h { background: var(--surface-alt); color: var(--text-muted);
+                          font-size: .82rem; font-weight: 600; padding: 5px 12px; }
     .per { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
            margin-bottom: 10px; box-shadow: var(--shadow-1); overflow: hidden; }
     .per-h { background: var(--surface-alt); padding: 8px 12px; font-size: .95rem; font-weight: 700;
@@ -186,8 +206,6 @@
       </div>
 
       <div class="toolbar" id="toolbar">
-        <label for="q">クォーター</label>
-        <select id="q" onchange="onQuarter()"></select>
         <label for="fUser">利用者</label>
         <select id="fUser" onchange="applyFilters()"></select>
         <label for="fStaff">スタッフ</label>
@@ -203,11 +221,16 @@
     </div>
     <div class="weekbar">
       <button type="button" class="btn sm" onclick="shiftWeek(-1)" aria-label="前の週">◀ 前の週</button>
-      <span class="wk-range" id="wkRange">—</span>
+      <button type="button" class="wk-range" id="wkRange" onclick="toggleWkPick()"
+              aria-expanded="false" title="日付を選んでその週へ移動">—</button>
       <button type="button" class="btn sm" onclick="shiftWeek(1)" aria-label="次の週">次の週 ▶</button>
       <button type="button" class="btn sm wk-now" id="wkNow" onclick="goThisWeek()">今週へ</button>
       <span class="wk-tag" id="wkTag"></span>
+      <span class="wk-pick" id="wkPickBox" hidden>
+        <input type="date" id="wkPick" onchange="jumpToPicked()">
+      </span>
     </div>
+    <div id="undated"></div>
     <p class="termnote">※ <?= TERM_BOUNDARY_NOTICE ?></p>
     <div id="count" class="count"></div>
     <div id="content" class="state">読み込み中…</div>
@@ -246,11 +269,16 @@
 
     // 自分が「入れる」募集中の空き枠か（テイク1名・スキル一致・その時限が自分の空き）
     function isMyOpen(c) {
+      // 担当が1人も決まっていないコマは「あなたが入れます」と出さない（D38）。
+      // 相方が決まっていて1枠空いている状態とは別物で、まず職員が割り当てる段階にある。
+      if (!c.staffA) return false;
       if (!(c.support_type === 'テイク' && !c.staffB && (!c.status || c.status === '通常'))) return false;
       if (isMine(c)) return false;
-      var me = (DATA && DATA.me) || { skills: [], slots: [] };
+      var me = (DATA && DATA.me) || { skills: [], slotsByType: {} };
       if (me.skills.length && me.skills.indexOf(c.support_type) === -1) return false; // スキル不適合
-      return me.slots.indexOf(c.day + c.period) !== -1;                                // その時限が空き
+      // 空きコマは業務ごと（D32）。このコマの内容の空きコマだけを見る。
+      var slots = (me.slotsByType && me.slotsByType[c.support_type]) || [];
+      return slots.indexOf(c.day + c.period) !== -1;                                   // その時限が空き
     }
 
     function escapeHtml(s) {
@@ -284,7 +312,73 @@
       return html;
     }
 
+    /**
+     * 授業期間外の週に出す案内（D16 の週表示）。
+     *
+     * 「この週は授業期間外です」だけだと**どこまで送ればよいか分からない**。
+     * 実際、登録した3Qのコマが今週に出ず「表示されない不具合」に見えた（2026-09-17）。
+     * 登録済みのコマが属する学期の期間を出し、その最初の週へ1回で飛べるようにする。
+     */
+    function outOfTermMessage() {
+      var head = 'この週（' + WEEK.labelByDay['月'] + '〜' + WEEK.labelByDay['日'] +
+        '）は授業期間外です。';
+      var terms = usedTermRanges();
+      if (terms.length === 0) {
+        return escapeHtml(head + '「今週へ」または前後の週をご確認ください。');
+      }
+      var lines = terms.map(function (t) {
+        return '<div>・<b>' + escapeHtml(t.term) + '</b>：' +
+          escapeHtml(t.start) + ' 〜 ' + escapeHtml(t.end) + '</div>';
+      }).join('');
+      var jump = nearestCourseWeek();
+      return escapeHtml(head) +
+        '<div style="margin:10px 0;font-size:.85rem;text-align:left;display:inline-block">' +
+        '<div style="color:var(--text-muted);margin-bottom:4px">登録されているコマの学期</div>' +
+        lines + '</div><div>' +
+        (jump ? '<button type="button" class="btn sm primary" onclick="applyWeek(\'' +
+          escapeAttr(jump) + '\')">' + escapeHtml(jump) + ' の週を見る</button> ' : '') +
+        '<button type="button" class="btn sm" onclick="goThisWeek()">今週へ</button></div>';
+    }
+
+    // 登録済みのコマが属する学期の期間（開始日の早い順）
+    function usedTermRanges() {
+      var used = {};
+      DATA.courses.forEach(function (c) { if (c.term) used[c.term] = true; });
+      return Object.keys(used)
+        .map(function (t) {
+          var r = DATA.termRange && DATA.termRange[t];
+          return r ? { term: t, start: r.start, end: r.end } : null;
+        })
+        .filter(Boolean)
+        .sort(function (a, b) { return a.start < b.start ? -1 : a.start > b.start ? 1 : 0; });
+    }
+
+    // 表示中の週にいちばん近い「授業がある日」。前にも後ろにも行ける。
+    function nearestCourseWeek() {
+      var terms = usedTermRanges();
+      if (!terms.length) return '';
+      var here = WEEK.dateByDay['月'];
+      var best = '';
+      var bestGap = null;
+      terms.forEach(function (t) {
+        // その学期の中で、今の週にいちばん近い日（期間内なら今の週そのもの）
+        var target = here < t.start ? t.start : (here > t.end ? t.end : here);
+        var gap = Math.abs(dayDiff(target, here));
+        if (bestGap === null || gap < bestGap) { bestGap = gap; best = target; }
+      });
+      return best;
+    }
+
+    function dayDiff(a, b) {
+      return Math.round((parseISO(a).getTime() - parseISO(b).getTime()) / 86400000);
+    }
+
     function statusBadge(c) {
+      // 担当が1人も決まっていないコマ（D38）。授業だけ先に登録した状態で、
+      // 「あと1名 募集中」と出すと**1人は決まっている**ように読めてしまうので分ける。
+      if ((!c.status || c.status === '通常') && !c.staffA && !c.staffB) {
+        return '<span class="st st-todo">担当未定</span>';
+      }
       // テイクなのに担当が1名 ＝ 恒常的に枠が空いている（誰でも入れる）
       if ((!c.status || c.status === '通常') && c.support_type === 'テイク' && !c.staffB) {
         return '<span class="st st-open">あと1名 募集中</span>';
@@ -375,7 +469,7 @@
         ['内容', escapeHtml(c.support_type || '—') +
           (c.oneOffDate ? '<span class="tag once" style="margin-left:6px">この日だけ</span>' : '')],
         ['学期', termLabel(c)],
-        ['日時', escapeHtml(c.day) + '曜 ' + escapeHtml(c.period) + '限' +
+        ['日時', escapeHtml(c.day) + '曜 ' + escapeHtml(c.periodLabel || (c.period + '限')) +
           (pt ? '（' + escapeHtml(pt) + '）' : '')],
         // 表示中の週における実施日。欠員の状態はこの日付に対するもの（D23）
         [c.oneOffDate ? '実施日（1回限り）' : 'この週の日付', escapeHtml(c.date || '—')],
@@ -436,8 +530,9 @@
              '<small>' + escapeHtml(dayLabel(day)) + '</small></th>';
       });
       h += '</tr></thead><tbody>';
-      d.periods.forEach(function (p) {
-        h += '<tr><th class="ph">' + escapeHtml(p.period) + '限' +
+      d.periods.filter(function (p) { return periodVisible(p); }).forEach(function (p) {
+        h += '<tr' + (p.limited ? ' class="between"' : '') + '>' +
+             '<th class="ph">' + escapeHtml(p.label || (p.period + '限')) +
              (p.time ? '<small>' + escapeHtml(p.time) + '</small>' : '') + '</th>';
         d.days.forEach(function (day) {
           var list = cellCourses(day, p.period);
@@ -467,16 +562,19 @@
     function renderDayView() {
       var host = document.getElementById('dayView');
       if (!host) return;
-      // 全時限を枠として並べる（コマが無い時限も空欄で残す）
-      host.innerHTML = VIEW.periods.map(function (p) {
-        var list = cellCourses(curDay, p.period);
-        var body = list.length
-          ? list.map(card).join('')
-          : '<div class="per-empty">コマなし</div>';
-        return '<div class="per"><div class="per-h">' + escapeHtml(p.period) + '限' +
-          (p.time ? '<small>' + escapeHtml(p.time) + '</small>' : '') +
-          '</div><div class="per-b">' + body + '</div></div>';
-      }).join('');
+      // 授業時限はコマが無くても枠として残す。授業のあいだの枠だけは予定がある日にしか出さない（D33）
+      host.innerHTML = VIEW.periods
+        .filter(function (p) { return periodVisible(p, curDay); })
+        .map(function (p) {
+          var list = cellCourses(curDay, p.period);
+          var body = list.length
+            ? list.map(card).join('')
+            : '<div class="per-empty">コマなし</div>';
+          return '<div class="per' + (p.limited ? ' between' : '') + '">' +
+            '<div class="per-h">' + escapeHtml(p.label || (p.period + '限')) +
+            (p.time ? '<small>' + escapeHtml(p.time) + '</small>' : '') +
+            '</div><div class="per-b">' + body + '</div></div>';
+        }).join('');
     }
 
     function selDay(day) {
@@ -485,6 +583,33 @@
       // ラベルには日付も入るので、textContent ではなく data-day で判定する
       tabs.forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-day') === day); });
       renderDayView();
+    }
+
+    /**
+     * その時限の行を出すか（D33）。
+     *
+     * 通常の授業時限は、コマが無くても**枠として常に出す**（時間割の形が週ごとに
+     * 変わらないほうが読みやすいため。「コマなし」が出る）。
+     *
+     * 授業のあいだの枠（移動介助）は逆で、**予定が入っているときだけ出す**。
+     * 常に出すと、1日ぶんで最大6本の空の帯が授業のあいだに挟まり、
+     * 肝心の授業が読み取りにくくなる。移動介助は毎日あるものではないので、
+     * 「ある日だけ現れる」ほうが実態に合う。枠そのものはシフト入力画面の
+     * 時限プルダウンから選べるので、時間割に出ていなくても登録に困らない。
+     *
+     * @param {Object} p   時限
+     * @param {string} [day] 曜日を渡すとその日だけで判定する（スマホの曜日別表示）。
+     *                       省略時は表示中の週ぜんぶで判定する（PCのグリッド）。
+     */
+    function periodVisible(p, day) {
+      if (!p.limited) return true;
+      // 内容の絞り込み（マイビュー中は無効なので見ない）
+      if (!MYVIEW) {
+        var t = val('fType');
+        if (t !== '__all__' && (p.supportTypes || []).indexOf(t) === -1) return false;
+      }
+      if (day) return cellCourses(day, p.period).length > 0;
+      return VIEW.days.some(function (d) { return cellCourses(d, p.period).length > 0; });
     }
 
     // 時間割の枠は固定（サーバーが返した曜日・時限を常に全部使う）。
@@ -545,8 +670,6 @@
         if (val('fStaff') !== '__all__') n++;
         if (val('fType') !== '__all__') n++;
       }
-      // クォーターは既定が「現在（開講中）」＝空文字。別の学期を選んでいれば1件と数える
-      if (document.getElementById('q').value) n++;
       var badge = document.getElementById('fBadge');
       badge.textContent = n;
       badge.hidden = (n === 0);
@@ -560,7 +683,21 @@
 
     function val(id) { return document.getElementById(id).value; }
 
+    // 日付が未設定の学期にコマがあると、どの週に出すか判定できず**毎週出続ける**（D37）。
+    // 黙って毎週出すと「先週も来週も同じ授業がある」ことになるので名指しで知らせる。
+    function renderUndated() {
+      var host = document.getElementById('undated');
+      if (!host) return;
+      var list = (DATA && DATA.undatedTerms) || [];
+      if (list.length === 0) { host.innerHTML = ''; return; }
+      host.innerHTML = '<div class="notice warn">' +
+        '<b>開始日・終了日が未設定の学期があります：' + escapeHtml(list.join(' / ')) + '</b><br>' +
+        'この学期のコマは、どの週に出せばよいか判定できないため**毎週**表示されています。' +
+        '「学期設定」で日付を入れてください。</div>';
+    }
+
     function render() {
+      renderUndated();
       var content = document.getElementById('content');
       var countEl = document.getElementById('count');
       if (!DATA || DATA.courses.length === 0) {
@@ -581,9 +718,8 @@
         content.className = 'state';
         // この週に授業があるコマが1つも無い＝開講期間の外（学期の前後・長期休暇中）。
         // 絞り込みのせいで空になったのと区別できないと「壊れている」ように見えるため文言を分ける。
-        content.textContent = WEEK_COURSE_COUNT === 0
-          ? 'この週は授業期間外です（' + WEEK.labelByDay['月'] + '〜' + WEEK.labelByDay['日'] +
-            '）。「今週へ」または前後の週をご確認ください。'
+        content.innerHTML = WEEK_COURSE_COUNT === 0
+          ? outOfTermMessage()
           : (MYVIEW
               ? '担当コマも、いま入れる募集中もありません。'
               : '条件に合うコマがありません。「クリア」で絞り込みを解除できます。');
@@ -621,7 +757,7 @@
       var once = DATA.courses.filter(function (c) { return c.oneOffDate; });
       lines.push('単発コマ = ' + once.length + ' 件');
       once.forEach(function (c) {
-        lines.push('  ・' + c.course_id + ' ' + c.day + c.period + '限'
+        lines.push('  ・' + c.course_id + ' ' + c.day + (c.periodLabel || (c.period + '限'))
           + ' | oneOffDate=' + JSON.stringify(c.oneOffDate)
           + ' | この週の日付=' + JSON.stringify(c.date)
           + ' | inTerm=' + c.inTerm
@@ -632,16 +768,6 @@
       }
       host.style.display = '';
       host.textContent = lines.join(String.fromCharCode(10));
-    }
-
-    function fillQuarters() {
-      var sel = document.getElementById('q');
-      // DATA.quarters は {value,label} の配列（value='' は「現在（開講中）」の和集合）
-      sel.innerHTML = DATA.quarters.map(function (o) {
-        return '<option value="' + escapeHtml(o.value) + '"' +
-          (o.value === DATA.quarter ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>';
-      }).join('');
-      sel.style.display = DATA.quarters.length > 1 ? '' : 'none';
     }
 
     // 利用者・スタッフの絞り込み候補を投入（選択値は可能なら維持）
@@ -682,9 +808,31 @@
       return out.sort();
     }
 
-    function onQuarter() {
-      // 学期を変えても、見ている週は保つ（週はクライアント側の状態なので再取得不要）
-      load(document.getElementById('q').value);
+    /**
+     * 週の範囲表示を押すと日付を選べる（D37）。
+     *
+     * 表示範囲を決める軸を**週だけ**にしたので、学期の絞り込みは無くなった。
+     * 遠い週へ行く手段が「前の週／次の週」しかないと、前の学期を見るのに何十回も押すことになる。
+     * カレンダーから直接その週へ飛べれば、学期という概念を画面に出さずに済む。
+     */
+    function toggleWkPick() {
+      var box = document.getElementById('wkPickBox');
+      var open = box.hidden;
+      box.hidden = !open;
+      document.getElementById('wkRange').setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) {
+        var input = document.getElementById('wkPick');
+        input.value = WEEK ? WEEK.dateByDay['月'] : '';
+        input.focus();
+      }
+    }
+
+    function jumpToPicked() {
+      var v = document.getElementById('wkPick').value;
+      if (!v) return;
+      document.getElementById('wkPickBox').hidden = true;
+      document.getElementById('wkRange').setAttribute('aria-expanded', 'false');
+      applyWeek(v);
     }
 
     // ===== 週の移動（D23）=====
@@ -780,6 +928,7 @@
       if (!WEEK) return;
       document.getElementById('wkRange').textContent =
         WEEK.labelByDay['月'] + '(月) 〜 ' + WEEK.labelByDay['日'] + '(日)';
+      document.getElementById('wkPickBox').hidden = true;
       // 今週を見ているときは「今週へ」を出さない（押しても何も変わらないため）
       document.getElementById('wkNow').style.display = WEEK.isThisWeek ? 'none' : '';
       document.getElementById('wkTag').textContent = WEEK.isThisWeek ? '今週' : '';
@@ -799,7 +948,6 @@
       google.script.run
         .withSuccessHandler(function (data) {
           DATA = data;
-          fillQuarters();
           fillFilters();
           applyWeek(keepWeek); // 週を載せて VIEW を作り描画
         })

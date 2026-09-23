@@ -12,7 +12,7 @@ const { spawnSync } = require('child_process');
 
 const HERE = __dirname;
 
-const scripts = ['check-syntax.js'].concat(
+const scripts = ['check-syntax.js', 'check-pages.js'].concat(
   fs.readdirSync(HERE).filter((f) => /^sim-.*\.js$/.test(f)).sort()
 );
 

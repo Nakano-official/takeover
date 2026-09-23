@@ -15,7 +15,7 @@
 const { Harness } = require('./gas-harness');
 
 const h = new Harness();
-h.load(['Constants.gs', 'Attendance.gs', 'Terms.gs', 'Vacancy.gs', 'Forms.gs', 'Profile.gs',
+h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Util.gs', 'Profile.gs',
   'Registration.gs']);
 const G = h.G;
 

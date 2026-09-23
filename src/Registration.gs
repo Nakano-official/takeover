@@ -45,12 +45,20 @@ function getSignupContext() {
   const contact = findRowCI_(SHEET.CONTACTS, 'email', email);
   const existing = findRegistrationByEmail_(email);
 
-  const periods = readRows(SHEET.PERIODS).map(function (p) {
+  // 申請では空きコマを1つしか聞かない（承認時に両業務へ同じ値が入る・D32）ので、
+  // 全業務で使える時限だけを出す。移動介助のような業務限定の枠は、承認後に
+  // 本人がマイページの業務タブで入れる。
+  const periods = readRows(SHEET.PERIODS).filter(function (p) {
+    return String(p.period).trim() && SUPPORT_TYPES.every(function (t) {
+      return periodAllowsSupportType_(p, t);
+    });
+  }).map(function (p) {
     return {
       period: String(p.period).trim(),
+      label: periodLabelOf_(p.period, p),
       time: p.start_time ? p.start_time + '〜' + p.end_time : '',
     };
-  }).filter(function (p) { return p.period; });
+  });
 
   return {
     email: email,
@@ -99,9 +107,8 @@ function submitRegistration(payload) {
   // 空きコマは Profile.gs と同じ検証を通す（実在しないスロットを入れない）
   const slots = normalizeSlots_(p.slots);
   // skills は本人の申告。承認時に職員が確定させるので、ここでは値の見張りだけする。
-  const skills = ['テイク', '介助']
-    .filter(function (x) { return String(p.skills || '').indexOf(x) !== -1; })
-    .join(',');
+  // 申請の時点では「まだ決まっていない」があり得るので、空のままを許す（マイページとは別扱い）。
+  const skills = splitSkills_(p.skills).join(',');
 
   const existing = findRegistrationByEmail_(email);
   const row = {
@@ -181,9 +188,7 @@ function approveRegistration(registrationId, opts) {
 
   const o = opts || {};
   const role = String(o.role || '').trim() === ROLE_STAFF ? ROLE_STAFF : '学生';
-  const skills = ['テイク', '介助']
-    .filter(function (x) { return String(o.skills === undefined ? reg.skills : o.skills).indexOf(x) !== -1; })
-    .join(',');
+  const skills = splitSkills_(o.skills === undefined ? reg.skills : o.skills).join(',');
 
   // staffs に採番して作り、その staff_id で contacts を作る。
   // 2つのスプレッドシートをまたぐので原子的にはできない。staffs を先に作るのは、
@@ -193,8 +198,12 @@ function approveRegistration(registrationId, opts) {
     name: String(reg.name || '').trim(),
     role: role,
     skills: skills,
+    // 申請では空きコマを1つしか聞いていないので、テイク・介助の両方に同じ値を入れる。
+    // 本人がマイページで業務ごとに直せる（D32）。片方を空で作ると、その業務の候補に
+    // **一度も出てこない**状態から始まってしまう。
     available_slots: String(reg.slots || '').trim(),
-    personal_code: '',              // 勤怠CSVの突合キー。職員が後から入れる（D2/D14）
+    assist_slots: String(reg.slots || '').trim(),
+    personal_code: '',              // 列は残っているが使わない（機能Bを実装しないため・2026-09-13）
     slots_updated_at: nowString_(), // 本人の申告なので「本人が出した」扱いにする（D28）
   });
 

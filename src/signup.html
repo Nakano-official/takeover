@@ -141,7 +141,7 @@
       c.days.forEach(function (d) { h += '<th>' + escapeHtml(d) + '</th>'; });
       h += '</tr></thead><tbody>';
       c.periods.forEach(function (per) {
-        h += '<tr><th class="ph">' + escapeHtml(per.period) + '限'
+        h += '<tr><th class="ph">' + escapeHtml(per.label || (per.period + '限'))
           + (per.time ? '<small>' + escapeHtml(per.time) + '</small>' : '') + '</th>';
         c.days.forEach(function (d) {
           var key = d + per.period;

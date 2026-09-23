@@ -22,6 +22,16 @@
 
     .field { margin-bottom: 16px; }
 
+    /* 対応できる業務。指で押せる大きさのトグルにする（チェックボックスだけだと狙いにくい） */
+    .skills { display: flex; flex-wrap: wrap; gap: 10px; }
+    .skill { display: inline-flex; align-items: center; gap: 8px; margin: 0;
+             border: 1px solid var(--border-strong); border-radius: var(--radius);
+             padding: 10px 16px; font-size: .95rem; cursor: pointer; background: var(--surface); }
+    .skill:hover { background: var(--brand-soft); }
+    .skill:has(input:checked) { border-color: var(--brand); background: var(--brand-soft);
+                                color: var(--brand-ink); }
+    .skill input { width: auto; }
+
     /* 空きコマの格子（曜日 × 時限）。自由入力にすると存在しないスロットが入りうるので選択式にする */
     .grid-wrap { overflow-x: auto; }
     table.slots { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 380px; }
@@ -38,6 +48,18 @@
     table.slots td label { display: block; margin: 0; padding: 10px 4px; cursor: pointer; }
     table.slots td label:hover { background: var(--brand-soft); }
     table.slots input { width: auto; }
+
+    /* 業務の切り替えタブ。ページを分けると行き来に時間がかかるので、同じカード内で切り替える */
+    .tabs { display: flex; gap: 6px; margin: 0 0 12px; border-bottom: 2px solid var(--border); }
+    .tab { appearance: none; border: none; background: none; font-family: inherit;
+           font-size: .92rem; font-weight: 700; color: var(--text-muted); cursor: pointer;
+           padding: 9px 16px; border-bottom: 3px solid transparent; margin-bottom: -2px; }
+    .tab:hover { color: var(--brand-ink); background: var(--brand-soft); }
+    .tab.on { color: var(--brand-ink); border-bottom-color: var(--brand); }
+    .tab .n { font-weight: normal; font-size: .82rem; color: var(--text-faint); margin-left: 5px; }
+    .tab.on .n { color: var(--brand-ink); }
+    .pane[hidden] { display: none; }
+    .panenote { font-size: .8rem; color: var(--warn); margin: 0 0 10px; }
 
     .slotops { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
     .updated { font-size: .82rem; color: var(--text-muted); margin-top: 10px; }
@@ -79,14 +101,11 @@
       var readOnly =
         '<div class="card">' +
         '<h2>あなたの情報</h2>' +
-        '<p class="lead">ここは職員が管理します。変更が必要なときは職員へお伝えください。' +
-        '（氏名は勤怠の照合に使うため、対応できる業務は依頼の振り分けに関わるため、本人では変更できません）</p>' +
+        '<p class="lead">ここは職員が管理します。変更が必要なときは職員へお伝えください。</p>' +
         '<dl class="ro">' +
           ro('氏名', p.name) +
           ro('区分', p.role) +
           ro('メール', p.email) +
-          (p.isStudent ? ro('対応できる業務', p.skills, '空欄は全対応として扱われます') : '') +
-          (p.isStudent ? ro('個人コード', p.personal_code, '勤怠の照合に必要です') : '') +
         '</dl></div>';
 
       // ── 連絡先（本人が変更できる）──
@@ -104,44 +123,138 @@
           '作り方は職員から配られた案内を参照してください。</p></div>' +
         '</div>';
 
-      // ── 空きコマ（学生のみ）──
+      // ── 対応できる業務・空きコマ（学生のみ）──
+      var skills = p.isStudent ? renderSkills(p) : '';
       var slots = p.isStudent ? renderSlots(p) : '';
 
       host.className = '';
-      host.innerHTML = readOnly + contact + slots +
+      host.innerHTML = readOnly + contact + skills + slots +
         '<button class="btn primary block" id="save" onclick="save()">この内容で保存する</button>' +
         '<div id="toast" class="toast"></div>';
     }
 
-    function renderSlots(p) {
+    function renderSkills(p) {
       var chosen = {};
-      (p.slots || []).forEach(function (s) { chosen[s] = true; });
+      (p.skillList || []).forEach(function (x) { chosen[x] = true; });
+      // 保存済みが空欄＝D9 の「全対応」。初めて開いた人が何も選ばれていない画面を見て
+      // そのまま保存すると弾かれるので、全対応は「両方にチェック」として見せる。
+      var allRound = (p.skillList || []).length === 0;
 
-      var h = '<div class="card"><h2>空きコマ</h2>' +
+      var boxes = (p.supportTypes || []).map(function (name) {
+        var on = allRound || chosen[name];
+        return '<label class="skill"><input type="checkbox" data-skill="' + escapeAttr(name) + '"'
+          + (on ? ' checked' : '') + '>' + escapeHtml(name) + '</label>';
+      }).join('');
+
+      return '<div class="card"><h2>対応できる業務</h2>' +
+        '<p class="lead">できるようになった業務・できなくなった業務を自分で変更できます。' +
+        '<b>ここで選んだ内容の代行依頼だけが届きます。</b></p>' +
+        '<div class="skills">' + boxes + '</div>' +
+        '<p class="hint">研修を受けて対応できる業務が増えたときは、ここにチェックを足してください。' +
+        '<b>1つ以上は選ぶ必要があります</b>（すべて外すと、逆にすべての依頼が届く扱いになるためです）。</p>' +
+        '</div>';
+    }
+
+    function pickedSkills() {
+      var out = [];
+      document.querySelectorAll('input[data-skill]').forEach(function (b) {
+        if (b.checked) out.push(b.getAttribute('data-skill'));
+      });
+      return out;
+    }
+
+    function renderSlots(p) {
+      // 空きコマは業務ごとに別で持つ（D32）。ページを分けると行き来に時間がかかるので、
+      // 1つのカードの中でタブを切り替える。保存は表示中のタブだけでなく全業務ぶんを送る。
+      var types = p.supportTypes || [];
+      var tabs = types.map(function (t, i) {
+        var n = ((p.slotsByType && p.slotsByType[t]) || []).length;
+        return '<button type="button" class="tab' + (i === 0 ? ' on' : '') + '"'
+          + ' data-tab="' + escapeAttr(t) + '">' + escapeHtml(t)
+          + '<span class="n" data-count="' + escapeAttr(t) + '">' + n + '</span></button>';
+      }).join('');
+
+      var panes = types.map(function (t, i) {
+        return '<div class="pane" data-pane="' + escapeAttr(t) + '"'
+          + (i === 0 ? '' : ' hidden') + '>' + slotGrid(p, t) + '</div>';
+      }).join('');
+
+      return '<div class="card"><h2>空きコマ</h2>' +
         '<p class="lead">授業が入っていない＝<b>代行に入れる可能性がある</b>コマにチェックしてください。' +
         'ここにチェックが無いコマの代行依頼は届きません。学期が変わったら出し直してください。</p>' +
-        '<div class="grid-wrap"><table class="slots"><thead><tr><th class="ph"></th>';
+        '<p class="lead"><b>テイクと介助は別々に登録します。</b>' +
+        '業務によって空いている時間が違うためです。タブで切り替えてください。</p>' +
+        '<div class="tabs">' + tabs + '</div>' + panes +
+        '<div class="updated" id="updated">' + updatedText(p.slots_updated_at) + '</div>' +
+        '</div>';
+    }
+
+    // 1つの業務ぶんの格子（曜日 × その業務で選べる時限）
+    function slotGrid(p, type) {
+      var chosen = {};
+      (((p.slotsByType || {})[type]) || []).forEach(function (s) { chosen[s] = true; });
+      var periods = (p.periods || []).filter(function (per) {
+        return (per.supportTypes || []).indexOf(type) !== -1;
+      });
+
+      var h = '';
+      // 対応できる業務から外している間は、入れても依頼は届かない。消しはしないが黙ってもいない。
+      if ((p.skillList || []).length && p.skillList.indexOf(type) === -1) {
+        h += '<p class="panenote">いまは「対応できる業務」で' + escapeHtml(type)
+          + 'を選んでいないため、ここに入れても' + escapeHtml(type) + 'の依頼は届きません。</p>';
+      }
+      if (!periods.length) {
+        return h + '<p class="lead">' + escapeHtml(type) + 'で選べる時限が登録されていません。</p>';
+      }
+
+      h += '<div class="grid-wrap"><table class="slots"><thead><tr><th class="ph"></th>';
       p.days.forEach(function (d) { h += '<th>' + escapeHtml(d) + '</th>'; });
       h += '</tr></thead><tbody>';
-      p.periods.forEach(function (per) {
-        h += '<tr><th class="ph">' + escapeHtml(per.period) + '限'
+      periods.forEach(function (per) {
+        h += '<tr><th class="ph">' + escapeHtml(per.label || (per.period + '限'))
           + (per.time ? '<small>' + escapeHtml(per.time) + '</small>' : '') + '</th>';
         p.days.forEach(function (d) {
           var key = d + per.period;
-          h += '<td><label><input type="checkbox" data-slot="' + escapeAttr(key) + '"'
+          h += '<td><label><input type="checkbox" data-type="' + escapeAttr(type) + '"'
+            + ' data-slot="' + escapeAttr(key) + '"'
             + (chosen[key] ? ' checked' : '') + '></label></td>';
         });
         h += '</tr>';
       });
       h += '</tbody></table></div>' +
         '<div class="slotops">' +
-        '<button class="btn sm" type="button" onclick="setAll(true)">すべて選ぶ</button>' +
-        '<button class="btn sm" type="button" onclick="setAll(false)">すべて外す</button>' +
-        '</div>' +
-        '<div class="updated" id="updated">' + updatedText(p.slots_updated_at) + '</div>' +
+        '<button class="btn sm" type="button" data-all="' + escapeAttr(type) + '" data-on="1">すべて選ぶ</button>' +
+        '<button class="btn sm" type="button" data-all="' + escapeAttr(type) + '" data-on="">すべて外す</button>' +
         '</div>';
       return h;
     }
+
+    // タブ切り替えと「すべて選ぶ／外す」。再描画しないので入力途中の内容は消えない。
+    document.addEventListener('click', function (ev) {
+      if (!ev.target || !ev.target.closest) return;
+      var tab = ev.target.closest('.tab[data-tab]');
+      if (tab) {
+        var name = tab.getAttribute('data-tab');
+        document.querySelectorAll('.tab[data-tab]').forEach(function (b) {
+          b.classList.toggle('on', b === tab);
+        });
+        document.querySelectorAll('.pane[data-pane]').forEach(function (el) {
+          el.hidden = el.getAttribute('data-pane') !== name;
+        });
+        return;
+      }
+      var all = ev.target.closest('button[data-all]');
+      if (all) setAll(all.getAttribute('data-all'), !!all.getAttribute('data-on'));
+    });
+
+    function refreshCounts() {
+      document.querySelectorAll('.n[data-count]').forEach(function (el) {
+        el.textContent = pickedSlots(el.getAttribute('data-count')).length;
+      });
+    }
+    document.addEventListener('change', function (ev) {
+      if (ev.target && ev.target.hasAttribute && ev.target.hasAttribute('data-slot')) refreshCounts();
+    });
 
     function updatedText(at) {
       return at
@@ -149,19 +262,35 @@
         : 'まだ一度も更新されていません（職員が入力した内容のままです）。';
     }
 
-    function setAll(on) {
-      document.querySelectorAll('input[data-slot]').forEach(function (b) { b.checked = on; });
+    function setAll(type, on) {
+      document.querySelectorAll('input[data-type="' + type + '"]').forEach(function (b) {
+        b.checked = on;
+      });
+      refreshCounts();
     }
 
-    function pickedSlots() {
+    function pickedSlots(type) {
       var out = [];
-      document.querySelectorAll('input[data-slot]').forEach(function (b) {
+      document.querySelectorAll('input[data-type="' + type + '"]').forEach(function (b) {
         if (b.checked) out.push(b.getAttribute('data-slot'));
       });
       return out;
     }
 
+    // 表示中のタブだけでなく全業務ぶんを送る（見ていないタブの内容を消さないため）
+    function pickedSlotsByType(p) {
+      var out = {};
+      (p.supportTypes || []).forEach(function (t) { out[t] = pickedSlots(t); });
+      return out;
+    }
+
     function save() {
+      // 学生が対応できる業務を1つも選んでいないときは往復させずにここで止める
+      // （サーバー側でも同じ検証をしている。空欄＝全対応に倒れるのを防ぐため・D31）
+      if (P && P.isStudent && pickedSkills().length === 0) {
+        showToast('対応できる業務を1つ以上選んでください（すべて外すと、逆にすべての依頼が届きます）。', false);
+        return;
+      }
       var btn = document.getElementById('save');
       btn.disabled = true;
       btn.textContent = '保存中…';
@@ -175,7 +304,8 @@
         .updateMyProfile({
           phone: val('phone'),
           webhook_url: val('webhook'),
-          slots: pickedSlots(),
+          skills: pickedSkills(),
+          slotsByType: pickedSlotsByType(P),
         });
     }
 
