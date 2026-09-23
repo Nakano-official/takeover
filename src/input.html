@@ -185,7 +185,9 @@
       EDIT_ID = null;
       CARDS = [];
       CARD_SEQ = 0;
-      document.getElementById('form').className = '';
+      var host = document.getElementById('form');
+      host.className = '';
+      host.innerHTML = '';          // 「読み込み中…」を消してから積む
       addCard(null);
       renderFormChrome();
     }
@@ -514,8 +516,8 @@
       // 単発コマは常に全員から選ぶ（絞り込みの条件そのものが成り立たない）
       var eligOnly = !isOnce(n) && el(n, 'eligOnly').checked;
       var list = eligOnly
-        ? DATA.students.filter(function (s) { return staffEligible(s, n); })
-        : DATA.students;
+        ? DATA.staff.filter(function (s) { return staffEligible(s, n); })
+        : DATA.staff.slice();
 
       var opt = function (s) {
         var label = s.name + (s.skills ? '（' + s.skills + '）' : '');
@@ -724,9 +726,13 @@
         .withSuccessHandler(function (data) {
           DATA = data;
           fillTermSelect();
-          // 新しい利用者が増えている場合に備えてプルダウンを更新（選択はリセット）
-          fillUserOptions();
-          rebuildStaff();
+          // 新しい利用者が増えている場合に備えて、各カードのプルダウンを更新する
+          CARDS.forEach(function (n) {
+            var keep = v(n, 'user_sel');
+            fillUserOptions(n);
+            if (keep) el(n, 'user_sel').value = keep;
+            rebuildStaff(n);
+          });
           renderList();
         })
         .withFailureHandler(function (err) { showToast(err.message, false); })
