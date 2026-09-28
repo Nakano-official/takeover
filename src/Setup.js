@@ -373,19 +373,22 @@ function migrateAddStaffSlotsUpdatedAt() {
 function migrateSlotsAndMovePeriods() {
   Logger.log('=== 空きコマの業務別分離（D32）と移動介助の枠（D33）===');
 
-  Logger.log('--- 1/5 periods.support_types ---');
+  Logger.log('--- 1/6 periods.support_types ---');
   migrateAddPeriodSupportTypes();
 
-  Logger.log('--- 2/5 periods.label ---');
+  Logger.log('--- 2/6 periods.label ---');
   migrateAddPeriodLabel();
 
-  Logger.log('--- 3/5 移動介助の枠を授業のあいだへ挿入 ---');
+  Logger.log('--- 3/6 移動介助の枠を授業のあいだへ挿入 ---');
   migrateAddMovePeriods();
 
-  Logger.log('--- 4/5 staffs.assist_slots ---');
+  Logger.log('--- 4/6 移動介助の枠が前の枠に食い込んでいないか ---');
+  migrateFixMovePeriodTimes();
+
+  Logger.log('--- 5/6 staffs.assist_slots ---');
   migrateAddAssistSlots();
 
-  Logger.log('--- 5/5 vacancies.group_id ---');
+  Logger.log('--- 6/6 vacancies.group_id ---');
   migrateAddVacancyGroupId();
 
   Logger.log('');
@@ -424,11 +427,15 @@ const MOVE_AFTER_PERIODS = ['2'];
  */
 function MOVE_PERIOD_ROWS_() {
   const out = [];
+  var prevEnd = '';
   CLASS_PERIOD_ROWS_().forEach(function (c) {
-    out.push(moveRow_(moveKeyBefore_(c[0]), shiftHhmm_(c[1], -MOVE_BEFORE_MIN), c[1]));
+    out.push(moveRow_(moveKeyBefore_(c[0]), moveBeforeStart_(c[1], prevEnd), c[1]));
     out.push([c[0], c[1], c[2], '', '']);
+    prevEnd = c[2];
     if (MOVE_AFTER_PERIODS.indexOf(c[0]) !== -1) {
-      out.push(moveRow_(moveKeyAfter_(c[0]), c[2], shiftHhmm_(c[2], MOVE_AFTER_MIN)));
+      const afterEnd = shiftHhmm_(c[2], MOVE_AFTER_MIN);
+      out.push(moveRow_(moveKeyAfter_(c[0]), c[2], afterEnd));
+      prevEnd = afterEnd;
     }
   });
   return out;
@@ -437,8 +444,8 @@ function MOVE_PERIOD_ROWS_() {
 /** 授業時限そのもの（period, start, end） */
 function CLASS_PERIOD_ROWS_() {
   return [
-    ['1', '09:15', '11:00'],
-    ['2', '11:15', '12:30'],
+    ['1', '09:15', '10:45'],
+    ['2', '11:00', '12:30'],
     ['3', '13:30', '15:00'],
     ['4', '15:15', '16:45'],
     ['5', '16:55', '18:25'],
@@ -454,6 +461,20 @@ function moveKeyAfter_(period) { return '移動後' + period; }
 
 /** 旧方式（あいだに1枠だけ）のキー。移行で取り除くために残している */
 function isLegacyGapMoveKey_(key) { return /^移動\d+-\d+$/.test(String(key).trim()); }
+
+/**
+ * 授業の**前**の移動枠の開始時刻。
+ *
+ * 原則は「授業開始の MOVE_BEFORE_MIN 分前」。ただし**前の枠の終わりより前には始めない**。
+ * 時限のあいだが 15 分に満たない区間があるため（4限→5限は10分、6限→7限は5分）、
+ * 機械的に引くと前の授業に食い込み、画面に重なった時刻が出る。
+ * その区間は「休み時間まるごとが移動の時間」になる。
+ */
+function moveBeforeStart_(classStart, prevEnd) {
+  const want = shiftHhmm_(classStart, -MOVE_BEFORE_MIN);
+  if (!prevEnd) return want;
+  return hhmmToMin_(want) < hhmmToMin_(prevEnd) ? prevEnd : want;
+}
 
 /** 移動枠1行ぶん（periods の列順） */
 function moveRow_(key, start, end) {
@@ -605,8 +626,9 @@ function migrateAddMovePeriods() {
       // 授業の前（介助の担当は授業開始の MOVE_BEFORE_MIN 分前から業務）
       const beforeKey = moveKeyBefore_(c.period);
       if (c.start && !existing[beforeKey]) {
+        const above = rows.filter(function (r) { return r.row === c.row - 1; })[0];
         sheet.insertRowBefore(c.row);
-        writeMoveRow(c.row, beforeKey, shiftHhmm_(c.start, -MOVE_BEFORE_MIN), c.start);
+        writeMoveRow(c.row, beforeKey, moveBeforeStart_(c.start, above ? above.end : ''), c.start);
         added++; inserted = true; break;   // 行番号がずれるので読み直す
       }
 
@@ -629,6 +651,70 @@ function migrateAddMovePeriods() {
       MOVE_AFTER_PERIODS.join('・') + '限の後）。');
     Logger.log('   要らない枠の行は消してかまいません。足りなければ行を足してください。');
     Logger.log('   **行の順番がそのまま時間割の並び順**になります。');
+  }
+}
+
+
+/**
+ * 既にある移動介助の枠のうち、**前の枠に食い込んでいるもの**の開始時刻を直す。
+ *
+ * 「授業開始の15分前から」を機械的に当てると、時限のあいだが15分に満たない区間で
+ * 前の授業に重なる（4限→5限は10分しかないので 移動前5 が 16:40 になり、
+ * 16:45 まで続く4限と5分重なっていた）。
+ *
+ * コードは移動枠を period キー（移動前N）で判定していて時刻は見ないので、動作は壊れない。
+ * **画面に出る時刻だけ**が実態とずれる。ここで直すのはその表示。
+ *
+ * 重なっている行だけを、1つ上の枠の終わりまで遅らせる。それ以外は触らない。冪等。
+ */
+function migrateFixMovePeriodTimes() {
+  const ss = openMainDb_();
+  const sheet = ss.getSheetByName('periods');
+  if (!sheet) { Logger.log('❌ periods シートが見つかりません。'); return; }
+  if (sheet.getLastRow() < 2) { Logger.log('❌ periods に時限がありません。'); return; }
+
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0]
+    .map(function (h) { return String(h).trim(); });
+  const iPeriod = headers.indexOf('period');
+  const iStart = headers.indexOf('start_time');
+  const iEnd = headers.indexOf('end_time');
+  if (iPeriod === -1 || iStart === -1 || iEnd === -1) {
+    Logger.log('❌ periods に period / start_time / end_time が必要です。');
+    return;
+  }
+
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+  const rows = values.map(function (r, i) {
+    return {
+      row: i + 2,
+      period: String(r[iPeriod]).trim(),
+      start: String(r[iStart]).trim(),
+      end: String(r[iEnd]).trim(),
+    };
+  }).filter(function (r) { return r.period; });
+
+  var fixed = 0;
+  for (var i = 1; i < rows.length; i++) {
+    const cur = rows[i];
+    const prev = rows[i - 1];
+    const att = declaredMoveAttachment_(cur.period);
+    if (!att || att.side !== 'before') continue;                 // 授業の前の移動枠だけが対象
+    if (!cur.start || !prev.end) continue;
+    if (hhmmToMin_(cur.start) >= hhmmToMin_(prev.end)) continue; // 重なっていない
+
+    Logger.log('　' + cur.period + '：' + cur.start + ' → ' + prev.end +
+      '（' + prev.period + ' が ' + prev.end + ' まで）');
+    sheet.getRange(cur.row, iStart + 1).setNumberFormat('@');
+    sheet.getRange(cur.row, iStart + 1).setValue(prev.end);
+    cur.start = prev.end;
+    fixed++;
+  }
+
+  invalidateSheetCache_('periods');
+  if (fixed === 0) {
+    Logger.log('✅ 移動介助の枠の時刻は前後と重なっていません（変更なし）。');
+  } else {
+    Logger.log('✅ ' + fixed + ' 件の移動介助の枠の開始時刻を、前の枠の終わりに合わせました。');
   }
 }
 
