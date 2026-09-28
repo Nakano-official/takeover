@@ -229,6 +229,7 @@ erDiagram
         string result "補充済/1人テイク/職員対応・空=未決着（書くのは職員・D22）"
         string substitute_staff_id FK
         datetime close_notified_at "締切到達を処理し職員へ決着要求した時刻（D22）"
+        string group_id "かたまりの識別子・空=単独の欠員（D45）"
     }
     responses {
         string vacancy_id FK
@@ -282,6 +283,7 @@ erDiagram
 |---|---|
 | `periods` の**行の順番が時間割の並び順** | 並べ替えると時間割の並びが崩れる。構築時に確定させ運用では触らない（D40） |
 | `periods.period` は**文字列キー**（`移動前3` など） | `assist_slots` に `月移動前3` の形で入る。**改名すると既存の空きコマがどのコマとも一致しない** |
+| `vacancies.group_id` が同じ行は**1つの募集** | 空＝単独の欠員（従来どおり）。1件だけ確定させると、同じ欠勤の残りが未補充のまま取り残される（D45） |
 | `skills` 空欄＝**全対応**（D9） | 「どちらもできません」のつもりで空にすると全依頼が飛ぶ |
 | `available_slots` は**テイク用**（列名は互換で据え置き・D32） | 介助は `assist_slots`。混同すると片方の業務で候補0人 |
 | 空の `staff_a_id` は**担当未定**（D38） | 候補抽出・決着提案・二重起用チェックはいずれも空を除外済み |
