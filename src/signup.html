@@ -43,6 +43,9 @@
 <body>
   <?!= chrome ?>
 
+  <!-- 通知先URLの作り方（D46）。マイページと同じものを共有している。 -->
+  <div id="helpWebhook" hidden><?!= include('help-webhook') ?></div>
+
   <main>
     <div id="body" class="state">読み込み中…</div>
   </main>
@@ -105,8 +108,10 @@
         '<div class="field"><label for="webhook">Google Chat の通知先URL</label>' +
           '<input id="webhook" type="url" placeholder="https://chat.googleapis.com/..." value="'
             + escapeAttr(c.webhook_url) + '">' +
-          '<p class="hint">代行依頼はここへ届きます。作り方は職員から配られた案内を参照してください。' +
-          '後からマイページで登録・変更もできます。</p></div>' +
+          '<p class="hint">承認されると、代行のお願いがここへ届きます。' +
+          '空のままでも申請はできますが、通知は届きません（あとからマイページで登録できます）。</p>' +
+          // 作り方の案内（D46）。マイページと同じ help-webhook.html を共有している。
+          document.getElementById('helpWebhook').innerHTML + '</div>' +
 
         '<div class="field"><label>対応できる業務</label>' +
           '<div class="checks">' +

@@ -71,6 +71,10 @@
 <body>
   <?!= chrome ?>
 
+  <!-- 通知先URLの作り方（D46）。フォームの組み立て時にここから差し込む。
+       画像を含むので、描画のたびに作り直さず1か所に置いて使い回す。 -->
+  <div id="helpWebhook" hidden><?!= include('help-webhook') ?></div>
+
   <main>
     <div id="body" class="state">読み込み中…</div>
   </main>
@@ -119,8 +123,10 @@
         '<div class="field"><label for="webhook">Google Chat の通知先URL</label>' +
           '<input id="webhook" type="url" placeholder="https://chat.googleapis.com/..." value="'
             + escapeAttr(p.webhook_url) + '">' +
-          '<p class="hint">代行依頼はここへ届きます。空にすると通知が届きません。' +
-          '作り方は職員から配られた案内を参照してください。</p></div>' +
+          '<p class="hint">代行依頼はここへ届きます。空にすると通知が届きません。</p>' +
+          // 作り方の案内（D46）。help-webhook.html を申請画面と共有している。
+          // 職員から紙の案内を配る前提だと、そこで止まる人が必ず出る。
+          document.getElementById('helpWebhook').innerHTML + '</div>' +
         '</div>';
 
       // ── 対応できる業務・空きコマ（学生のみ）──
