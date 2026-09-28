@@ -104,6 +104,11 @@ flowchart LR
   1. vacancies シートに欠員を登録
   2. 人材プールから代行候補をスクリーニング
   3. Google Chat Webhook で候補者に通知送信
+- **介助のコマは「授業＋前後の移動介助」のかたまりで出す**（D45）。前後の移動も同じ人の仕事なので、
+  休むと一緒に欠員になる。**1回の欠勤連絡＝1つの募集＝1回の通知＝まとめて承諾**。
+  - `vacancies` は枠の数だけ行ができるが、**同じ `group_id`** で束ねて1つの募集として扱う
+  - 候補は**全部の枠に空きがある人だけ**（一部だけ入れる人は呼ばない）
+  - 「この授業だけ休む」もできる。その場合は行1件・`group_id` は空（従来と同じ形）
 - 書き込み先：メインDB（vacancies シート）
 
 ### 回答画面（学生スタッフ・候補者）
@@ -111,7 +116,9 @@ flowchart LR
 - 通知メッセージの「回答する」ボタンから開く（URL：`?page=respond&vacancy=<ID>`）
 - 開いたユーザーを `Session.getActiveUser()` で特定する。URLに staff_id を含めないため、URLが他人に渡ってもなりすましはできない
 - 承諾 / 辞退を選んで送信
-- 書き込み先：メインDB（responses シート）
+- 承諾が通ると、**その場で確定まで行く**（先着自動確定・D1）。同じ `group_id` の欠員があれば
+  まとめて同じ人で確定する（D45）
+- 書き込み先：メインDB（responses・**vacancies**）
 
 ### 欠員補充管理（職員限定・`manage`）
 
@@ -157,22 +164,51 @@ flowchart LR
 
 ## 4. データフロー
 
+「読み込み元」は**画面に出すために読むもの**と、**通知を送るために読むもの**の両方を含む。
+後者は画面には出ないが、連絡先DB（個人情報）を触るので分けて書く。
+
 | 画面 | 読み込み元 | 書き込み先 |
 |---|---|---|
 | シフト確認（時間割） | メインDB（courses・staffs・vacancies・periods・terms） | — |
-| シフト入力 | メインDB（courses・staffs・periods・terms） | メインDB（courses） |
-| 欠勤連絡 | メインDB（courses・periods） | メインDB（vacancies） |
-| 代行依頼への回答 | メインDB（vacancies・courses） | メインDB（responses・vacancies） |
-| 欠員補充管理 | メインDB（vacancies・responses）／連絡先DB（phone） | メインDB（vacancies） |
+| シフト入力 | メインDB（courses・staffs・periods・terms・**vacancies**） | メインDB（courses） |
+| 欠勤連絡 | メインDB（courses・periods・**staffs**）／**連絡先DB（webhook_url・通知用）** | メインDB（vacancies） |
+| 代行依頼への回答 | メインDB（vacancies・courses・responses・**staffs**）／**連絡先DB（webhook_url・通知用）** | メインDB（responses・vacancies） |
+| 欠員補充管理 | メインDB（vacancies・responses・courses・staffs）／連絡先DB（phone・webhook_url） | メインDB（vacancies） |
 | スタッフ名簿 | メインDB（staffs・courses）／連絡先DB（contacts・registrations） | — |
-| マイページ | メインDB（staffs・periods）／連絡先DB（contacts） | メインDB（staffs）／連絡先DB（contacts） |
-| 利用登録の申請 | 連絡先DB（contacts・registrations） | 連絡先DB（registrations） |
+| マイページ | メインDB（staffs・periods・**courses**）／連絡先DB（contacts） | メインDB（staffs）／連絡先DB（contacts） |
+| 利用登録の申請 | メインDB（**staffs・periods**）／連絡先DB（contacts・registrations） | 連絡先DB（registrations） |
 | 利用登録の承認 | 連絡先DB（registrations） | メインDB（staffs）／連絡先DB（contacts・registrations） |
 | 学期設定 | メインDB（terms・courses） | メインDB（terms） |
-| 時間トリガー（10分ごと） | メインDB（vacancies・courses・periods） | メインDB（vacancies） |
+| 時間トリガー（10分ごと） | メインDB（vacancies・courses・periods・staffs）／**連絡先DB（webhook_url・通知用）** | メインDB（vacancies） |
 
-> **連絡先DBを読むのは4か所だけ**（欠員補充管理の電話番号・スタッフ名簿・マイページ・登録まわり）。
-> Webhook URL は**どの画面にも出さない**。届くかどうかだけを返す（D30）。
+読みに行く理由が分かりにくいものだけ補足する。
+
+- **シフト入力 → `vacancies`**：`updateCourse` / `deleteCourse` が**募集中の欠員が付いたコマを
+  勝手に消させない**ために見る。消すと欠員が宙に浮く。
+- **欠勤連絡 → `staffs`**：候補の抽出に空きコマ（`available_slots` / `assist_slots`）が要る。
+- **マイページ → `courses`**：対応できる業務を**減らそうとしたとき**に、その業務で既に担当している
+  コマがないか確かめて警告する（`droppedSkillWarning_`）。
+- **利用登録の申請 → `periods`**：申請の時点で空きコマを選べるようにするため。
+  `staffs` は同じ人が二重に申請していないかの確認。
+
+### 連絡先DB（個人情報）を触るのはどこか
+
+**画面に出すのは3か所だけ**。
+
+| 画面 | 何を出すか |
+|---|---|
+| 欠員補充管理 | 候補の**電話番号**（電話フォローを画面内で完結させるため・D11） |
+| スタッフ名簿 | 氏名・電話と、**Webhook が登録済みかどうか**（D30） |
+| マイページ | **本人の**連絡先だけ |
+
+**Webhook URL そのものは、どの画面にも出さない。** 届くかどうか（登録済みか）だけを返す。
+
+一方で、**連絡先DBそのものは全リクエストで読まれる**。本人の特定
+（`getCurrentUser_()`）がメール → `contacts` → `staff_id` の順で引くため（§7）。
+さらに**通知を送るときも必ず読む**（`Notify.gs` の `buildWebhookMap_()`）。
+欠勤連絡・回答・欠員補充管理・時間トリガーのどれから送っても同じ経路を通る。
+画面には出ないが、**個人情報に触れる経路はここが一番多い**ので、
+`Notify.gs` を変えるときは「読んだ Webhook URL をレスポンスやログに載せていないか」を必ず見る。
 
 ---
 
@@ -333,13 +369,28 @@ sequenceDiagram
 
 ### 個別通知の仕組み（個人スペース + Incoming Webhook 方式）
 
-スタッフ1人につき、本人と職員のみが参加する Chat スペースを1つ作成し、それぞれに Incoming Webhook を発行する。GAS が「その人のスペースの Webhook」に投稿することで、実質的な個別DMとして機能する。Chat API（Bot構築・GCP設定）は不要。
+スタッフ1人につき Chat スペースを1つ用意し、そこに Incoming Webhook を発行する。
+GAS が「その人のスペースの Webhook」へ投稿することで、実質的な個別DMになる。
+Chat API（Bot構築・GCP設定）は不要。
 
-セットアップ手順（クォーター初回・スタッフ入替時のみ）：
+**スペースを作るのは本人**（職員ではない）。
 
-1. スタッフごとにスペースを作成（例：「シフト連絡_山田」。メンバーは本人 + 職員）
-2. 各スペースで Incoming Webhook を発行
-3. URL を連絡先DBの contacts シートに登録
+1. 本人が**自分ひとりのスペース**を作る（他の人を追加しない。DMでは Webhook を発行できない）
+2. 本人が Incoming Webhook を発行する
+3. 本人が**マイページ**（または利用登録の申請）にURLを貼る → `contacts.webhook_url` に入る
+
+作り方は**画面の中に入っている**（`help-webhook.html`・マイページと申請画面から `include`・D46）。
+スクリーンショット付きで、職員が案内を配る必要はない。**PCのブラウザでしかできない**
+（スマホの Chat アプリには「アプリと統合」が無い）が、できたあとの通知はスマホにも届く。
+
+> **職員がスタッフごとにスペースを作る運用ではない**（初期の設計メモにはそう書いてあった）。
+> スペースの所有者が本人でないと、本人が入れ替わるたび職員の作業が増える。
+> いまは `staffs` / `contacts` に行を作るのは承認画面だけ、Webhook を入れるのは本人だけ、
+> という経路に揃えてある（D28）。
+
+**未登録は静かな未達になる。** `webhook_url` が空の候補者は通知がスキップされるが、
+候補としては数えられる。「返事がない」のか「届いていない」のかが職員から見分けられないため、
+**スタッフ名簿の「通知先なし」**で誰が未登録かを見えるようにしている（D30・backlog 12-2）。
 
 本格導入が決まった場合は Chat API Bot（自動DM）への置き換えを検討する。
 
@@ -361,10 +412,25 @@ sequenceDiagram
 
 ### ロール判定（必須）
 
-「自分として実行」では全ユーザーがスクリプト経由で全データに書き込めてしまうため、職員限定画面はアプリ内でロール判定を行う。
+**`executeAs: USER_DEPLOYING`＝全員の操作が「デプロイした人（職員）の権限」で走る。**
+学生はスプレッドシートへの権限をひとつも持たないが、**スクリプト経由なら職員と同じ範囲に
+届いてしまう**。したがって**データ保護の責任は全部コードのロール判定に載っている**。
+シートの共有設定は守ってくれない。
 
-- staffs シートの role 列（職員 / 学生）で判定する
-- すべてのリクエストで `Session.getActiveUser().getEmail()` を照合してから処理する
+本人の特定は `code.js` の `getCurrentUser_()` 1か所に集約してある。
+
+1. `Session.getActiveUser().getEmail()` でログイン中のメールを取る
+2. **連絡先DBの `contacts` をメールで引いて `staff_id` を得る**（大文字小文字は無視）
+3. メインDBの `staffs` を `staff_id` で引いて `role`（職員 / 学生）を得る
+4. `contacts` に無ければ `null` ＝ 未登録。`doGet` が利用登録の申請画面へ回す
+
+- **職員限定のサーバー関数は先頭で `requireStaff_()` を呼ぶ**、という規約にしてある。
+  `google.script.run` は画面を経由せず関数を直接叩けるので、**画面を出し分けるだけでは守れない**。
+- 画面の出し分け（`PAGES` の `staffOnly`）と `doGet` のアクセス拒否は**同じ判定**を使う。
+  表示と制御を二重管理にしない（D20）。
+- ⚠️ **本人特定のたびに連絡先DBを読む。** つまり `contacts` は全リクエストで読まれる。
+  1実行の間はキャッシュされる（`Sheets.gs`）ので往復は増えないが、
+  「連絡先DBに触れるのは一部の画面だけ」ではない点は押さえておくこと。
 
 ### 同時書き込み対策
 
