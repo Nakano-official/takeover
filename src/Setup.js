@@ -373,22 +373,25 @@ function migrateAddStaffSlotsUpdatedAt() {
 function migrateSlotsAndMovePeriods() {
   Logger.log('=== 空きコマの業務別分離（D32）と移動介助の枠（D33）===');
 
-  Logger.log('--- 1/6 periods.support_types ---');
+  Logger.log('--- 1/7 periods.support_types ---');
   migrateAddPeriodSupportTypes();
 
-  Logger.log('--- 2/6 periods.label ---');
+  Logger.log('--- 2/7 periods.label ---');
   migrateAddPeriodLabel();
 
-  Logger.log('--- 3/6 移動介助の枠を授業のあいだへ挿入 ---');
+  Logger.log('--- 3/7 移動介助の枠を授業のあいだへ挿入 ---');
   migrateAddMovePeriods();
 
-  Logger.log('--- 4/6 移動介助の枠が前の枠に食い込んでいないか ---');
+  Logger.log('--- 4/7 開講されない時限の行を取り除く ---');
+  migrateRemoveUnusedPeriods();
+
+  Logger.log('--- 5/7 移動介助の枠が前の枠に食い込んでいないか ---');
   migrateFixMovePeriodTimes();
 
-  Logger.log('--- 5/6 staffs.assist_slots ---');
+  Logger.log('--- 6/7 staffs.assist_slots ---');
   migrateAddAssistSlots();
 
-  Logger.log('--- 6/6 vacancies.group_id ---');
+  Logger.log('--- 7/7 vacancies.group_id ---');
   migrateAddVacancyGroupId();
 
   Logger.log('');
@@ -441,7 +444,13 @@ function MOVE_PERIOD_ROWS_() {
   return out;
 }
 
-/** 授業時限そのもの（period, start, end） */
+/**
+ * 授業時限そのもの（period, start, end）。
+ *
+ * **6限・7限は置かない。**龍谷大学では開講されない（職員確認・2026-09-28）。
+ * 使わない時限を残すと、シフト入力の選択肢とマイページの空きコマ表に
+ * 選べてはいけない行が並ぶ（スマホだと縦に長くなるぶん実害が大きい）。
+ */
 function CLASS_PERIOD_ROWS_() {
   return [
     ['1', '09:15', '10:45'],
@@ -449,8 +458,6 @@ function CLASS_PERIOD_ROWS_() {
     ['3', '13:30', '15:00'],
     ['4', '15:15', '16:45'],
     ['5', '16:55', '18:25'],
-    ['6', '18:35', '20:05'],
-    ['7', '20:10', '21:40'],
   ];
 }
 
@@ -652,6 +659,88 @@ function migrateAddMovePeriods() {
     Logger.log('   要らない枠の行は消してかまいません。足りなければ行を足してください。');
     Logger.log('   **行の順番がそのまま時間割の並び順**になります。');
   }
+}
+
+
+/**
+ * 既定に無い時限の行を取り除き、periods を CLASS_PERIOD_ROWS_() の並びに揃える。
+ *
+ * きっかけは6限・7限。龍谷大学では開講されないのに構築時の既定値に入れてしまっていた
+ * （職員確認・2026-09-28）。使わない時限が残ると、シフト入力の選択肢とマイページの
+ * 空きコマ表に、選べてはいけない行が並ぶ。
+ *
+ * **既定に無い行はすべて対象**になる。時限マスタは構築時に確定させて運用では触らない
+ * 決まりなので（D40）、シート側に勝手な行が増えることは想定していない。
+ * 消した行はログに出るので、意図しないものが出ていないか目を通すこと。
+ *
+ * **使われている行は消さない。**コマ（courses.period）か空きコマ
+ * （staffs.available_slots / assist_slots）がその枠を参照していると、消した瞬間に
+ * どのコマとも一致しなくなり、候補が静かに0人になる。参照が残っているときは
+ * 消さずにログへ出すので、付け替えてから実行し直すこと。冪等。
+ */
+function migrateRemoveUnusedPeriods() {
+  const ss = openMainDb_();
+  const sheet = ss.getSheetByName('periods');
+  if (!sheet) { Logger.log('❌ periods シートが見つかりません。'); return; }
+  if (sheet.getLastRow() < 2) { Logger.log('❌ periods に時限がありません。'); return; }
+
+  // 既定に無い授業時限と、その前後の移動枠が対象
+  const keep = {};
+  CLASS_PERIOD_ROWS_().forEach(function (c) {
+    keep[c[0]] = true;
+    keep[moveKeyBefore_(c[0])] = true;
+    keep[moveKeyAfter_(c[0])] = true;
+  });
+
+  // どこかで参照されている枠は残す
+  const used = {};
+  readRows(SHEET.COURSES).forEach(function (c) {
+    const key = String(c.period == null ? '' : c.period).trim();
+    if (key) used[key] = true;
+  });
+  readRows(SHEET.STAFFS).forEach(function (st) {
+    [st.available_slots, st.assist_slots].forEach(function (csv) {
+      String(csv == null ? '' : csv).split(',').forEach(function (x) {
+        const key = String(x).trim().slice(1);   // 先頭1文字は曜日
+        if (key) used[key] = true;
+      });
+    });
+  });
+
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0]
+    .map(function (h) { return String(h).trim(); });
+  const iPeriod = headers.indexOf('period');
+  if (iPeriod === -1) { Logger.log('❌ periods に period 列がありません。'); return; }
+
+  const read = function () {
+    return sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues()
+      .map(function (r, i) { return { row: i + 2, period: String(r[iPeriod]).trim() }; })
+      .filter(function (r) { return r.period; });
+  };
+
+  var removed = 0;
+  var blocked = [];
+  var guard = 0;
+  while (guard++ < 100) {
+    const extra = read().filter(function (r) { return !keep[r.period]; });
+    const target = extra.filter(function (r) { return !used[r.period]; })[0];
+    if (!target) {
+      blocked = extra.map(function (r) { return r.period; });
+      break;
+    }
+    Logger.log('　取り除く：' + target.period);
+    sheet.deleteRow(target.row);   // 行番号がずれるので毎回読み直す
+    removed++;
+  }
+
+  invalidateSheetCache_('periods');
+  if (blocked.length) {
+    Logger.log('　⚠️ 使用中のため残した枠：' + blocked.join(' / '));
+    Logger.log('　　 コマか空きコマがこの枠を参照しています。付け替えてから実行し直してください。');
+  }
+  Logger.log(removed === 0
+    ? '✅ 開講されない時限の行はありません（変更なし）。'
+    : '✅ ' + removed + ' 行を取り除きました。');
 }
 
 
