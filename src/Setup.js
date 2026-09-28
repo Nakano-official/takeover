@@ -373,13 +373,13 @@ function migrateAddStaffSlotsUpdatedAt() {
 function migrateSlotsAndMovePeriods() {
   Logger.log('=== 空きコマの業務別分離（D32）と移動介助の枠（D33）===');
 
-  Logger.log('--- 1/4 periods.support_types ---');
+  Logger.log('--- 1/5 periods.support_types ---');
   migrateAddPeriodSupportTypes();
 
-  Logger.log('--- 2/4 periods.label ---');
+  Logger.log('--- 2/5 periods.label ---');
   migrateAddPeriodLabel();
 
-  Logger.log('--- 3/4 移動介助の枠を授業のあいだへ挿入 ---');
+  Logger.log('--- 3/5 移動介助の枠を授業のあいだへ挿入 ---');
   migrateAddMovePeriods();
 
   Logger.log('--- 4/5 staffs.assist_slots ---');
