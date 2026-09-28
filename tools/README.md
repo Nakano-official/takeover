@@ -16,7 +16,6 @@ node tools/run-all.js         # ← push 前にこれ1つ（構文チェック�
 node tools/check-syntax.js    # src/ 全体の構文チェック
 node tools/check-pages.js     # 画面が未定義の関数・存在しないサーバー関数を呼んでいないか
 node tools/sim-vacancy.js     # 欠員補充（機能A）のロジック
-node tools/sim-attendance.js  # 勤怠CSVの解析と15分丸め突合（機能B）
 node tools/sim-oneoff.js      # 単発コマ（特別授業・イベント・D27）
 node tools/sim-profile.js     # マイページ（本人が変更できる項目の境界・D28）
 node tools/sim-registration.js # 利用登録の申請と承認（D28）
@@ -95,13 +94,11 @@ D1（先着確定）・D21（締切）・D22（募集クローズ／決着は職
 **検出できないこと**：実 LockService の排他制御（ここは単一スレッドなので CAS の分岐しか見ていない）、
 `Sheets.gs` の実行内キャッシュと `withLock_` の相互作用、実 Chat 送信、HTML 画面の挙動。
 
-## sim-attendance.js（機能B）
+## sim-attendance.js（機能B）は**ここには無い**
 
-`Attendance.gs` を読み込み、勤怠CSVの解析（`parseAttendanceCsv_`）と15分丸め突合
-（`reconcileShifts_`）を合成データで検証する。元は GAS の `testParseAttendanceCsv` / `testReconcile`。
-
-**検出できないこと**：実CSVの文字コード（Shift_JIS / MS932）と実ヘッダー文字列（backlog 9-6）、
-実カレンダーからの予定抽出（D7③）。合成データで**構造**だけを見ている。
+機能B（勤怠整合性チェック）は今回のリリース対象外で、`Attendance.gs` ごと
+`future/feature-b/` へ退避してある（D41）。`run-all.js` も走らせない。
+再開するときの手順は `future/feature-b/README.md`。
 
 ## sim-oneoff.js（単発コマ・D27）
 
@@ -159,6 +156,11 @@ D1（先着確定）・D21（締切）・D22（募集クローズ／決着は職
 - 年度が終わったあと・日付未設定の学期が混ざるとき・学期マスタが空のとき
 
 **検出できないこと**：週送りの表示（`weekStateOf` は home.html 側）。ブラウザ確認が要る。
+
+## help-images/（Webhook 案内の画像・D46）
+
+ここだけ Node ではなく Python（Pillow）。`src/help-webhook.html` に埋め込む画像を作り直す。
+検証ではないので `run-all.js` からは呼ばない。使い方は `tools/help-images/README.md`。
 
 ## 新しい検証を足すとき
 
