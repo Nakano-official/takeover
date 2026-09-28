@@ -214,10 +214,10 @@ flowchart LR
 
 ## 5. スプレッドシート構成
 
-### データ構造（ER図）
+### シートの関係
 
-`courses` を中心に、利用学生中心の時間割（D8）と欠員補充（vacancies/responses）が
-`staff_id` / `course_id` / `vacancy_id` で結びつく。`contacts` のみ別ブック（連絡先DB）。
+`courses`（利用学生中心の時間割・D8）を中心に、欠員補充（`vacancies` / `responses`）が
+`staff_id` / `course_id` / `vacancy_id` で結びつく。
 
 ```mermaid
 erDiagram
@@ -228,88 +228,124 @@ erDiagram
     staffs   ||--o{ vacancies  : "欠勤者/代行者"
     vacancies ||--o{ responses : "回答"
     staffs   ||--o{ responses  : "回答者"
-    staffs   ||--|| contacts   : "連絡先(別DB)"
-    registrations ||--o| staffs : "承認で採番(別DB)"
-
-    staffs {
-        string staff_id PK
-        string name
-        string role "職員 / 学生"
-        string skills "テイク / 介助 / 両方・空=全対応(D9)"
-        string available_slots "テイクの空きコマ 月1,火3 …(D32)"
-        string assist_slots "介助の空きコマ 月移動前3 も入る(D32)"
-        string personal_code "機能B用・退避中は未使用(D41)"
-        datetime slots_updated_at "本人が出し直した日時・空=未更新(D28)"
-    }
-    courses {
-        string course_id PK
-        string quarter FK "terms.term_id"
-        string day
-        string period FK "periods.period"
-        string support_type "テイク / 介助"
-        string user_student "利用学生(被支援者)"
-        string subject
-        string instructor
-        string room
-        string staff_a_id FK "空=担当未定(D38)"
-        string staff_b_id FK "介助は空"
-        string note
-        string date "単発コマの実施日・空=毎週(D27)"
-    }
-    vacancies {
-        string vacancy_id PK
-        date   date
-        string course_id FK
-        string absent_staff_id FK
-        string notify_status
-        string result "補充済/1人テイク/職員対応・空=未決着（書くのは職員・D22）"
-        string substitute_staff_id FK
-        datetime close_notified_at "締切到達を処理し職員へ決着要求した時刻（D22）"
-        string group_id "かたまりの識別子・空=単独の欠員（D45）"
-    }
-    responses {
-        string vacancy_id FK
-        string staff_id FK
-        string answer "承諾 / 辞退・辞退は取消不可(D25)"
-        datetime answered_at
-    }
-    periods {
-        string period PK "数字とは限らない。移動前3 など(D33)"
-        string start_time
-        string end_time
-        string support_types "選べる業務・空=全業務(D32)"
-        string label "画面の呼び名・空=「n限」(D33)"
-    }
-    terms {
-        string term_id PK "2026-前期 / 2026-3Q"
-        string system "semester / quarter"
-        string start_date
-        string end_date
-    }
-    contacts {
-        string staff_id PK
-        string name
-        string email
-        string phone
-        string webhook_url "秘密・画面に出さない"
-    }
-    registrations {
-        string registration_id PK
-        string email "Session から取る"
-        string name
-        string phone
-        string webhook_url
-        string skills
-        string slots
-        string note
-        string status "申請中 / 承認済 / 却下"
-        datetime applied_at
-        datetime decided_at
-        string decided_by
-        string staff_id "承認で採番"
-        string reject_reason
-    }
+    staffs   ||--|| contacts   : "連絡先（別DB）"
+    registrations ||--o| staffs : "承認で採番（別DB）"
 ```
+
+> 列は図に入れず、下の表に置いている。9シート・60列超を1枚のER図に詰めると、
+> GitHub が全体を縮めて**文字が読めなくなる**ため。表なら検索でき、差分も行単位で見える。
+
+### 2つのブック
+
+| | メインDB（シフト管理） | 連絡先DB（個人情報） |
+|---|---|---|
+| アクセス権限 | 職員 + GASスクリプト | **職員のみ**（本部確認済み・D3） |
+| シート | `staffs` `courses` `vacancies` `responses` `periods` `terms` | `contacts` `registrations` |
+
+- Webhook URL は「知っていれば誰でも投稿できる」秘密情報なので連絡先DBに置き、
+  **画面にも返さない**（届くかどうかだけを返す・D30）。
+- `registrations` をここに置くのは、氏名・電話・Webhook を含むため（D28）。
+
+> どちらを開くかは `Sheets.gs` の `CONTACTS_DB_SHEETS` が決める。
+> シート名を足すときはここにも足す。
+
+### 各シートの列
+
+**列はヘッダー名で読む**（`Sheets.gs`）ので、**列の順番は自由**。名前を変えると壊れる。
+
+#### `staffs`（メインDB）
+
+| 列 | 意味・決まり |
+|---|---|
+| `staff_id` | **PK** |
+| `name` | 氏名 |
+| `role` | `職員` / `学生` |
+| `skills` | `テイク` / `介助` / 両方。**空＝全対応**（D9） |
+| `available_slots` | **テイクの**空きコマ。`月1,火3` 形式（列名は互換で据え置き・D32） |
+| `assist_slots` | **介助の**空きコマ。`月移動前3` のように移動枠も入る（D32） |
+| `personal_code` | 機能B用。退避中は未使用（D41） |
+| `slots_updated_at` | 本人が空きコマを出し直した日時。空＝未更新（D28） |
+
+#### `courses`（メインDB）
+
+| 列 | 意味・決まり |
+|---|---|
+| `course_id` | **PK** |
+| `quarter` | **FK** → `terms.term_id` |
+| `day` | 曜日（月〜土） |
+| `period` | **FK** → `periods.period`。移動介助の枠も入る |
+| `support_type` | `テイク` / `介助` |
+| `user_student` | 利用学生（被支援者） |
+| `subject` / `instructor` / `room` | 科目・教員・教室 |
+| `staff_a_id` | **FK** → `staffs`。**空＝担当未定**（D38） |
+| `staff_b_id` | **FK** → `staffs`。介助は空（1人体制） |
+| `note` | 備考 |
+| `date` | 単発コマの実施日。**空＝毎週**（D27） |
+
+#### `vacancies`（メインDB）
+
+| 列 | 意味・決まり |
+|---|---|
+| `vacancy_id` | **PK** |
+| `date` | 欠勤する日 |
+| `course_id` | **FK** → `courses` |
+| `absent_staff_id` | **FK** → `staffs`（欠勤者） |
+| `notify_status` | 通知の状態 |
+| `result` | `補充済` / `1人テイク` / `職員対応`。**空＝未決着（書くのは職員）**（D22） |
+| `substitute_staff_id` | **FK** → `staffs`（代行者） |
+| `close_notified_at` | 締切到達を処理し、職員へ決着を求めた時刻（D22） |
+| `group_id` | かたまりの識別子。**空＝単独の欠員**（D45） |
+
+#### `responses`（メインDB）
+
+| 列 | 意味・決まり |
+|---|---|
+| `vacancy_id` | **FK** → `vacancies` |
+| `staff_id` | **FK** → `staffs`（回答者） |
+| `answer` | `承諾` / `辞退`。**辞退は取消不可**（D25） |
+| `answered_at` | 回答日時 |
+
+#### `periods`（メインDB）
+
+| 列 | 意味・決まり |
+|---|---|
+| `period` | **PK**。**数字とは限らない**（`移動前3` など・D33） |
+| `start_time` / `end_time` | `HH:mm` |
+| `support_types` | 選べる業務。**空＝全業務**（D32） |
+| `label` | 画面の呼び名。空＝「n限」（D33） |
+
+**行の順番がそのまま時間割の並び順**。時限は **1〜5限**（6・7限は開講されない・D47）。
+
+#### `terms`（メインDB）
+
+| 列 | 意味・決まり |
+|---|---|
+| `term_id` | **PK**。`2026-前期` / `2026-3Q` |
+| `system` | `semester` / `quarter` |
+| `start_date` / `end_date` | 開始日・終了日。**ここから「今日を含む学期」を解く**（D16） |
+
+#### `contacts`（連絡先DB・職員のみ）
+
+| 列 | 意味・決まり |
+|---|---|
+| `staff_id` | **PK** |
+| `name` | 氏名 |
+| `email` | **本人特定のキー**。大文字小文字を無視して引く（§7） |
+| `phone` | 電話番号。欠員補充管理にだけ出す（D11） |
+| `webhook_url` | **秘密。どの画面にも出さない**（D30） |
+
+#### `registrations`（連絡先DB・職員のみ）
+
+| 列 | 意味・決まり |
+|---|---|
+| `registration_id` | **PK** |
+| `email` | `Session` から取る（申請者が詐称できない） |
+| `name` / `phone` / `webhook_url` / `skills` / `slots` | 申請の内容 |
+| `note` | 申請者からの補足 |
+| `status` | `申請中` / `承認済` / `却下` |
+| `applied_at` / `decided_at` / `decided_by` | 申請・決裁の記録 |
+| `staff_id` | 承認で採番される（ここで `staffs` / `contacts` に行ができる） |
+| `reject_reason` | 却下の理由 |
 
 ### 押さえておくべき決まりごと
 
@@ -324,20 +360,6 @@ erDiagram
 | `available_slots` は**テイク用**（列名は互換で据え置き・D32） | 介助は `assist_slots`。混同すると片方の業務で候補0人 |
 | 空の `staff_a_id` は**担当未定**（D38） | 候補抽出・決着提案・二重起用チェックはいずれも空を除外済み |
 | `courses` の過去分は**消さない** | 時間割は終了が1年以上前の学期を送らないことで頭打ちにしている（D37） |
-
-### メインDB（シフト管理）
-- アクセス権限：職員 + GASスクリプト
-- シート構成：`staffs` / `courses` / `vacancies` / `responses` / `periods` / `terms`
-
-### 連絡先DB（個人情報）
-- アクセス権限：**職員のみ**（本部確認済み・D3）
-- シート構成：`contacts` / `registrations`
-- Webhook URL は「知っていれば誰でも投稿できる」秘密情報のため、連絡先DBに置き、
-  **画面にも返さない**（届くかどうかだけを返す・D30）
-- `registrations` をここに置くのは、氏名・電話・Webhook を含むため（D28）
-
-> どちらを開くかは `Sheets.gs` の `CONTACTS_DB_SHEETS` が決める。
-> シート名を足すときはここにも足す。
 
 ---
 
@@ -354,12 +376,16 @@ sequenceDiagram
 
     A->>App: 欠勤連絡
     App->>Main: 欠員を起票（vacancies）
-    App->>Main: 空き＋スキルで候補をスクリーニング
+    Note over App,Main: 介助は「授業＋前後の移動介助」を<br/>同じ group_id でまとめて起票（D45）
+    App->>Main: 空き＋スキルで候補をしぼる
+    Note over App,Main: かたまりは「全部の枠に空きがある人」だけ
     App->>Cont: 候補ごとの webhook_url を取得
     App->>Chat: 各候補の個人スペースへ個別依頼（回答リンク付き）
+    Note over App,Chat: かたまりでも通知は1通
     Chat-->>C: 代行依頼（他スタッフには見えない）
     C->>App: 回答画面で承諾／辞退（responses に記録）
     App->>Main: 先着で確定（LockService・D1）
+    Note over App,Main: 同じ group_id は<br/>まとめて同じ人で確定
     App-->>Chat: 本人・他候補・職員へ結果通知
 ```
 
