@@ -30,14 +30,21 @@
   .hw-shot { display: block; max-width: 100%; height: auto; margin: 0 0 14px;
              border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
   .hw-note { font-size: .82rem; line-height: 1.7; margin: 14px 0 0; padding: 10px 12px;
-             border-radius: var(--radius-sm); background: var(--warn-bg); color: var(--warn); }
+             border-radius: var(--radius-sm); background: var(--warn-bg); color: var(--warn);
+             border: 1px solid var(--warn-border); }
+  .hw-note.info { background: var(--info-bg); color: var(--info);
+                  border-color: var(--info-border); margin: 4px 0 14px; }
 </style>
 
 <details class="hw">
-  <summary>通知先URLの作り方を見る（PCで一度だけ・所要3分）</summary>
+  <summary>通知先URLの作り方を見る（PCのブラウザで一度だけ・所要3分）</summary>
   <div class="hw-body">
     <p class="hw-p">代行のお願いは、ここで作るあなた専用の場所に届きます。
       <b>登録しないと代行依頼の通知が届きません。</b></p>
+    <p class="hw-note info">💻 <b>この作業はPCのブラウザでしかできません。</b>
+      スマホの Chat アプリには、ここで使う「アプリと統合」の画面がありません。
+      <b>PCでこのページを開き直して</b>、最後の貼り付けまで済ませてください（一度きりです）。
+      できあがったあとの代行依頼は、スマホの Chat アプリにちゃんと届きます。</p>
 <h4 class="hw-h"><span class="hw-n">1</span>Google Chat を開く</h4>
     <p class="hw-p">ブラウザで Google のページを開き、右上の<b>アプリ一覧（⋮⋮⋮）</b>を押します。大学のアカウントでログインしておいてください。</p>
     <img class="hw-shot" alt="ブラウザ右上のアプリ一覧ボタン" src="data:image/png;base64,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">

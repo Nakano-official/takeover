@@ -92,14 +92,21 @@ html = '''<!--
   .hw-shot { display: block; max-width: 100%; height: auto; margin: 0 0 14px;
              border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
   .hw-note { font-size: .82rem; line-height: 1.7; margin: 14px 0 0; padding: 10px 12px;
-             border-radius: var(--radius-sm); background: var(--warn-bg); color: var(--warn); }
+             border-radius: var(--radius-sm); background: var(--warn-bg); color: var(--warn);
+             border: 1px solid var(--warn-border); }
+  .hw-note.info { background: var(--info-bg); color: var(--info);
+                  border-color: var(--info-border); margin: 4px 0 14px; }
 </style>
 
 <details class="hw">
-  <summary>通知先URLの作り方を見る（PCで一度だけ・所要3分）</summary>
+  <summary>通知先URLの作り方を見る（PCのブラウザで一度だけ・所要3分）</summary>
   <div class="hw-body">
     <p class="hw-p">代行のお願いは、ここで作るあなた専用の場所に届きます。
       <b>登録しないと代行依頼の通知が届きません。</b></p>
+    <p class="hw-note info">💻 <b>この作業はPCのブラウザでしかできません。</b>
+      スマホの Chat アプリには、ここで使う「アプリと統合」の画面がありません。
+      <b>PCでこのページを開き直して</b>、最後の貼り付けまで済ませてください（一度きりです）。
+      できあがったあとの代行依頼は、スマホの Chat アプリにちゃんと届きます。</p>
 ''' + '\n    '.join(parts) + '''
     <p class="hw-note">⚠️ このURLは<b>あなた宛の通知の鍵</b>です。他の人に教えないでください。
       もし他の人に知られたら、同じ画面から Webhook を削除して作り直し、
