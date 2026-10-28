@@ -13,17 +13,20 @@
 //
 // hideInStaffNav: 職員のナビには出さない画面。アクセス自体は禁止しない
 //   （staffOnly とは別の概念。URLで開けば従来どおり動く）。
+// help: ヘッダーの「？ ヘルプ」で開く話題（HELP_TOPICS のキー・D51）。無い画面にはボタンを出さない。
 const PAGES = {
-  home:    { file: 'home',    title: 'シフト確認',         staffOnly: false },
-  input:   { file: 'input',   title: 'シフト入力',         staffOnly: true  },
+  home:    { file: 'home',    title: 'シフト確認',         staffOnly: false,
+             help: ['shift', 'absence', 'substitute', 'staff'] },
+  input:   { file: 'input',   title: 'シフト入力',         staffOnly: true, help: ['staff'] },
   // 欠勤連絡は「学生スタッフが自分の担当コマの欠勤を出す」画面。職員には担当コマが
   // 無く常に空になるため、職員のナビには並べない。
-  absence: { file: 'absence', title: '欠勤連絡',           staffOnly: false, hideInStaffNav: true },
-  respond: { file: 'respond', title: '代行依頼への回答',   staffOnly: false },
+  absence: { file: 'absence', title: '欠勤連絡',           staffOnly: false, hideInStaffNav: true,
+             help: ['absence'] },
+  respond: { file: 'respond', title: '代行依頼への回答',   staffOnly: false, help: ['substitute'] },
   // まだ決まっていない欠員の一覧（D50）。学生はここから自分で代行に入れる（先着）。
   // 職員にも出す（学生から見えている状態の確認用。確定・決着は manage で行う）。
-  vacancies: { file: 'vacancies', title: '欠員一覧',     staffOnly: false },
-  manage:  { file: 'manage',  title: '欠員補充管理',       staffOnly: true  },
+  vacancies: { file: 'vacancies', title: '欠員一覧',     staffOnly: false, help: ['substitute', 'staff'] },
+  manage:  { file: 'manage',  title: '欠員補充管理',       staffOnly: true, help: ['staff'] },
   terms:   { file: 'terms',   title: '学期設定',           staffOnly: true  },
   // マイページ（D28）。本人が自分の連絡先と空きコマを直す画面なので、職員・学生とも入れる。
   // 編集できる項目はサーバー側（Profile.gs）で固定してあり、画面からは増やせない。
@@ -40,6 +43,17 @@ const PAGES = {
   // PC側の中継プログラムが window.readShiftUsbSummary() を読んで USB で端末へ送る。
   // ナビには出さない（人が操作する画面ではなく、中継が開きっぱなしにする画面のため）。
   deviceRelay: { file: 'device-relay', title: 'USB欠員通知', staffOnly: true },
+};
+
+// ヘルプの話題（D51）。中身は src/help-*.html（書き方はそのファイルの冒頭）。
+// **画面の HTML には埋め込まない**。押したときに getHelp で取り寄せる。画像を base64 で持つので、
+// 埋め込むとナビを押すたびに全員がその分を受け取り、画面遷移が重くなる（D48 で縮めた分が消える）。
+// staffOnly: 学生の画面ではボタンの一覧に出さない（中身は秘密ではないので取得は拒否しない）。
+const HELP_TOPICS = {
+  shift:      { file: 'help-shift',      title: 'シフトの見方' },
+  absence:    { file: 'help-absence',    title: '欠勤を連絡する' },
+  substitute: { file: 'help-substitute', title: '代行に入る' },
+  staff:      { file: 'help-staff',      title: '職員の操作', staffOnly: true },
 };
 
 // 未登録アカウントを受け止める画面。PAGES のキーと合わせること。
@@ -210,12 +224,49 @@ function renderChrome_(config, pageKey, user) {
   // 職員のように項目が多いときは、従来どおり横スクロールのピル並びにする。
   const few = visible.length <= 3 ? ' few' : '';
 
+  const help = renderHelp_(config, isStaff);
+
   return '' +
     '<header class="appbar">' +
       '<h1>' + escapeHtml_(config.title) + '</h1>' +
-      renderUserChip_(appUrl, pageKey, user) +
+      '<div class="appbar-right">' + help.button + renderUserChip_(appUrl, pageKey, user) + '</div>' +
     '</header>' +
-    '<nav class="appnav' + few + '">' + links + '</nav>';
+    '<nav class="appnav' + few + '">' + links + '</nav>' +
+    help.body;
+}
+
+/**
+ * ヘッダーの「？ ヘルプ」ボタンと、押したときの説明の入れ物（D51）。
+ * 話題の中身はここでは入れない（getHelp で取り寄せる）。入れ物と操作は shared-help.html。
+ * @return {{button:string, body:string}} ヘルプの無い画面では両方とも空
+ */
+function renderHelp_(config, isStaff) {
+  const topics = (config.help || [])
+    .filter(function (key) {
+      const t = HELP_TOPICS[key];
+      return t && !(t.staffOnly && !isStaff);
+    })
+    .map(function (key) { return { key: key, title: HELP_TOPICS[key].title }; });
+  if (topics.length === 0) return { button: '', body: '' };
+
+  // </script> を含む値で閉じられないよう < をエスケープして渡す
+  const json = JSON.stringify(topics).replace(/</g, '\\u003c');
+  return {
+    button: '<button type="button" class="help-btn" onclick="openHelp()" aria-haspopup="dialog">' +
+      '<span class="help-q" aria-hidden="true">?</span>ヘルプ</button>',
+    body: '<script>var HELP_TOPICS_HERE = ' + json + ';</script>' + include('shared-help'),
+  };
+}
+
+/**
+ * ヘルプの話題を1つ返す（D51・shared-help.html が押されたときに呼ぶ）。
+ * シートは読まない。受け付けるのは HELP_TOPICS のキーだけ（任意のファイルは読ませない）。
+ */
+function getHelp(topic) {
+  const key = String(topic == null ? '' : topic).trim();
+  const t = Object.prototype.hasOwnProperty.call(HELP_TOPICS, key) ? HELP_TOPICS[key] : null;
+  if (!t) throw new Error('ヘルプが見つかりません。');
+  return { key: key, title: t.title, html: include(t.file) };
 }
 
 /**

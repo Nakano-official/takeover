@@ -236,6 +236,76 @@
   .notice.err  { background: var(--danger-bg); border-color: var(--danger-border); color: var(--danger); }
   .notice.info { background: var(--info-bg);   border-color: var(--info-border);   color: var(--info); }
 
+  /* ===== ヘルプ（D51・code.js の renderHelp_ と shared-help.html）===== */
+  .appbar-right { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+  /* 目立たせすぎない丸い「?」＋文字。ヘッダーの青の上で読める白の半透明 */
+  .help-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 10px 4px 4px; border: 0; border-radius: var(--radius-pill);
+    background: rgba(255, 255, 255, .14); color: #fff;
+    font: inherit; font-size: .78rem; cursor: pointer;
+    transition: background .12s ease;
+  }
+  .help-btn:hover { background: rgba(255, 255, 255, .27); }
+  .help-q {
+    width: 22px; height: 22px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: #fff; color: var(--brand-dark); font-weight: 700; font-size: .82rem; line-height: 1;
+  }
+  body.help-open { overflow: hidden; }   /* 開いている間は後ろの画面をスクロールさせない */
+  .help-modal {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(16, 24, 40, .45);
+    display: flex; align-items: flex-end; justify-content: center;
+  }
+  .help-modal[hidden] { display: none; }
+  .help-sheet {
+    background: var(--surface); width: 100%; max-width: 560px; max-height: 92vh;
+    border-radius: var(--radius) var(--radius) 0 0;
+    display: flex; flex-direction: column; box-shadow: var(--shadow-2, 0 8px 24px rgba(16,24,40,.18));
+  }
+  @media (min-width: 761px) {
+    .help-modal { align-items: center; }
+    .help-sheet { border-radius: var(--radius); max-height: 86vh; }
+  }
+  .help-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 14px; border-bottom: 1px solid var(--border);
+  }
+  .help-head h2 { flex: 1; font-size: 1rem; margin: 0; font-weight: 700; }
+  .help-x, .help-back {
+    border: 0; background: none; cursor: pointer; font: inherit; color: var(--text-muted);
+  }
+  .help-x { font-size: 1.4rem; line-height: 1; padding: 0 4px; }
+  .help-back { font-size: .85rem; color: var(--brand-ink); padding: 2px 4px; }
+  .help-body { padding: 16px 18px; overflow-y: auto; line-height: 1.8; font-size: .92rem; }
+  .help-body p { margin: 0 0 10px; }
+  .help-body img { display: block; max-width: 100%; height: auto; margin: 0 auto 12px;
+                   border: 1px solid var(--border); border-radius: var(--radius-sm); }
+  .help-lead { color: var(--text-muted); }
+  .help-menu { display: flex; flex-direction: column; gap: 8px; }
+  .help-topic {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--surface); font: inherit; font-weight: 700; text-align: left; cursor: pointer;
+  }
+  .help-topic:hover { background: var(--brand-soft); border-color: var(--brand-border); }
+  .help-step-title { font-size: 1rem; margin: 0 0 10px; color: var(--brand-ink); }
+  /* 画像を撮る前の仮置き。help-*.html で画像の代わりに置く */
+  .help-img-todo {
+    display: flex; align-items: center; justify-content: center; min-height: 160px;
+    margin-bottom: 12px; border: 2px dashed var(--border-strong); border-radius: var(--radius-sm);
+    color: var(--text-faint); font-size: .82rem; text-align: center; padding: 12px;
+  }
+  .help-foot {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 10px 14px; border-top: 1px solid var(--border);
+  }
+  .help-foot[hidden] { display: none; }
+  .help-dots { display: flex; gap: 6px; }
+  .help-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); }
+  .help-dots i.on { background: var(--brand); }
+
   /* 画面側の一時キャッシュ（D49・shared-cache.html）。前回の表示を出している間の目印 */
   .vc-banner { margin-bottom: 12px; }
   .vc-lock button, .vc-lock a.tel { pointer-events: none; opacity: .5; }
