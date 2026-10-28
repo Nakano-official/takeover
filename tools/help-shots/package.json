@@ -1,0 +1,12 @@
+{
+  "name": "help-shots",
+  "private": true,
+  "description": "ヘルプ用の画面を架空データで組み立てて撮る（D51）。clasp push の対象外",
+  "scripts": {
+    "render": "node render.js",
+    "shoot": "node shoot.js"
+  },
+  "devDependencies": {
+    "playwright-core": "1.64.1"
+  }
+}

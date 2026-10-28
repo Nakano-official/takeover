@@ -1,0 +1,164 @@
+<!--
+  ヘルプの入れ物と操作（D51）
+
+  各画面が読み込むのではなく、code.js の renderHelp_ が chrome の末尾に付ける。
+  PAGES の help に話題がある画面にだけ付くので、各画面の HTML を触る必要はない。
+
+  ■ 流れ
+    ヘッダーの「？ ヘルプ」→ 最前面にシートが開く。
+      話題が1つ … すぐその話題を開く
+      2つ以上   … 話題の一覧を出し、選んだものを開く
+    話題は getHelp(key) で取り寄せ、section.help-step を1枚ずつ「次へ」でめくって見せる。
+
+  ■ 画面遷移を重くしないために
+    話題の中身（画像を base64 で持つ）は**押したときに初めて取り寄せる**。取り寄せた中身は
+    sessionStorage に持つので、同じタブで2回目以降はすぐ開く（D49 と同じ考え方）。
+    タブを閉じれば消える。中身は説明文と画像だけで、個人の情報は入っていない。
+
+  ■ 話題の中身の書き方は src/help-shift.html の冒頭を参照。
+-->
+<div id="helpModal" class="help-modal" hidden>
+  <div class="help-sheet" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <div class="help-head">
+      <button type="button" class="help-back" id="helpBack" hidden onclick="helpShowMenu()">‹ 一覧</button>
+      <h2 id="helpTitle">ヘルプ</h2>
+      <button type="button" class="help-x" onclick="closeHelp()" aria-label="閉じる">×</button>
+    </div>
+    <div class="help-body" id="helpBody"></div>
+    <div class="help-foot" id="helpFoot" hidden>
+      <button type="button" class="btn sm" id="helpPrev" onclick="helpGo(-1)">◀ 前へ</button>
+      <span class="help-dots" id="helpDots"></span>
+      <button type="button" class="btn sm primary" id="helpNext" onclick="helpGo(1)">次へ ▶</button>
+    </div>
+  </div>
+</div>
+<script>
+  var HELP_CACHE_PREFIX = 'help:v1:';
+  var HELP_STATE = { topic: null, steps: [], index: 0 };
+
+  function openHelp() {
+    var modal = document.getElementById('helpModal');
+    modal.hidden = false;
+    document.body.classList.add('help-open');
+    var topics = window.HELP_TOPICS_HERE || [];
+    if (topics.length === 1) helpOpenTopic(topics[0].key);
+    else helpShowMenu();
+  }
+
+  function closeHelp() {
+    document.getElementById('helpModal').hidden = true;
+    document.body.classList.remove('help-open');
+  }
+
+  // 話題の一覧（その画面に話題が2つ以上あるとき）
+  function helpShowMenu() {
+    HELP_STATE.topic = null;
+    document.getElementById('helpTitle').textContent = 'ヘルプ';
+    document.getElementById('helpBack').hidden = true;
+    document.getElementById('helpFoot').hidden = true;
+    var topics = window.HELP_TOPICS_HERE || [];
+    document.getElementById('helpBody').innerHTML =
+      '<p class="help-lead">知りたいことを選んでください。</p>' +
+      '<div class="help-menu">' + topics.map(function (t) {
+        return '<button type="button" class="help-topic" onclick="helpOpenTopic(\'' +
+          helpEsc_(t.key) + '\')">' + helpEsc_(t.title) + '<span aria-hidden="true">›</span></button>';
+      }).join('') + '</div>';
+  }
+
+  function helpOpenTopic(key) {
+    var topics = window.HELP_TOPICS_HERE || [];
+    var t = topics.filter(function (x) { return x.key === key; })[0];
+    document.getElementById('helpTitle').textContent = t ? t.title : 'ヘルプ';
+    document.getElementById('helpBack').hidden = topics.length <= 1;
+    document.getElementById('helpFoot').hidden = true;
+
+    var cached = helpCacheRead_(key);
+    if (cached) { helpStart_(key, cached); return; }
+
+    var body = document.getElementById('helpBody');
+    body.innerHTML = '<p class="state">読み込み中…</p>';
+    google.script.run
+      .withSuccessHandler(function (res) {
+        helpCacheWrite_(key, res.html);
+        if (HELP_STATE.pending === key) helpStart_(key, res.html);
+      })
+      .withFailureHandler(function (err) {
+        if (HELP_STATE.pending === key) {
+          body.innerHTML = '<div class="notice err">ヘルプを読み込めませんでした（' +
+            helpEsc_(err && err.message ? err.message : String(err)) + '）。</div>';
+        }
+      })
+      .getHelp(key);
+    HELP_STATE.pending = key;   // 読み込み中に別の話題へ移ったら、遅れて届いた方は捨てる
+  }
+
+  function helpStart_(key, html) {
+    HELP_STATE.pending = null;
+    var box = document.createElement('div');
+    box.innerHTML = html;
+    HELP_STATE.topic = key;
+    HELP_STATE.steps = Array.prototype.slice.call(box.querySelectorAll('section.help-step'));
+    HELP_STATE.index = 0;
+    helpRender_();
+  }
+
+  function helpGo(delta) {
+    var next = HELP_STATE.index + delta;
+    if (next >= HELP_STATE.steps.length) {
+      // 最後のページの「次へ」は、話題が複数なら一覧へ、1つなら閉じる
+      if ((window.HELP_TOPICS_HERE || []).length > 1) helpShowMenu(); else closeHelp();
+      return;
+    }
+    if (next < 0) return;
+    HELP_STATE.index = next;
+    helpRender_();
+  }
+
+  function helpRender_() {
+    var steps = HELP_STATE.steps;
+    var body = document.getElementById('helpBody');
+    var foot = document.getElementById('helpFoot');
+    if (!steps.length) {
+      body.innerHTML = '<p class="state">この話題の説明はまだありません。</p>';
+      foot.hidden = true;
+      return;
+    }
+    var i = HELP_STATE.index;
+    var step = steps[i];
+    body.innerHTML = '<h3 class="help-step-title">' + helpEsc_(step.getAttribute('data-title') || '') +
+      '</h3>' + step.innerHTML;
+    body.scrollTop = 0;
+    foot.hidden = steps.length <= 1 && (window.HELP_TOPICS_HERE || []).length <= 1;
+    document.getElementById('helpPrev').disabled = i === 0;
+    var last = i === steps.length - 1;
+    document.getElementById('helpNext').textContent = !last ? '次へ ▶'
+      : ((window.HELP_TOPICS_HERE || []).length > 1 ? '一覧へ' : '閉じる');
+    document.getElementById('helpDots').innerHTML = steps.map(function (s, k) {
+      return '<i' + (k === i ? ' class="on"' : '') + '></i>';
+    }).join('');
+  }
+
+  function helpCacheRead_(key) {
+    try { return window.sessionStorage.getItem(HELP_CACHE_PREFIX + key); } catch (e) { return null; }
+  }
+  function helpCacheWrite_(key, html) {
+    try { window.sessionStorage.setItem(HELP_CACHE_PREFIX + key, html); } catch (e) { /* 持たないだけ */ }
+  }
+
+  function helpEsc_(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // 背景を押す・Esc で閉じる。左右キーでめくる
+  document.getElementById('helpModal').addEventListener('click', function (e) {
+    if (e.target.id === 'helpModal') closeHelp();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (document.getElementById('helpModal').hidden) return;
+    if (e.key === 'Escape') closeHelp();
+    else if (HELP_STATE.topic && e.key === 'ArrowRight') helpGo(1);
+    else if (HELP_STATE.topic && e.key === 'ArrowLeft') helpGo(-1);
+  });
+</script>

@@ -191,6 +191,10 @@ GAS は src/ 一式（.gs と .html を同居）を clasp で push する。html
   本文幅は各画面が `:root { --main-max: 760px; }` のように指定する。
 - 共通パーツは `.card` / `.btn`（`primary`/`ok`/`danger`/`block`/`sm`）/ `.notice`（`ok`/`warn`/`err`/`info`）/
   `.state` / `.hint`。画面固有の見た目だけを各HTMLの `<style>` に書く。
+- **ヘルプ**（D51）は `PAGES` の `help` に `HELP_TOPICS` のキーを並べるだけで、ヘッダーに「？ ヘルプ」が出る。
+  中身は `src/help-*.html`（書き方は `help-shift.html` の冒頭）。**画面の HTML に埋め込まない**
+  （押したときに `getHelp` で取り寄せる。埋め込むと画面遷移が重くなる）。画像は `tools/help-shots/` の
+  架空データの画面から撮り、**実際の画面のスクショは使わない**（Public のため）。
 - **画面の一時キャッシュ**（D49）は `<?!= include('shared-cache') ?>` を画面のスクリプトより前に置き、
   `viewCacheLoad` で読み込む。**操作のある画面は `lock: true`**＋操作関数の先頭で `viewCacheLocked()`、
   **書き込んだら `viewCacheClear()` してから読み直す**。`render` は古い内容と最新の内容で2回呼ばれる前提で書く。
