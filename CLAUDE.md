@@ -167,6 +167,7 @@
 | `available_slots` は**テイク用** | 介助は `assist_slots`（D32）。混同すると片方で候補0人 |
 | 空の `staff_a_id` は**担当未定**（D38） | 各経路は空を除外済み。欠勤連絡には出ない（正しい） |
 | `vacancies.group_id` が同じ行は**1つの募集**（D45） | 空＝単独の欠員。1件だけ確定させると同じ欠勤の残りが取り残される |
+| 本人確認（`staff_id`/`name`/`role`）は**実行をまたいでキャッシュ**（D48・`Identity.gs`） | シートを直したら変更トリガーが捨てる。画面から変えられる項目をこの3つに足すなら、書き込み後に `advanceIdentityGen_()` を呼ぶ。`getUserCache` に替えると全員で共有される |
 
 ## ディレクトリ構成（現状）
 
@@ -190,6 +191,9 @@ GAS は src/ 一式（.gs と .html を同居）を clasp で push する。html
   本文幅は各画面が `:root { --main-max: 760px; }` のように指定する。
 - 共通パーツは `.card` / `.btn`（`primary`/`ok`/`danger`/`block`/`sm`）/ `.notice`（`ok`/`warn`/`err`/`info`）/
   `.state` / `.hint`。画面固有の見た目だけを各HTMLの `<style>` に書く。
+- **画面の一時キャッシュ**（D49）は `<?!= include('shared-cache') ?>` を画面のスクリプトより前に置き、
+  `viewCacheLoad` で読み込む。**操作のある画面は `lock: true`**＋操作関数の先頭で `viewCacheLocked()`、
+  **書き込んだら `viewCacheClear()` してから読み直す**。`render` は古い内容と最新の内容で2回呼ばれる前提で書く。
 
 ※ 勤怠整合性チェック（機能B）のコードは `future/feature-b/` にある（**`src/` には無い**・D41）。
   実カレンダーとの照合は一度も走らせていない。再開の手順と残課題は `future/feature-b/README.md`。

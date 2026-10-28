@@ -136,6 +136,7 @@
     </div>
   </main>
 
+  <?!= include('shared-cache') ?>
   <script>
     var DATA = null;
     var OPEN = {};          // staff_id → 詳細を開いているか
@@ -355,20 +356,27 @@
       el.addEventListener('change', render);
     });
 
+    // 同じタブで再び開いたときは前回の名簿を先に出す（D49）。読み取り専用なので操作は止めない。
     function load() {
-      google.script.run
-        .withSuccessHandler(function (data) {
+      viewCacheLoad({
+        owner: '<?= user.staff_id ?>',
+        key: 'getStaffRoster',
+        rootId: 'body',
+        run: function (ok, ng) {
+          google.script.run.withSuccessHandler(ok).withFailureHandler(ng).getStaffRoster();
+        },
+        render: function (data) {
           DATA = data;
           document.getElementById('top').hidden = true;
           document.getElementById('body').hidden = false;
           render();
-        })
-        .withFailureHandler(function (err) {
+        },
+        onError: function (err) {
           var top = document.getElementById('top');
           top.className = 'state';
           top.textContent = 'エラー: ' + err.message;
-        })
-        .getStaffRoster();
+        },
+      });
     }
 
     load();

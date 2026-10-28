@@ -145,8 +145,15 @@ Web App は `executeAs: USER_DEPLOYING`＝**最後にデプロイした人とし
 
 1. GASエディタで `migrateAddVacancyCloseNotifiedAt()` を1回実行する
    （既存DBに `vacancies.close_notified_at` 列を足す。新規 `setupSpreadsheetsEmpty` なら不要）。
-2. `installTriggers()` を実行する（10分ごとに `closeExpiredRecruits` が走るようになる）。
-3. `listTriggers()` で登録内容と**実行者アカウント**を確認する。
+2. `installTriggers()` を実行する。次の4つが入る。
+   - 10分ごとに `closeExpiredRecruits`（締切検知）
+   - メインDB・連絡先DBの**変更**で `onDbSheetChange`（本人確認キャッシュを捨てる・D48）
+   - 15分ごとに `keepIdentityCacheAlive`（本人確認キャッシュの延長・D48）
+3. `listTriggers()` で登録内容と**実行者アカウント**を確認する。最後の行が
+   「本人確認キャッシュ（D48）: 有効」になっていればよい。
+
+> 本人確認キャッシュ（D48）は、ナビで画面を移るときの待ちを約1秒縮める。トリガーが入っていないと
+> **キャッシュは使われず、遅いが正しく動く**。シートで権限・名前・メールを直すと、数秒で反映される。
 
 > ⚠️ **トリガーはインストールした人のアカウントで動く**。Web App の「実行するユーザー」とは
 > **別管理**なので、担当者が代わったら新しい担当者が `installTriggers()` を実行し直すこと。
@@ -229,6 +236,7 @@ Web App は `executeAs: USER_DEPLOYING`＝**最後にデプロイした人とし
 
 **公開**
 - [ ] `installTriggers()` を実行し、`listTriggers()` に `closeExpiredRecruits` が出た（締切検知）
+      ※ 同じ一覧で「本人確認キャッシュ（D48）: 有効」になっている
       ※ `listTriggers()` に出る**実行者アカウント**が部署アカウントであることを確認する
 - [ ] **デプロイを「新しいバージョン」で更新した**（`clasp push` だけでは `/exec` に反映されません。上の⚠️参照）
 - [ ] 数名の実アカウントでログイン・通知の通しテストをした

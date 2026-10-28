@@ -103,17 +103,27 @@ function doGet(e) {
  * ログイン中のユーザーを特定して { email, staff_id, name, role } を返す。
  * contacts でメール → staff_id を引き、staffs で role を引く。
  * 登録が無ければ null。
+ *
+ * 結果は実行をまたいでキャッシュする（Identity.gs・D48）。シートが手で直されたら
+ * 変更トリガーが捨てるので、権限を外せば次の操作から効く。
+ * 毎回新しいオブジェクトを返す（呼び出し側が書き換えてもキャッシュに影響しない）。
  */
 function getCurrentUser_() {
   const email = Session.getActiveUser().getEmail();
   if (!email) return null;
 
+  const who = cachedIdentity_(email, function () { return lookupIdentity_(email); });
+  if (!who) return null;
+  return { email: email, staff_id: who.staff_id, name: who.name, role: who.role };
+}
+
+// シートから本人を引く（キャッシュに無いときだけ呼ばれる）
+function lookupIdentity_(email) {
   const contact = findRowCI_(SHEET.CONTACTS, 'email', email);
   if (!contact) return null;
 
   const staff = findRow(SHEET.STAFFS, 'staff_id', contact.staff_id);
   return {
-    email: email,
     // staff_id は正規化して返す（Vacancy.gs 等が String().trim() 済みIDと === で比較するため、
     // contacts のセルが数値や前後空白付きだと自己除外・重複欠勤チェック・相方表示が不成立になる）。
     staff_id: String(contact.staff_id).trim(),

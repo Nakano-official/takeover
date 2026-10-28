@@ -16,6 +16,7 @@
  * ■ ここで確かめられないこと（GAS 側の e2e が必要）
  *   - LockService の実際の排他制御（ここでは単一スレッドなので CAS の分岐しか見ていない）
  *   - Sheets.gs の実行内キャッシュと withLock_ の相互作用
+ *   - 本人確認キャッシュ（D48）の実 CacheService と、変更トリガーが手の編集で発火すること
  *   - 実 Chat 送信・実カレンダー・実 CSV の文字コード
  *   - HTML 画面の挙動
  *
@@ -80,6 +81,9 @@ class Harness {
     this.headers = copy(opts.headers || DEFAULT_HEADERS);
     this.db = {};
     this.notifyLog = [];      // 送信の代わりに記録される通知（種別・宛先の確認用）
+    // CacheService.getScriptCache() の中身（キー → {value, ttl}）。期限切れは起きない。
+    // 追い出し・期限切れを試すときはテスト側で cache.delete(key) する。
+    this.cache = new Map();
     this.user = null;         // getCurrentUser_ が返す人
     this.time = time;
     this._pass = 0;
@@ -95,6 +99,7 @@ class Harness {
     this.db = {};
     Object.keys(this.headers).forEach((k) => { this.db[k] = []; });
     this.notifyLog.length = 0;
+    this.cache.clear();
   }
 
   blank(sheet) {
@@ -245,6 +250,23 @@ class Harness {
             getProperty: function () { return 'https://example.invalid/hook'; },
             setProperty: function () {},
             deleteProperty: function () {},
+          };
+        },
+      },
+
+      // 本人確認キャッシュ（Identity.gs・D48）が使う。実行をまたいで残る点は本物と同じ
+      CacheService: {
+        getScriptCache: function () {
+          const store = self.cache;
+          return {
+            get: function (k) { return store.has(k) ? store.get(k).value : null; },
+            getAll: function (keys) {
+              const out = {};
+              keys.forEach(function (k) { if (store.has(k)) out[k] = store.get(k).value; });
+              return out;
+            },
+            put: function (k, v, ttl) { store.set(k, { value: String(v), ttl: ttl }); },
+            remove: function (k) { store.delete(k); },
           };
         },
       },
