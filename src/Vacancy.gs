@@ -353,49 +353,239 @@ function respondToVacancy(vacancyId, answer) {
     return { ok: true, answer: answer, confirmed: false };
   }
 
-  // 承諾 → 先着確保（result が空のときだけ自分を代行に確定・settle 遷移）。
-  // throwしない低レベル版を使い、負けたら「埋まりました」を穏当に返す。
-  //
-  // かたまり（D45）のときは**まとめて確定させる**。授業と前後の移動介助は同じ人の仕事で、
-  // 別々の人が受けると引き継ぎが成立しない。代表の欠員を先に確保してから残りを埋める。
-  const claim = tryTransitionVacancy_(
-    vacancyId, 'settle',
-    { result: VACANCY_RESULT.FILLED, substitute_staff_id: user.staff_id }
-  );
-  if (!claim.ok) throw new Error('対象の欠員が見つかりません。');
+  // 承諾 → 先着確保（かたまりごと・通知まで）
+  const settled = settleBlockFor_(vacancy, user.staff_id);
+  if (!settled.ok) return settled;   // 一瞬差で他の人に確定された → 受付終了
+  return {
+    ok: true, answer: answer, confirmed: true,
+    also_confirmed: settled.also_confirmed,
+    notify: settled.notify,
+  };
+}
 
-  // 一瞬差で他の人に確定された → 受付終了
-  if (!claim.applied) {
-    return { ok: false, filled: true, closed: true };
-  }
+/**
+ * 欠員を staffId の代行として**先着で**確定し、関係者へ通知する。
+ * 代行依頼への承諾（respondToVacancy）と、自分から入る（claimVacancy・D50）の共通部分。
+ *
+ * result が空のときだけ書く（settle 遷移・CAS）。throwしない低レベル版を使い、
+ * 負けたら「埋まりました」を穏当に返す。
+ *
+ * かたまり（D45）のときは**まとめて確定させる**。授業と前後の移動介助は同じ人の仕事で、
+ * 別々の人が受けると引き継ぎが成立しない。代表の欠員を先に確保してから残りを埋める。
+ *
+ * @return {{ok:false, filled:true, closed:true}|{ok:true, also_confirmed:Array, notify:Object}}
+ */
+function settleBlockFor_(vacancy, staffId) {
+  const vacancyId = String(vacancy.vacancy_id).trim();
+  const updates = { result: VACANCY_RESULT.FILLED, substitute_staff_id: staffId };
+
+  const claim = tryTransitionVacancy_(vacancyId, 'settle', updates);
+  if (!claim.ok) throw new Error('対象の欠員が見つかりません。');
+  if (!claim.applied) return { ok: false, filled: true, closed: true };
 
   // 同じかたまりの残りも同じ人で確定する。代表を取れた時点でこの人に決まっているので、
   // ここは競合しない（取れなかった枠があれば、その枠だけ職員の決着に回る）。
   const groupIds = [];
   vacancyGroupOf_(vacancy).forEach(function (v) {
     const id = String(v.vacancy_id).trim();
-    if (id === String(vacancyId).trim()) return;
-    const more = tryTransitionVacancy_(
-      id, 'settle',
-      { result: VACANCY_RESULT.FILLED, substitute_staff_id: user.staff_id }
-    );
+    if (id === vacancyId) return;
+    const more = tryTransitionVacancy_(id, 'settle', updates);
     if (more.ok && more.applied) groupIds.push(id);
   });
 
   // 確定できた → 関係者へ通知（通知失敗でも確定は確定）
   var notify;
   try {
-    notify = notifyVacancyFilled(vacancyId, user.staff_id);
+    notify = notifyVacancyFilled(vacancyId, staffId);
   } catch (e) {
     notify = { error: e.message };
   }
-
-  return {
-    ok: true, answer: answer, confirmed: true,
-    also_confirmed: groupIds,   // 一緒に確定した前後の移動介助（D45）
-    notify: notify,
-  };
+  return { ok: true, also_confirmed: groupIds, notify: notify };   // also_confirmed＝前後の移動介助（D45）
 }
+
+// ─── 自分から代行に入る（シフト表・欠員一覧・D50）────────────
+//
+// 代行依頼の通知は「空きコマを登録している人」にしか届かない（findCandidates_）。
+// その日たまたま空いている学生スタッフも入れるように、シフト表の赤いコマと欠員一覧から
+// **自分で手を挙げて先着で確定**できるようにする。確定の仕組みは承諾と同じ（settleBlockFor_）。
+//
+// 代行候補との違いは**空きコマ登録を見ないことだけ**。それ以外は同じ条件で弾く：
+//   学生であること／自分の担当コマでないこと（欠勤者・相方）／スキル（D9）／
+//   同じ時限に他の担当・代行が無いこと／締切（D21・D22）／対象日を過ぎていないこと。
+// かたまり（D45）は**全部の枠で**この条件を満たす人だけが入れる（一部だけ受けられないため）。
+// 空きコマを見ない代わりに、画面では「この時間に授業などの予定が無いか」を確認させる。
+
+/**
+ * staff がこの欠員（かたまりごと）に自分から入れるか。
+ * @param {Object} vacancy vacancies の1行
+ * @param {Object} staff   staffs の1行（本人）
+ * @param {Object} [ctx]   {courses, vacancies, staffs}（一覧で何件も判定するとき用）
+ * @return {string} 入れるなら ''、入れないならその理由（画面にそのまま出す）
+ */
+function selfClaimBlocker_(vacancy, staff, ctx) {
+  if (!staff) return '利用登録がありません。';
+  if (String(staff.role).trim() !== '学生') return '代行に入れるのは学生スタッフだけです。';
+  if (String(vacancy.result || '').trim()) return 'この欠員はすでに対応が決まっています。';
+  const dateStr = dateToStr_(vacancy.date);
+  if (dateStr < todayJst_()) return 'この欠員は対象日を過ぎています。';
+
+  const staffId = String(staff.staff_id).trim();
+  const allCourses = (ctx && ctx.courses) || readRows(SHEET.COURSES);
+  const courseById = {};
+  allCourses.forEach(function (c) { courseById[String(c.course_id).trim()] = c; });
+
+  // かたまりのうち、まだ決まっていない枠すべて（代表を含む）
+  const gid = String(vacancy.group_id || '').trim();
+  const open = (gid
+    ? ((ctx && ctx.vacancies) || readRows(SHEET.VACANCIES)).filter(function (v) {
+      return String(v.group_id || '').trim() === gid;
+    })
+    : [vacancy]
+  ).filter(function (v) { return !String(v.result || '').trim(); });
+
+  for (var i = 0; i < open.length; i++) {
+    const v = open[i];
+    const course = courseById[String(v.course_id).trim()];
+    if (!course) return '対象のコマが見つかりません。';
+    if (String(v.absent_staff_id).trim() === staffId) return 'あなたの欠勤です。';
+    if (isAssigned_(course, staffId)) return 'あなたが担当しているコマです。';
+    if (isRecruitClosed_(v, course)) return MSG_SELF_CLAIM_CLOSED;
+    if (!hasSkillFor_(staff, course.support_type)) {
+      return '「' + String(course.support_type).trim() + '」はあなたの対応できる業務に入っていません。';
+    }
+    if (busyStaffIds_(course, v.date, ctx)[staffId]) {
+      return 'この時間は、あなたの別の担当か代行が入っています。';
+    }
+  }
+  return '';
+}
+
+/**
+ * 自分から代行に入る（D50）。入れる条件は selfClaimBlocker_、確定は承諾と同じ先着。
+ * 本人は Session から特定する（画面から送られた staff_id は使わない）。
+ *
+ * @return 次のいずれか：
+ *   {ok:true,  confirmed:true, also_confirmed, notify} … 自分に確定
+ *   {ok:false, filled:true,   closed:true}             … 既に他の人で埋まった
+ *   {ok:false, message}                                … 入れない（理由つき）
+ */
+function claimVacancy(vacancyId) {
+  const user = getCurrentUser_();
+  if (!user) throw new Error('利用登録がありません。');
+
+  const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+  if (!vacancy) throw new Error('対象の欠員が見つかりません。');
+  if (String(vacancy.result || '').trim()) return { ok: false, filled: true, closed: true };
+
+  const staff = findRow(SHEET.STAFFS, 'staff_id', user.staff_id);
+  const blocker = selfClaimBlocker_(vacancy, staff);
+  if (blocker) return { ok: false, message: blocker };
+
+  // 欠員補充管理の回答状況に「この人が承諾した」と出るよう、承諾と同じ形で記録しておく
+  upsertRow(
+    SHEET.RESPONSES,
+    { vacancy_id: String(vacancy.vacancy_id).trim(), staff_id: user.staff_id },
+    { answer: ANSWER.ACCEPT, answered_at: nowString_() }
+  );
+
+  const settled = settleBlockFor_(vacancy, user.staff_id);
+  if (!settled.ok) return settled;
+  return { ok: true, confirmed: true, also_confirmed: settled.also_confirmed, notify: settled.notify };
+}
+
+/**
+ * 欠員一覧（vacancies 画面・D50）。今日以降の**まだ決まっていない欠員**を、
+ * かたまり（D45）ごとに1件にまとめて返す。学生には「入れるか／入れない理由」も付ける。
+ * 職員にも見せる（学生から見えている状態の確認用）。操作は従来どおり欠員補充管理で行う。
+ */
+function getOpenVacancies() {
+  const user = getCurrentUser_();
+  if (!user) throw new Error('利用登録がありません。');
+
+  const staffs = readRows(SHEET.STAFFS);
+  const courses = readRows(SHEET.COURSES);
+  const vacancies = readRows(SHEET.VACANCIES);
+  const ctx = { staffs: staffs, courses: courses, vacancies: vacancies };
+  const today = todayJst_();
+  const isStaff = user.role === ROLE_STAFF;
+
+  const nameById = {};
+  var me = null;
+  staffs.forEach(function (s) {
+    const id = String(s.staff_id).trim();
+    nameById[id] = s.name;
+    if (id === user.staff_id) me = s;
+  });
+  const courseById = {};
+  courses.forEach(function (c) { courseById[String(c.course_id).trim()] = c; });
+  const periodById = buildPeriodMap_();
+  const periodOrder = {};
+  readRows(SHEET.PERIODS).forEach(function (p, i) { periodOrder[String(p.period).trim()] = i; });
+
+  // かたまりごとにまとめる（group_id が空なら1件で1つ）
+  const groups = {};
+  const order = [];
+  vacancies.forEach(function (v) {
+    if (String(v.result || '').trim()) return;
+    const date = dateToStr_(v.date);
+    if (!date || date < today) return;
+    if (!courseById[String(v.course_id).trim()]) return;
+    const key = String(v.group_id || '').trim() || ('v:' + String(v.vacancy_id).trim());
+    if (!groups[key]) { groups[key] = []; order.push(key); }
+    groups[key].push(v);
+  });
+
+  const items = order.map(function (key) {
+    const members = groups[key].slice().sort(function (a, b) {
+      const pa = String(courseById[String(a.course_id).trim()].period).trim();
+      const pb = String(courseById[String(b.course_id).trim()].period).trim();
+      return (periodOrder[pa] || 0) - (periodOrder[pb] || 0);
+    });
+    const first = members[0];
+    const main = courseById[String(first.course_id).trim()];
+    const slots = members.map(function (v) {
+      const c = courseById[String(v.course_id).trim()];
+      const key2 = String(c.period).trim();
+      const p = periodById[key2] || {};
+      return {
+        periodLabel: periodLabelOf_(c.period, p),
+        time: p.start_time ? p.start_time + '〜' + p.end_time : '',
+        support_type: String(c.support_type || '').trim(),
+      };
+    });
+    const startP = periodById[String(main.period).trim()] || {};
+    const startMin = periodStartMinutes_(startP.start_time);
+    const deadlineMin = startMin === null ? null : startMin - RECRUIT_DEADLINE_MIN_BEFORE;
+    const closed = members.some(function (v) {
+      return isRecruitClosed_(v, courseById[String(v.course_id).trim()]);
+    });
+
+    const blocker = isStaff ? '' : selfClaimBlocker_(first, me, ctx);
+    return {
+      vacancy_id: String(first.vacancy_id).trim(),   // claimVacancy に渡す代表（かたまりごと確定される）
+      date: dateToStr_(first.date),
+      day: String(main.day || '').trim(),
+      slots: slots,
+      user_student: String(main.user_student || '').trim(),
+      subject: String(main.subject || '').trim(),
+      room: String(main.room || '').trim(),
+      absentName: nameById[String(first.absent_staff_id).trim()] || String(first.absent_staff_id || ''),
+      deadline: deadlineMin === null ? '' :
+        pad2_(Math.floor(deadlineMin / 60)) + ':' + pad2_(deadlineMin % 60),
+      closed: closed,
+      claimable: !isStaff && !blocker,
+      reason: blocker,
+    };
+  });
+
+  items.sort(function (a, b) {
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    return a.slots[0].time < b.slots[0].time ? -1 : (a.slots[0].time > b.slots[0].time ? 1 : 0);
+  });
+  return { isStaff: isStaff, today: today, items: items };
+}
+
+function pad2_(n) { return (n < 10 ? '0' : '') + n; }
 
 // ─── 欠員ライフサイクルの状態遷移（状態機械・backlog 11-2）──────
 //
@@ -863,6 +1053,42 @@ function findCandidates_(course, excludeStaffIds, date, ctx) {
   const slotKey = String(course.day).trim() + String(course.period).trim();
   const exclude = (excludeStaffIds || []).map(function (x) { return String(x).trim(); });
   const supportType = String(course.support_type || '').trim();        // テイク / 介助
+  const busy = busyStaffIds_(course, date, ctx);
+
+  const allStaffs = (ctx && ctx.staffs) || readRows(SHEET.STAFFS);
+  return allStaffs
+    .filter(function (s) {
+      const id = String(s.staff_id).trim();
+      if (String(s.role).trim() !== '学生') return false;             // 学生のみ候補
+      if (exclude.indexOf(id) !== -1) return false;                   // 欠勤者・相方を除外
+      if (busy[id]) return false;                                     // 同一スロットで二重起用になる
+      if (slotsOf_(s, supportType).indexOf(slotKey) === -1) return false;   // 該当スロットに空き
+      return hasSkillFor_(s, supportType);                            // 対応可能な内容（スキル）
+    })
+    .map(function (s) {
+      return { staff_id: s.staff_id, name: s.name };
+    });
+}
+
+/**
+ * その業務に対応できるか（D9）。**skills 未設定は全対応扱い**。
+ */
+function hasSkillFor_(staff, supportType) {
+  const type = String(supportType || '').trim();
+  if (!type) return true;
+  const skills = String((staff && staff.skills) || '').split(',')
+    .map(function (x) { return x.trim(); }).filter(Boolean);
+  return !skills.length || skills.indexOf(type) !== -1;
+}
+
+/**
+ * そのコマと**同じ曜日・時限に、もう仕事が入っている人**（staff_id → true）。
+ * 代行候補（findCandidates_）と、自分から代行に入る判定（selfClaimBlocker_・D50）で共通。
+ *   - 同じ学期・同じ時限の別のコマの担当（単発コマは別の日なら競合しない・D27）
+ *   - date を渡したとき：その日・同じ時限で既に代行が確定している人
+ */
+function busyStaffIds_(course, date, ctx) {
+  const slotKey = String(course.day).trim() + String(course.period).trim();
   const quarter = String(course.quarter).trim();
   const courseId = String(course.course_id).trim();
 
@@ -896,26 +1122,7 @@ function findCandidates_(course, excludeStaffIds, date, ctx) {
       if (slotOf[String(v.course_id).trim()] === slotKey) busy[sub] = true;
     });
   }
-
-  const allStaffs = (ctx && ctx.staffs) || readRows(SHEET.STAFFS);
-  return allStaffs
-    .filter(function (s) {
-      const id = String(s.staff_id).trim();
-      if (String(s.role).trim() !== '学生') return false;             // 学生のみ候補
-      if (exclude.indexOf(id) !== -1) return false;                   // 欠勤者・相方を除外
-      if (busy[id]) return false;                                     // 同一スロットで二重起用になる
-      if (slotsOf_(s, supportType).indexOf(slotKey) === -1) return false;   // 該当スロットに空き
-      // 対応可能な内容（スキル）チェック。skills 未設定は従来どおり全対応扱い
-      if (supportType) {
-        const skills = String(s.skills || '').split(',')
-          .map(function (x) { return x.trim(); }).filter(Boolean);
-        if (skills.length && skills.indexOf(supportType) === -1) return false;
-      }
-      return true;
-    })
-    .map(function (s) {
-      return { staff_id: s.staff_id, name: s.name };
-    });
+  return busy;
 }
 
 // ─── 内部ヘルパー ────────────────────────────────────────────

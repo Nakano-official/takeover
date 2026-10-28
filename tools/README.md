@@ -22,6 +22,7 @@ node tools/sim-registration.js # 利用登録の申請と承認（D28）
 node tools/sim-roster.js      # スタッフ名簿（職員が全員を確認する画面・D30）
 node tools/sim-terms.js       # 学期の解決（現在（開講中）の範囲・学期の境目・D16/D36）
 node tools/sim-identity.js    # 本人確認キャッシュ（古い権限が残らないこと・D48）
+node tools/sim-selfclaim.js   # 自分から代行に入る（入れない人を弾く・先着・かたまり・D50）
 ```
 
 いずれも失敗時は終了コード 1 を返す。

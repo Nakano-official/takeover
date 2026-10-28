@@ -74,7 +74,6 @@ const RECRUIT_CLOSE_REASON = {
 // 「もう決まった」ではなく「募集の時間が終わった」であることを区別して伝える。
 const MSG_RECRUIT_CLOSED =
   'この代行募集は締め切られました（授業開始が近いため）。以降の対応は職員が行います。';
-
 // 決着済みの欠員をさらに決着させようとしたときのユーザー向けメッセージ（職員パス共通）。
 // 先着確定と職員操作が競合したときに、黙って上書きせず画面更新を促す（backlog 10-1）。
 const MSG_VACANCY_SETTLED =
@@ -117,6 +116,13 @@ const TERM_BOUNDARY_NOTICE =
 //
 // ※ Constants.gs 冒頭の注意どおり、この定数は**関数内から参照**すること。
 const RECRUIT_DEADLINE_MIN_BEFORE = 30;
+
+// 締切後に「自分から代行に入る」を押したときのメッセージ（D50）。
+// 締切後は職員が決着に動いているので、二重手配を避けて職員へ直接つなぐ。
+// ※ RECRUIT_DEADLINE_MIN_BEFORE を使うので、必ずその**後ろ**に置く（前に置くと読み込み時に落ちる）。
+const MSG_SELF_CLAIM_CLOSED =
+  '締切（授業開始の' + RECRUIT_DEADLINE_MIN_BEFORE + '分前）を過ぎたため、ここからは入れません。' +
+  '入れる場合は職員へ直接連絡してください。';
 
 // 締切到達を検知する時間トリガーの実行間隔（分）。Triggers.gs の installTriggers が使う。
 //

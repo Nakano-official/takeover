@@ -282,6 +282,13 @@
       return slots.indexOf(c.day + c.period) !== -1;                                   // その時限が空き
     }
 
+    // 表示中の週のその日に、自分から代行に入れる欠員があれば返す（D50）。
+    // 入れるかどうかはサーバーが判定済み（selfClaimBlocker_）。空きコマ登録は問わない。
+    function claimableOf(c) {
+      if (!c.open || isMine(c)) return null;
+      return c.open.filter(function (x) { return x.claimable; })[0] || null;
+    }
+
     function escapeHtml(s) {
       return String(s == null ? '' : s)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -309,6 +316,7 @@
       if (myOpen) html += '<span class="st st-myopen">✅ あなたが入れます</span>';
       else if (mine) html += '<span class="st st-mine">自分の担当</span>';
       else html += statusBadge(c);
+      if (claimableOf(c)) html += '<span class="st st-myopen">🙋 代行に入れます</span>';
       html += '</button>';
       return html;
     }
@@ -462,6 +470,55 @@
       '</div>';
     }
 
+    /**
+     * 詳細に出す「代行に入る」（D50）。欠員対応中のコマで、表示中の週のその日に
+     * まだ決まっていない欠員があるときだけ出す。入れない人には理由を出す。
+     */
+    function claimAction(c) {
+      if (!c.open || !c.open.length || isMine(c)) return '';
+      if (DATA.me && DATA.me.role === '職員') {
+        return '<div class="m-act"><a class="btn block" href="' + escapeAttr(APP_URL + '?page=manage') +
+          '">欠員補充管理で対応する</a></div>';
+      }
+      var hit = claimableOf(c);
+      if (!hit) {
+        return '<div class="m-act"><div class="notice info">' +
+          escapeHtml(c.open[0].reason || 'この欠員には入れません。') + '</div></div>';
+      }
+      var label = ((WEEK && WEEK.labelByDay[c.day]) || c.date) + '（' + c.day + '）';
+      return '<div class="m-act">' +
+        '<button type="button" class="btn ok block" onclick="claimFromTable(\'' + escapeAttr(hit.id) +
+          '\', this)">' + escapeHtml(label) + ' の代行に入る</button>' +
+        '<p class="hint">先着で確定します。押す前に、この時間に授業などの予定が無いか確認してください。</p>' +
+      '</div>';
+    }
+
+    function claimFromTable(vacancyId, btn) {
+      if (!confirm('この欠員の代行に入ります。先着で確定し、職員と関係者へ通知されます。\n' +
+        'この時間に授業などの予定が無いことを確認しましたか？')) return;
+      btn.disabled = true;
+      btn.textContent = '処理中…';
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (res && res.ok) {
+            alert('代行に入りました。');
+          } else if (res && res.filled) {
+            alert('ひと足先に、他の人で決まりました。');
+          } else {
+            alert((res && res.message) || 'この欠員には入れませんでした。');
+          }
+          closeDetail();
+          viewCacheClear();   // 書く前の時間割を一瞬出さないように（D49）
+          load(null);
+        })
+        .withFailureHandler(function (err) {
+          alert('エラー: ' + err.message);
+          btn.disabled = false;
+          btn.textContent = 'もう一度試す';
+        })
+        .claimVacancy(vacancyId);
+    }
+
     function openDetail(courseId) {
       var c = courseById(courseId);
       if (!c) return;
@@ -494,6 +551,7 @@
       var sb = statusBadge(c);
       if (sb) body += '<div class="m-status">状態 ' + sb + '</div>';
       body += absenceAction(c);
+      body += claimAction(c);
 
       document.getElementById('modalBody').innerHTML = body;
       document.getElementById('modal').classList.add('show');
@@ -628,8 +686,8 @@
       WEEK_COURSE_COUNT = base.length;
       var courses;
       if (MYVIEW) {
-        // 自分の担当コマ ＋ 自分が入れる募集中だけに絞る
-        courses = base.filter(function (c) { return isMine(c) || isMyOpen(c); });
+        // 自分の担当コマ ＋ 自分が入れる募集中 ＋ 自分から代行に入れる欠員（D50）だけに絞る
+        courses = base.filter(function (c) { return isMine(c) || isMyOpen(c) || !!claimableOf(c); });
         setFiltersDisabled(true);
       } else {
         setFiltersDisabled(false);
@@ -710,7 +768,9 @@
       if (MYVIEW) {
         var mineN = VIEW.courses.filter(isMine).length;
         var openN = VIEW.courses.filter(isMyOpen).length;
-        countEl.textContent = 'あなたの担当 ' + mineN + ' コマ ／ 入れる募集中 ' + openN + ' 枠';
+        var claimN = VIEW.courses.filter(function (c) { return !!claimableOf(c); }).length;
+        countEl.textContent = 'あなたの担当 ' + mineN + ' コマ ／ 入れる募集中 ' + openN + ' 枠' +
+          (claimN ? ' ／ 代行に入れる欠員 ' + claimN + ' 件' : '');
       } else {
         // 分母は「この週に授業があるコマ数」。学期の期間外の週では 0 になる
         countEl.textContent = '表示中: ' + VIEW.courses.length + ' / ' + WEEK_COURSE_COUNT + ' コマ';
@@ -897,6 +957,7 @@
         status: o ? o.status : '通常',
         substitute: o ? o.substitute : '',
         absent: o ? o.absent : [],
+        open: (o && o.open) || [],   // まだ決まっていない欠員（自分から入れるか付き・D50）
       };
     }
 
@@ -910,6 +971,7 @@
         c.status = s.status;
         c.substitute = s.substitute;
         c.absent = s.absent;
+        c.open = s.open;
       });
       renderWeekBar();
       applyFilters();
