@@ -236,6 +236,10 @@
   .notice.err  { background: var(--danger-bg); border-color: var(--danger-border); color: var(--danger); }
   .notice.info { background: var(--info-bg);   border-color: var(--info-border);   color: var(--info); }
 
+  /* 画面側の一時キャッシュ（D49・shared-cache.html）。前回の表示を出している間の目印 */
+  .vc-banner { margin-bottom: 12px; }
+  .vc-lock button, .vc-lock a.tel { pointer-events: none; opacity: .5; }
+
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; animation: none !important; }
   }

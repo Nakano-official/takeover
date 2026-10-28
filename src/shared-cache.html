@@ -1,0 +1,134 @@
+<!--
+  画面側の一時キャッシュ（D49）
+
+  各画面のスクリプトより前に <?!= include('shared-cache') ?> として読み込む。
+  （この説明に script タグをそのまま書かないこと。check-syntax.js がそこから読み始めて誤検知する）
+
+  ■ 何をするか
+    同じタブで一度読み込んだ画面のデータを sessionStorage に短時間だけ持ち、次にその画面を
+    開いたときは**前回の内容を先に表示**して、裏で最新を読み込み、届いたら差し替える。
+    ナビで画面を移るたびの「読み込み中…」（欠員補充管理で 3〜5 秒）を、2回目以降は見せない。
+    初めて開く画面・期限切れ・タブを閉じた後は、従来どおり「読み込み中…」から始まる。
+
+  ■ 決まりごと
+    - **置き場所は sessionStorage**。タブを閉じれば消える。localStorage は使わない
+      （端末に残すものではなく、作業中の一時メモリとして持つため）。
+    - **期限は VIEW_CACHE_TTL_MS（10分）**。それより古いものは表示に使わず捨てる。
+    - **キーは staff_id ごと**。共用PCで別の人がログインしても、前の人の内容は出ない。
+    - 持つのは**サーバーが画面に返した値そのもの**だけ（表示に使う分）。
+    - 古い内容を出している間は「前回の表示です」と明示する。lock: true の画面（操作のある画面）は、
+      その間ボタンを押せなくし、操作関数の先頭でも viewCacheLocked() で止める。
+      古い表示を見て確定・決着を押されると、意図と違う操作になるため。
+    - **自分で書き込んだら viewCacheClear()** してから読み直す。消さないと、書き込む前の
+      内容が一瞬出て「戻った」ように見える。
+    - sessionStorage が使えない環境（設定で無効など）では、何もせず従来どおり毎回読む。
+-->
+<script>
+  var VIEW_CACHE_TTL_MS = 10 * 60 * 1000;
+  var VIEW_CACHE_PREFIX = 'viewcache:v1:';
+  var VIEW_CACHE_LOCKED = false;
+
+  /**
+   * キャッシュ付きでデータを読み込む。
+   * @param {Object} opts
+   *   owner  … ログイン中の staff_id（空ならキャッシュを使わない）
+   *   key    … 画面とデータの種類を表す文字列（例：'getTimetable:2026-後期'）
+   *   rootId … 古い表示の目印を付ける要素の id（この直前に案内を出す）
+   *   lock   … true なら古い表示の間は操作できなくする
+   *   run    … function (onOk, onNg) で google.script.run を呼ぶ
+   *   render … function (data) で描画する（古い内容と最新の内容で2回呼ばれることがある）
+   *   onError … キャッシュが無いときの失敗表示
+   */
+  function viewCacheLoad(opts) {
+    var key = opts.owner ? VIEW_CACHE_PREFIX + opts.owner + ':' + opts.key : '';
+    var hit = key ? viewCacheRead_(key) : null;
+    var root = document.getElementById(opts.rootId);
+
+    if (hit) {
+      opts.render(hit.data);
+      viewCacheMark_(root, hit.savedAt, !!opts.lock, '');
+    }
+
+    opts.run(
+      function (data) {
+        if (key) viewCacheWrite_(key, data);
+        viewCacheUnmark_(root);
+        opts.render(data);
+      },
+      function (err) {
+        if (!hit) { opts.onError(err); return; }
+        // 前回の内容は残し、最新が取れていないことを明示する（操作できないまま）
+        viewCacheMark_(root, hit.savedAt, !!opts.lock, err && err.message ? err.message : String(err));
+      }
+    );
+  }
+
+  /** このタブの一時キャッシュを全部捨てる（自分で書き込んだ後に呼ぶ） */
+  function viewCacheClear() {
+    try {
+      var drop = [];
+      for (var i = 0; i < window.sessionStorage.length; i++) {
+        var k = window.sessionStorage.key(i);
+        if (k && k.indexOf(VIEW_CACHE_PREFIX) === 0) drop.push(k);
+      }
+      drop.forEach(function (k) { window.sessionStorage.removeItem(k); });
+    } catch (e) { /* 使えない環境では何もしない */ }
+  }
+
+  /** 古い内容を表示中で、操作を止めているか（操作関数の先頭で見る） */
+  function viewCacheLocked() {
+    if (VIEW_CACHE_LOCKED) alert('最新の内容を読み込み中です。表示が更新されてから操作してください。');
+    return VIEW_CACHE_LOCKED;
+  }
+
+  function viewCacheRead_(key) {
+    try {
+      var raw = window.sessionStorage.getItem(key);
+      if (!raw) return null;
+      var entry = JSON.parse(raw);
+      if (!entry || typeof entry.savedAt !== 'number' || Date.now() - entry.savedAt > VIEW_CACHE_TTL_MS) {
+        window.sessionStorage.removeItem(key);
+        return null;
+      }
+      return entry;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function viewCacheWrite_(key, data) {
+    try {
+      window.sessionStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), data: data }));
+    } catch (e) { /* 容量超過・使えない環境では持たないだけ */ }
+  }
+
+  function viewCacheMark_(root, savedAt, lock, error) {
+    if (!root) return;
+    VIEW_CACHE_LOCKED = lock;
+    if (lock) root.classList.add('vc-lock');
+    var banner = document.getElementById('vcBanner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'vcBanner';
+      root.parentNode.insertBefore(banner, root);
+    }
+    var min = Math.max(0, Math.floor((Date.now() - savedAt) / 60000));
+    var when = min === 0 ? '1分以内' : min + '分前';
+    if (error) {
+      banner.className = 'notice warn vc-banner';
+      banner.textContent = '最新の読み込みに失敗しました（' + error + '）。表示は' + when + 'の内容です。' +
+        '画面を開き直してください。';
+    } else {
+      banner.className = 'notice info vc-banner';
+      banner.textContent = '前回の表示（' + when + '）です。最新を読み込んでいます…' +
+        (lock ? '（更新されるまで操作できません）' : '');
+    }
+  }
+
+  function viewCacheUnmark_(root) {
+    VIEW_CACHE_LOCKED = false;
+    if (root) root.classList.remove('vc-lock');
+    var banner = document.getElementById('vcBanner');
+    if (banner) banner.parentNode.removeChild(banner);
+  }
+</script>

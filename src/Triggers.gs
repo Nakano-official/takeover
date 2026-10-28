@@ -1,9 +1,11 @@
 /**
- * 時間トリガーの管理（D22）
+ * トリガーの管理（D22・D48）
  *
- * このシステムで「時間が来たから動く」処理を1箇所に集める。現在の対象は代行募集の締切検知
- * （closeExpiredRecruits・Vacancy.gs）だけだが、締切前リマインドや月末の勤怠リマインド（B-3）も
- * ここに足していく想定。
+ * このシステムで「時間が来たから動く」「シートが変わったから動く」処理を1箇所に集める。
+ *   - 代行募集の締切検知（closeExpiredRecruits・Vacancy.gs）… 10分ごと
+ *   - 本人確認キャッシュの無効化（onDbSheetChange・Identity.gs）… メインDB・連絡先DBの変更時
+ *   - 本人確認キャッシュの延長（keepIdentityCacheAlive・Identity.gs）… 15分ごと
+ * 締切前リマインドや月末の勤怠リマインド（B-3）もここに足していく想定。
  *
  * ■ なぜトリガーが要るか
  *   締切判定（D21）はもともと欠勤連絡の**その1回**しか走らなかった。そのため
@@ -23,12 +25,30 @@
 
 // このファイルが管理するトリガーの一覧。関数名 → 説明。
 // 増やすときはここに足す（install / remove / list が自動で追従する）。
+//   intervalMin    … 時間トリガー（N分ごと）
+//   spreadsheetProp … 変更トリガー。そのスクリプトプロパティが指すスプレッドシートの変更で動く
+// 同じ handler を複数並べてよい（変更トリガーは DB ごとに1つ要る）。
 function managedTriggers_() {
   return [
     {
       handler: 'closeExpiredRecruits',
       intervalMin: RECRUIT_DEADLINE_CHECK_INTERVAL_MIN,
       label: '代行募集の締切検知（募集クローズ＋職員へ決着要求・D22）',
+    },
+    {
+      handler: 'onDbSheetChange',
+      spreadsheetProp: 'SPREADSHEET_ID',
+      label: 'メインDBが直されたら本人確認キャッシュを捨てる（D48）',
+    },
+    {
+      handler: 'onDbSheetChange',
+      spreadsheetProp: 'CONTACTS_SPREADSHEET_ID',
+      label: '連絡先DBが直されたら本人確認キャッシュを捨てる（D48）',
+    },
+    {
+      handler: 'keepIdentityCacheAlive',
+      intervalMin: IDENTITY_KEEPALIVE_INTERVAL_MIN,
+      label: '本人確認キャッシュの延長（止まると最長1時間でキャッシュが止まる・D48）',
     },
   ];
 }
@@ -52,11 +72,22 @@ function installTriggers() {
   });
 
   managed.forEach(function (t) {
-    // everyMinutes が受け付けるのは 1/5/10/15/30 分のみ。それ以外はGASが例外を投げる。
-    ScriptApp.newTrigger(t.handler).timeBased().everyMinutes(t.intervalMin).create();
-    Logger.log('✅ ' + t.handler + ' を ' + t.intervalMin + '分ごとに実行するトリガーを作成しました。');
+    if (t.spreadsheetProp) {
+      const id = PropertiesService.getScriptProperties().getProperty(t.spreadsheetProp);
+      if (!id) throw new Error('スクリプトプロパティ ' + t.spreadsheetProp + ' が未設定です。');
+      ScriptApp.newTrigger(t.handler).forSpreadsheet(id).onChange().create();
+      Logger.log('✅ ' + t.handler + ' を ' + t.spreadsheetProp + ' の変更で実行するトリガーを作成しました。');
+    } else {
+      // everyMinutes が受け付けるのは 1/5/10/15/30 分のみ。それ以外はGASが例外を投げる。
+      ScriptApp.newTrigger(t.handler).timeBased().everyMinutes(t.intervalMin).create();
+      Logger.log('✅ ' + t.handler + ' を ' + t.intervalMin + '分ごとに実行するトリガーを作成しました。');
+    }
     Logger.log('   ' + t.label);
   });
+
+  // 本人確認キャッシュを動かし始める（世代はトリガー側だけが作る・Identity.gs）
+  advanceIdentityGen_();
+  Logger.log('✅ 本人確認キャッシュを有効にしました（D48）。');
 
   if (removed > 0) Logger.log('（既存の同名トリガー ' + removed + '件を作り直しました）');
   Logger.log('実行者: ' + Session.getEffectiveUser().getEmail() +
@@ -68,6 +99,10 @@ function installTriggers() {
  * 検証中に通知を止めたいとき、または引き継ぎで作り直すときに使う。
  */
 function removeTriggers() {
+  // 変更トリガーが無くなると、シートを直してもキャッシュが捨てられない。先に止める（D48）
+  stopIdentityCache_();
+  Logger.log('本人確認キャッシュを止めました（以後は毎回シートを読みます）。');
+
   const triggers = ScriptApp.getProjectTriggers();
   if (triggers.length === 0) {
     Logger.log('トリガーはありません。');
@@ -94,13 +129,23 @@ function listTriggers() {
   }
   Logger.log('実行者: ' + Session.getEffectiveUser().getEmail());
 
-  const managed = managedTriggers_();
-  const have = triggers.map(function (t) { return t.getHandlerFunction(); });
-  managed.forEach(function (m) {
-    if (have.indexOf(m.handler) === -1) {
-      Logger.log('⚠️ ' + m.handler + ' が未登録です（' + m.label + '）。installTriggers() を実行してください。');
+  // 同じ handler が複数あるもの（変更トリガー）は数で比べる
+  const want = {};
+  managedTriggers_().forEach(function (m) {
+    if (!want[m.handler]) want[m.handler] = { count: 0, label: m.label };
+    want[m.handler].count++;
+  });
+  Object.keys(want).forEach(function (handler) {
+    const have = triggers.filter(function (t) { return t.getHandlerFunction() === handler; }).length;
+    if (have < want[handler].count) {
+      Logger.log('⚠️ ' + handler + ' が足りません（' + have + '/' + want[handler].count + '件・' +
+        want[handler].label + '）。installTriggers() を実行してください。');
     }
   });
+
+  Logger.log('本人確認キャッシュ（D48）: ' + (isIdentityCacheActive_()
+    ? '有効'
+    : '停止中（毎回シートを読む。installTriggers() を実行すると有効になる）'));
 }
 
 /**

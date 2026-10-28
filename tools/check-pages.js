@@ -141,10 +141,23 @@ function serverCalls(code) {
   return names;
 }
 
-/** HTML の <script> 本文を1つに連結する（テンプレート構文は識別子へ置換） */
+/**
+ * `<?!= include('name') ?>` を src/name.html の中身で置き換える（1段だけ）。
+ * 共通部品（shared-cache.html・D49）に置いた関数を、読み込む側の画面で「定義済み」と扱うため。
+ * HTML コメントは先に取り除く（部品の説明に書いた include の例を展開しないように）。
+ */
+function expandIncludes(html) {
+  const noComments = (s) => s.replace(/<!--[\s\S]*?-->/g, '');
+  return noComments(html).replace(/<\?!=\s*include\(\s*'([\w-]+)'\s*\)\s*\?>/g, (all, name) => {
+    const file = path.join(SRC_DIR, name + '.html');
+    return fs.existsSync(file) ? noComments(fs.readFileSync(file, 'utf8')) : all;
+  });
+}
+
+/** HTML の <script> 本文を1つに連結する（include を展開し、テンプレート構文は識別子へ置換） */
 function scriptOf(html) {
   let out = '';
-  for (const m of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) {
+  for (const m of expandIncludes(html).matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) {
     out += m[1] + '\n';
   }
   // <?= x ?> / <?!= x ?> / <? ... ?> は JavaScript ではないので潰す

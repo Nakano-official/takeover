@@ -50,6 +50,7 @@
     <div id="content" class="state">読み込み中…</div>
   </main>
 
+  <?!= include('shared-cache') ?>
   <script>
     function escapeHtml(s) {
       return String(s == null ? '' : s)
@@ -149,29 +150,50 @@
         '<div class="resp">' + respHtml + '</div>' + alt + '</div>';
     }
 
+    // 同じタブで再び開いたときは前回の一覧を先に出す（D49）。古い一覧の間は操作させない
+    // （回答状況や決着が変わっているかもしれず、見えている状態と違う操作になるため）。
     function reload() {
-      google.script.run.withSuccessHandler(render).withFailureHandler(onError).getVacanciesForManage();
+      viewCacheLoad({
+        owner: '<?= user.staff_id ?>',
+        key: 'getVacanciesForManage',
+        rootId: 'content',
+        lock: true,
+        run: function (ok, ng) {
+          google.script.run.withSuccessHandler(ok).withFailureHandler(ng).getVacanciesForManage();
+        },
+        render: render,
+        onError: onError,
+      });
+    }
+
+    // 書き込んだ後は一時キャッシュを捨ててから読み直す（書く前の一覧が一瞬出ないように）
+    function reloadAfterWrite() {
+      viewCacheClear();
+      reload();
     }
 
     function confirmSub(vacancyId, staffId, btn) {
+      if (viewCacheLocked()) return;
       if (!confirm('この候補者を代行者として確定します。よろしいですか？')) return;
       disableAll(btn);
       google.script.run
-        .withSuccessHandler(reload)
-        .withFailureHandler(function (err) { alert('エラー: ' + err.message); reload(); })
+        .withSuccessHandler(reloadAfterWrite)
+        .withFailureHandler(function (err) { alert('エラー: ' + err.message); reloadAfterWrite(); })
         .confirmSubstitute(vacancyId, staffId);
     }
 
     function setResult(vacancyId, result, btn) {
+      if (viewCacheLocked()) return;
       if (!confirm('この欠員を「' + result + '」として決着させます。よろしいですか？')) return;
       disableAll(btn);
       google.script.run
-        .withSuccessHandler(reload)
-        .withFailureHandler(function (err) { alert('エラー: ' + err.message); reload(); })
+        .withSuccessHandler(reloadAfterWrite)
+        .withFailureHandler(function (err) { alert('エラー: ' + err.message); reloadAfterWrite(); })
         .setVacancyResult(vacancyId, result);
     }
 
     function reopen(vacancyId, btn) {
+      if (viewCacheLocked()) return;
       // 締切後の再オープンでは再募集は走らない（候補は回答できないため・D22）。
       // 「送られるつもりで押したのに送られない」を防ぐため、確認文でその条件を明示する。
       if (!confirm('この欠員を未確定に戻します。代行者の充て直しや結果の変更ができます。\n'
@@ -179,8 +201,8 @@
         + 'よろしいですか？')) return;
       disableAll(btn);
       google.script.run
-        .withSuccessHandler(reload)
-        .withFailureHandler(function (err) { alert('エラー: ' + err.message); reload(); })
+        .withSuccessHandler(reloadAfterWrite)
+        .withFailureHandler(function (err) { alert('エラー: ' + err.message); reloadAfterWrite(); })
         .reopenVacancy(vacancyId);
     }
 

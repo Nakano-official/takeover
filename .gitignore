@@ -13,6 +13,9 @@
 !docs/**/*.png
 !docs/**/*.jpg
 
+# 龍谷祭ポスターの制作物（PDF・HTML・ビルドスクリプト一式。システム本体とは無関係）
+poster/
+
 # Logs
 logs
 *.log

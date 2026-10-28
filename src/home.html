@@ -246,6 +246,7 @@
     </div>
   </div>
 
+  <?!= include('shared-cache') ?>
   <script>
     var DATA = null;          // サーバーから来た全データ
     var VIEW = null;          // 絞り込み後の { courses, days, periods }
@@ -945,14 +946,22 @@
       var keepWeek = WEEK ? WEEK.start : null;
       document.getElementById('content').className = 'state';
       document.getElementById('content').textContent = '読み込み中…';
-      google.script.run
-        .withSuccessHandler(function (data) {
+      // 同じタブで再び開いたときは前回の時間割を先に出す（D49）。表示専用なので操作は止めない。
+      viewCacheLoad({
+        owner: '<?= user.staff_id ?>',
+        key: 'getTimetable:' + (quarter || ''),
+        rootId: 'content',
+        run: function (ok, ng) {
+          google.script.run.withSuccessHandler(ok).withFailureHandler(ng).getTimetable(quarter || null);
+        },
+        render: function (data) {
           DATA = data;
           fillFilters();
-          applyWeek(keepWeek); // 週を載せて VIEW を作り描画
-        })
-        .withFailureHandler(onError)
-        .getTimetable(quarter || null);
+          // 古い表示の間に週を動かしていたら、最新が届いてもその週のまま描く
+          applyWeek(WEEK ? WEEK.start : keepWeek); // 週を載せて VIEW を作り描画
+        },
+        onError: onError,
+      });
     }
 
     load(null);
