@@ -20,6 +20,9 @@ const PAGES = {
   // 無く常に空になるため、職員のナビには並べない。
   absence: { file: 'absence', title: '欠勤連絡',           staffOnly: false, hideInStaffNav: true },
   respond: { file: 'respond', title: '代行依頼への回答',   staffOnly: false },
+  // まだ決まっていない欠員の一覧（D50）。学生はここから自分で代行に入れる（先着）。
+  // 職員にも出す（学生から見えている状態の確認用。確定・決着は manage で行う）。
+  vacancies: { file: 'vacancies', title: '欠員一覧',     staffOnly: false },
   manage:  { file: 'manage',  title: '欠員補充管理',       staffOnly: true  },
   terms:   { file: 'terms',   title: '学期設定',           staffOnly: true  },
   // マイページ（D28）。本人が自分の連絡先と空きコマを直す画面なので、職員・学生とも入れる。
@@ -48,7 +51,7 @@ const MYPAGE_PAGE = 'mypage';
 // respond は通知リンクから ?vacancy= 付きで開く画面なので、ナビには出さない。
 // ここに足せば全画面のナビに一斉に反映される（staffOnly は PAGES 側で自動判定）。
 // マイページはここに入れない。ヘッダー右上のユーザーアイコンから入る（renderChrome_）。
-const NAV_PAGES = ['home', 'absence', 'input', 'manage', 'roster', 'approvals', 'terms'];
+const NAV_PAGES = ['home', 'absence', 'vacancies', 'input', 'manage', 'roster', 'approvals', 'terms'];
 
 const DEFAULT_PAGE = 'home';
 // ROLE_STAFF（'職員'）はドメイン定数なので Constants.gs にある（関数内から参照すること）。
@@ -443,6 +446,11 @@ function getTimetable(quarter) {
     byCourseDate[key].push(v);
   });
 
+  // 自分から代行に入れるか（D50）。学生だけ判定する（職員は欠員補充管理で確定する）。
+  const claimCtx = { courses: allCourses, vacancies: vacancies };
+  const isStudent = user.role !== ROLE_STAFF;
+  const today = todayJst_();
+
   const vacancy = {};
   Object.keys(byCourseDate).forEach(function (key) {
     const related = byCourseDate[key];
@@ -465,7 +473,15 @@ function getTimetable(quarter) {
       const subId = String(latest.substitute_staff_id || '').trim();
       if (subId) substitute = nameById[subId] || subId;
     }
-    vacancy[key] = { status: status, substitute: substitute, absent: absent };
+    // まだ決まっていない欠員（テイクで2人とも休むと2件ある）。今日以降のものだけ、
+    // 入れるか・入れない理由を付ける。過去の欠員には手を挙げる意味が無いので付けない。
+    const openForClaim = open
+      .filter(function (v) { return dateToStr_(v.date) >= today; })
+      .map(function (v) {
+        const reason = isStudent ? selfClaimBlocker_(v, meRow, claimCtx) : '';
+        return { id: String(v.vacancy_id).trim(), claimable: isStudent && !reason, reason: reason };
+      });
+    vacancy[key] = { status: status, substitute: substitute, absent: absent, open: openForClaim };
   });
 
   // 軸は「時間割の枠」として固定する。月〜日の全曜日と時限マスタの全時限を常に並べ、
@@ -516,7 +532,7 @@ function getTimetable(quarter) {
 
   return {
     days: days, periods: periods, courses: courses, me: me,
-    vacancy: vacancy,   // 'course_id|yyyy-MM-dd' → {status, substitute, absent[]}
+    vacancy: vacancy,   // 'course_id|yyyy-MM-dd' → {status, substitute, absent[], open[{id, claimable, reason}]}
     termRange: termRange,     // term_id → {start, end}（週が開講期間内かの判定用）
     undatedTerms: undatedTerms, // 日付未設定のまま使われている学期（警告用）
     today: todayJst_(), // 「今週」の基準（端末の時計ではなくサーバーのJSTで判定する）

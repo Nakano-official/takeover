@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('shared-styles') ?>
+  <style>
+    :root { --main-max: 720px; }
+
+    /* 欠員1件（かたまりは1件にまとめる・D45）。左の色帯で「入れる／入れない」を分ける */
+    .vac { background: var(--surface); border: 1px solid var(--border);
+           border-left: 4px solid var(--danger); border-radius: var(--radius);
+           padding: 16px 18px; margin-bottom: 14px; box-shadow: var(--shadow-1); }
+    .vac.can { border-left-color: var(--ok); }
+    .vac.closed { border-left-color: var(--border-strong); background: var(--surface-alt); }
+    .vac h2 { font-size: 1rem; margin: 0 0 6px; font-weight: 700; }
+    .slots { margin: 0 0 8px; padding: 0; list-style: none; font-size: .9rem; }
+    .slots li { padding: 2px 0; }
+    .slots .type { display: inline-block; font-size: .75rem; padding: 1px 8px; margin-left: 6px;
+                   border-radius: var(--radius-pill); background: var(--brand-soft); color: var(--brand-ink); }
+    .meta { font-size: .84rem; color: var(--text-muted); line-height: 1.8; }
+    .act { margin-top: 12px; }
+    .why { font-size: .85rem; color: var(--text-muted); margin-top: 10px; }
+    .bar { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+           flex-wrap: wrap; margin-bottom: 14px; }
+    .bar label { font-size: .9rem; display: flex; align-items: center; gap: 6px; }
+    .count { font-size: .85rem; color: var(--text-muted); }
+  </style>
+</head>
+<body>
+  <?!= chrome ?>
+
+  <main>
+    <p class="hint">まだ代行が決まっていない欠員です。入れるものには「代行に入る」が出ます。
+      <b>先着で確定</b>し、職員と関係者へ通知されます。</p>
+    <div id="staffNote" hidden class="notice info" style="margin-bottom:14px">
+      職員の方へ：学生スタッフから見えている一覧です。確定・決着は
+      <a href="<?= appUrl ?>?page=manage">欠員補充管理</a>から行ってください。
+    </div>
+    <div class="bar" id="bar" hidden>
+      <label id="onlyLabel"><input type="checkbox" id="onlyMine"> 自分が入れるものだけ</label>
+      <span class="count" id="count"></span>
+    </div>
+    <div id="content" class="state">読み込み中…</div>
+  </main>
+
+  <?!= include('shared-cache') ?>
+  <script>
+    var DATA = null;
+    var WEEKDAY = ['日', '月', '火', '水', '木', '金', '土'];
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // 'yyyy-MM-dd' → '10月30日（金）'。曜日は日付から出す（端末のタイムゾーンに依存しない）
+    function dateLabel(iso) {
+      var m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return iso;
+      var d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+      return Number(m[2]) + '月' + Number(m[3]) + '日（' + WEEKDAY[d.getUTCDay()] + '）';
+    }
+
+    function render(data) {
+      DATA = data;
+      document.getElementById('staffNote').hidden = !data.isStaff;
+      document.getElementById('bar').hidden = false;
+      document.getElementById('onlyLabel').style.display = data.isStaff ? 'none' : '';
+
+      var only = !data.isStaff && document.getElementById('onlyMine').checked;
+      var list = data.items.filter(function (v) { return !only || v.claimable; });
+      var canN = data.items.filter(function (v) { return v.claimable; }).length;
+      document.getElementById('count').textContent = data.isStaff
+        ? '募集中の欠員 ' + data.items.length + ' 件'
+        : '募集中の欠員 ' + data.items.length + ' 件 ／ あなたが入れるもの ' + canN + ' 件';
+
+      var content = document.getElementById('content');
+      if (list.length === 0) {
+        content.className = 'state';
+        content.textContent = only
+          ? 'いま、あなたが入れる欠員はありません。'
+          : 'いま代行を募集している欠員はありません。';
+        return;
+      }
+      content.className = '';
+      content.innerHTML = list.map(renderItem).join('');
+    }
+
+    function renderItem(v) {
+      var cls = v.closed ? 'closed' : (v.claimable ? 'can' : '');
+      var slots = '<ul class="slots">' + v.slots.map(function (s) {
+        return '<li>' + escapeHtml(s.periodLabel) + (s.time ? '　' + escapeHtml(s.time) : '') +
+          '<span class="type">' + escapeHtml(s.support_type) + '</span></li>';
+      }).join('') + '</ul>';
+      var meta = [
+        ['利用者', v.user_student], ['科目', v.subject], ['教室', v.room], ['欠勤', v.absentName],
+        ['締切', v.deadline ? v.deadline + '（授業開始の<?= RECRUIT_DEADLINE_MIN_BEFORE ?>分前）' : ''],
+      ].filter(function (r) { return r[1]; }).map(function (r) {
+        return escapeHtml(r[0]) + '：' + escapeHtml(r[1]);
+      }).join('<br>');
+
+      var act = '';
+      if (v.claimable) {
+        act = '<div class="act"><button type="button" class="btn ok block" onclick="claim(\'' +
+          escapeHtml(v.vacancy_id) + '\', this)">この代行に入る</button>' +
+          '<p class="hint">押す前に、この時間に授業などの予定が無いか確認してください。</p></div>';
+      } else if (!DATA.isStaff && v.reason) {
+        act = '<div class="why">' + escapeHtml(v.reason) + '</div>';
+      } else if (v.closed) {
+        act = '<div class="why">締切を過ぎました。職員が対応します。</div>';
+      }
+      return '<div class="vac ' + cls + '"><h2>' + escapeHtml(dateLabel(v.date)) + '</h2>' +
+        slots + '<div class="meta">' + meta + '</div>' + act + '</div>';
+    }
+
+    // 同じタブで再び開いたときは前回の一覧を先に出す（D49）。古い一覧の間は押させない。
+    function reload() {
+      viewCacheLoad({
+        owner: '<?= user.staff_id ?>',
+        key: 'getOpenVacancies',
+        rootId: 'content',
+        lock: true,
+        run: function (ok, ng) {
+          google.script.run.withSuccessHandler(ok).withFailureHandler(ng).getOpenVacancies();
+        },
+        render: render,
+        onError: onError,
+      });
+    }
+
+    function claim(vacancyId, btn) {
+      if (viewCacheLocked()) return;
+      if (!confirm('この欠員の代行に入ります。先着で確定し、職員と関係者へ通知されます。\n' +
+        'この時間に授業などの予定が無いことを確認しましたか？')) return;
+      document.querySelectorAll('#content button').forEach(function (b) { b.disabled = true; });
+      btn.textContent = '処理中…';
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (res && res.ok) {
+            alert('代行に入りました。');
+          } else if (res && res.filled) {
+            alert('ひと足先に、他の人で決まりました。');
+          } else {
+            alert((res && res.message) || 'この欠員には入れませんでした。');
+          }
+          viewCacheClear();   // 書く前の一覧を一瞬出さないように（D49）
+          reload();
+        })
+        .withFailureHandler(function (err) {
+          alert('エラー: ' + err.message);
+          viewCacheClear();
+          reload();
+        })
+        .claimVacancy(vacancyId);
+    }
+
+    function onError(err) {
+      var content = document.getElementById('content');
+      content.className = 'state';
+      content.textContent = 'エラー: ' + err.message;
+    }
+
+    document.getElementById('onlyMine').addEventListener('change', function () {
+      if (DATA) render(DATA);
+    });
+
+    reload();
+  </script>
+</body>
+</html>
