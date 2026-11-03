@@ -170,17 +170,17 @@ D14で `Attendance.gs`＋`check.html` を実装した後のコードレビュー
 ### 🔴 本番運用の前提（正確性）
 
 - ✅ **10-1. 職員側の確定処理が非アトミック（D1違反・二重確定）** — `Vacancy.gs` `confirmSubstitute` / `setVacancyResult`（2026-07-09 対応）
-  - 現状は「findRow で result 空を確認 → updateRow で上書き」の2段階で、間に候補者の
-    `respondToVacancy`（`claimIfEmpty`）が割り込むと**先着確定を黙って上書き**する。
+  - 現状は「findRow_ で result 空を確認 → updateRow_ で上書き」の2段階で、間に候補者の
+    `respondToVacancy`（`claimIfEmpty_`）が割り込むと**先着確定を黙って上書き**する。
     候補Yに「決まりました」通知が出た直後に、シート上は職員が選んだXになる（両者出勤 or 無人）。
   - **対応済み**：
-    1. `confirmSubstitute` / `setVacancyResult` を **`claimIfEmpty`（result が空のときだけ書く CAS）** に置換。
+    1. `confirmSubstitute` / `setVacancyResult` を **`claimIfEmpty_`（result が空のときだけ書く CAS）** に置換。
        決着済みなら「既に決着済みです（先着確定など）。画面を更新して…」を throw する。
     2. manage.html は既に全操作で `withFailureHandler` → `alert` + `reload()` を持つため、
        throw 時にエラー表示と一覧再取得が自動で走る（クライアント変更なし）。
     3. `reopenVacancy` は Sheets.gs に汎用CAS **`updateRowIfGuard_`**（mode='empty'/'notEmpty'）を新設し、
        「result が非空のときだけ戻す」形に統一。旧確定者の控えとクリアを同一ロック内で行う
-       （`claimIfEmpty` も `updateRowIfGuard_` の薄いラッパーへ整理）。
+       （`claimIfEmpty_` も `updateRowIfGuard_` の薄いラッパーへ整理）。
   - **検証**：CASの競合分岐を合成データでシミュレーション（19ケース・confirm↔respond 競合、
     reopen の notEmpty ガード、二重reopen、対象なし等）全通過。実GASでの e2e 確認は残（backlog 9-5 と同枠）。
 
@@ -206,12 +206,12 @@ D14で `Attendance.gs`＋`check.html` を実装した後のコードレビュー
   - **確認**：`tools/sim-attendance.js` に「personal_code 無し学生」「職員」のケースを追加して分類を検証。
 
 - ✅ **10-4. 再オープン後に代行依頼が誰にも再送されない** — `Vacancy.gs` `reopenVacancy`（2026-07-10 対応・D15）
-  - 対応済み：`reopenVacancy` 末尾で `notifyNewVacancy(vacancyId, true)` を呼び「（再募集）」を候補へ再送。
+  - 対応済み：`reopenVacancy` 末尾で `notifyNewVacancy_(vacancyId, true)` を呼び「（再募集）」を候補へ再送。
     11-2（状態機械化）と同時に実施。以下は当時の記述。
-  - 再オープンは notify_status を「未通知」に戻すだけ。`notifyNewVacancy` の呼び出し元は
+  - 再オープンは notify_status を「未通知」に戻すだけ。`notifyNewVacancy_` の呼び出し元は
     `submitAbsence` のみで、**再募集の通知経路が存在しない**（旧確定者への解除通知だけ飛ぶ）。
     全候補は「募集終了」を受信済みのため、放置すると無人で当日を迎える。
-  - **手順**：`reopenVacancy` の末尾で `notifyNewVacancy(vacancyId)` を呼ぶ（候補の再抽出・
+  - **手順**：`reopenVacancy` の末尾で `notifyNewVacancy_(vacancyId)` を呼ぶ（候補の再抽出・
     notify_status 更新は既存実装がそのまま使える）。メッセージに「（再募集）」を付けると誤解がない。
   - **確認**：補充済→再オープンで、候補者スペースに再依頼が届き notify_status が通知済になること。
 
@@ -232,7 +232,7 @@ D14で `Attendance.gs`＋`check.html` を実装した後のコードレビュー
 - ✅ **10-6b. periods の時刻列のテキスト書式が既定7行ぶんのみ** — `Setup.js`（2026-08-09 対応・D21の実機テストで発見）
   - 10-6 と**同じパターンの再発**。`setupMainDb_` が `getRange(2,1,7,3).setNumberFormat('@')` と
     既定の7時限ぶんにしか書式を掛けておらず、職員が8行目以降（8限・課外時限）を足すと
-    `'09:15'` が時刻値として保存され、`readRows` が **Date** を返す。
+    `'09:15'` が時刻値として保存され、`readRows_` が **Date** を返す。
     `isPastRecruitDeadline_`（D21）がパースに失敗して**常に「締切前」に倒れる**＝直前欠勤の分岐が
     黙って死ぬ。エラーにならないので気づけない。時刻表示（`p.start_time + '〜'`）も壊れる。
   - **対応済み**：(1) `setupMainDb_` を列全体テキスト固定に変更、(2) 既存DB向けに
@@ -289,7 +289,7 @@ D14で `Attendance.gs`＋`check.html` を実装した後のコードレビュー
        （ロック内の読み取り＝採番・CASの現在値検証は必ず実データ／自分の書き込みは次の読み取りに必ず反映）。
        → 結果として `findCandidates_` の ctx 引数は「無くても速い」状態になった（既存の ctx 対応はそのまま残す）。
     2. **contacts の1回読み**：`buildWebhookMap_()` で staff_id→webhook_url の Map を作り、
-       候補ごとの `getStaffWebhook_` → `findRow` → contacts 全読みを廃止。
+       候補ごとの `getStaffWebhook_` → `findRow_` → contacts 全読みを廃止。
     3. **`UrlFetchApp.fetchAll`**：職員スペース・確定者・他候補への送信を1回にまとめる（`postToWebhooks_`）。
        空・不正URLは fetchAll に渡さず「Webhook未登録」として記録（1件の不正URLで全員未達になるのを防ぐ）。
     4. **行更新の書き込み**：列ごと `setValue` ループを `writeRowUpdates_` に集約し、連続する列はまとめて
@@ -531,7 +531,15 @@ D14で `Attendance.gs`＋`check.html` を実装した後のコードレビュー
 
 ---
 
-## 15. シフト登録の自動化（時間割PDFの読み取り）　⏸ 見送り（2026-09-28）
+## 15. シフト登録の自動化（時間割PDFの読み取り）　✅ 利用学生の授業は対応（2026-11-03・D52）
+
+> 2026-11-03：シフト入力に「時間割PDFから読み込む」を追加（D52）。2026年からの受講登録確認表は
+> **一覧表の形（1行＝1コマ）**になっていて、9/28 に詰まった格子の復元が要らなくなった。
+> PDF はブラウザの中だけで読み（pdf.js）、カードに並べて職員が内容と担当を選んでから登録する。
+> **残り**：スタッフ自身の空きコマ（構想の (a)）は未着手。同じ部品（`shared-timetable-pdf.html`）を使える。
+> 以下は見送った当時（2026-09-28）の記述。
+
+### （当時）⏸ 見送り（2026-09-28）
 
 `courses` の登録を履修登録PDFから自動で起こしたい。いまは職員の手入力で、
 クォーターごとに全件入れ直すので一番重い。

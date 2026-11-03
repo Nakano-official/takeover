@@ -71,6 +71,7 @@ function safe_(fn) {
  *                              共有カレンダーのIDを渡すとそのカレンダーを見る。
  */
 function inspectCalendarDay(dateStr, calendarId) {
+  requireEditorRun_();
   const cal = calendarId ? CalendarApp.getCalendarById(calendarId) : getCalendar_();
   if (!cal) throw new Error('カレンダーが見つかりません（共有・IDを確認）：' + calendarId);
   const range = dayRange_(dateStr);
@@ -199,6 +200,7 @@ const SEED_TAG = '【テスト】';
  * @param {string} calendarId テストカレンダーのID（必須・安全のため明示指定）
  */
 function seedTestCalendar(calendarId) {
+  requireEditorRun_();
   if (!calendarId) throw new Error('テストカレンダーのIDを引数で指定してください（実カレンダーへの誤投入防止）。');
   const cal = CalendarApp.getCalendarById(calendarId);
   if (!cal) throw new Error('カレンダーが見つかりません：' + calendarId);
@@ -240,6 +242,7 @@ function seedTestCalendar(calendarId) {
  * @param {string} dateStr    "YYYY-MM-DD"（その日の疑似イベントを掃除）
  */
 function clearTestCalendarSeed(calendarId, dateStr) {
+  requireEditorRun_();
   if (!calendarId) throw new Error('テストカレンダーのIDを指定してください。');
   const cal = CalendarApp.getCalendarById(calendarId);
   if (!cal) throw new Error('カレンダーが見つかりません：' + calendarId);
@@ -266,6 +269,7 @@ function parseDateTime_(dateStr, hhmm) {
  * 共有シフトカレンダーの「ID」をここで見つけて、CALENDAR_ID に設定する。
  */
 function listCalendars() {
+  requireEditorRun_();
   Logger.log('===== アクセス可能なカレンダー一覧 =====');
   const all = CalendarApp.getAllCalendars();
   Logger.log('件数: ' + all.length);

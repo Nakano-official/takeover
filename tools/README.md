@@ -15,6 +15,7 @@ node tools/run-all.js         # ← push 前にこれ1つ（構文チェック�
 ```
 node tools/check-syntax.js    # src/ 全体の構文チェック
 node tools/check-pages.js     # 画面が未定義の関数・存在しないサーバー関数を呼んでいないか
+node tools/check-entrypoints.js # サーバー関数の名前の決まり（画面から呼べる関数は呼び出した人を確かめる）
 node tools/sim-vacancy.js     # 欠員補充（機能A）のロジック
 node tools/sim-oneoff.js      # 単発コマ（特別授業・イベント・D27）
 node tools/sim-profile.js     # マイページ（本人が変更できる項目の境界・D28）
@@ -23,6 +24,7 @@ node tools/sim-roster.js      # スタッフ名簿（職員が全員を確認す
 node tools/sim-terms.js       # 学期の解決（現在（開講中）の範囲・学期の境目・D16/D36）
 node tools/sim-identity.js    # 本人確認キャッシュ（古い権限が残らないこと・D48）
 node tools/sim-selfclaim.js   # 自分から代行に入る（入れない人を弾く・先着・かたまり・D50）
+node tools/sim-timetable-pdf.js # 時間割PDFの読み取り（架空の座標データ・集中/通年/学期の振り分け・D52）
 node tools/help-shots/render.js # ヘルプ撮影用に、架空データで画面を書き出す（D51・検証ではない）
 node tools/help-shots/shoot.js  # ヘルプの画像を撮り直して埋め込む（初回は tools/help-shots で npm install）
 ```
@@ -88,6 +90,18 @@ HTML 内の JS に至っては、画面を開いて操作するまで気づけ�
 
 **検出できないこと**：変数の未定義、引数の個数、実行時の型、DOM 要素の有無。
 迷ったら通す側に倒してあるので、これが緑でも画面確認は要る。
+
+## check-entrypoints.js
+
+名前が `_` で終わらないサーバー関数は `google.script.run` で画面から呼べる入口になる（GAS の仕様）。
+そうした関数が、先頭で呼び出した人を確かめているか（`requireStaff_` / `getCurrentUser_` /
+`requireEditorRun_` / `Session.getActiveUser`）を静的に見る。確かめなくてよいもの（`doGet`・
+トリガーの受け口など）は、スクリプト内の `ALLOW` に理由つきで載せる。
+
+あわせて `requireEditorRun_` が「画面からの呼び出し（利用者≠実行者）を通さず、エディタからの実行は通す」ことを
+`Harness` で確かめる（`h.deployerEmail` で実行者を別人にできる）。
+
+新しいサーバー関数を足して ❌ になったら、内部用なら名前を `_` で終わらせ、画面から呼ぶなら先頭で確かめる。
 
 ## sim-vacancy.js（機能A）
 
@@ -163,6 +177,27 @@ D1（先着確定）・D21（締切）・D22（募集クローズ／決着は職
 - 年度が終わったあと・日付未設定の学期が混ざるとき・学期マスタが空のとき
 
 **検出できないこと**：週送りの表示（`weekStateOf` は home.html 側）。ブラウザ確認が要る。
+
+## sim-timetable-pdf.js（時間割PDFの読み取り・D52）
+
+`src/shared-timetable-pdf.html` の読み取り（`tpdfParsePages`）と振り分け（`tpdfPlan`）を検証する。
+GAS のコードではないので `Harness` は使わず、画面の `<script>` をそのまま `vm` で読む。
+
+渡すのは pdf.js が返すのと同じ「文字＋座標」で、**架空の受講登録確認表を手で組み立てたもの**。
+本物の PDF は学籍番号と氏名が載っているので使わない・置かない。座標の並び（見出しは中央寄せ・
+中身は左寄せ・科目名だけ少し上・見出しは字を離して書く）は 2026-09 の実物に合わせてある。
+
+- 1行＝1コマで読み、全角の時限・字の離れた見出し・2コマ続きの2つ目（単位が空）を扱えること
+- 集中講義・設定に無い曜日や時限・学期マスタに無い学期は**カードにせず理由を出す**こと
+- 通年は PDF の学期で扱い、学期が混ざる PDF（前期・1Q・2Q など）は1回で全部、学期つきのカードにすること
+- `addCourse` が学期マスタに無い学期を受け付けず、担当の二重起用を期間の重なる学期どうしでも止めること
+  （境目の1日だけ重なる 1Q と 2Q は止めない）
+- 同じ利用者・曜日・時限の登録済みコマは作らないこと（二重登録の防止）
+- 2ページ目・余白のずれ・2024年までの格子の形（読まずに理由を出す）
+- 先頭が `=` `+` `-` `@` の科目名などを `Input.gs` が弾くこと（PDF は学生が送ってくるので、
+  数式として動く値をシートに書かせない）。ここだけ `Harness` で本物の `addCourse` を呼ぶ
+
+**検出できないこと**：pdf.js 自体（CDN から読む部分）と画面の操作。ブラウザ確認が要る。
 
 ## help-images/（Webhook 案内の画像・D46）
 

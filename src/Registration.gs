@@ -48,7 +48,7 @@ function getSignupContext() {
   // 申請では空きコマを1つしか聞かない（承認時に両業務へ同じ値が入る・D32）ので、
   // 全業務で使える時限だけを出す。移動介助のような業務限定の枠は、承認後に
   // 本人がマイページの業務タブで入れる。
-  const periods = readRows(SHEET.PERIODS).filter(function (p) {
+  const periods = readRows_(SHEET.PERIODS).filter(function (p) {
     return String(p.period).trim() && SUPPORT_TYPES.every(function (t) {
       return periodAllowsSupportType_(p, t);
     });
@@ -93,12 +93,12 @@ function submitRegistration(payload) {
   }
 
   const p = payload || {};
-  const name = String(p.name || '').trim();
-  const phone = String(p.phone || '').trim();
+  const name = validatePersonName_('氏名', p.name);
+  const phone = validatePhone_(p.phone);
   const webhook = String(p.webhook_url || '').trim();
   const note = String(p.note || '').trim();
-
-  if (!name) throw new Error('氏名を入力してください。');
+  if (note.length > 500) throw new Error('備考は500文字以内で入力してください。');
+  assertNotFormula_('備考', note);
   // 氏名は承認後に機能Bでカレンダーの氏名と突合する（D7③）。姓名の間の扱いは運用で揃える。
   if (webhook && !isChatWebhook_(webhook)) {
     throw new Error('Chat の Webhook URL の形式が違います（https://chat.googleapis.com/ で始まる必要があります）。');
@@ -124,10 +124,10 @@ function submitRegistration(payload) {
     if (String(existing.status).trim() === REGISTRATION_STATUS.APPROVED) {
       throw new Error('この申請は既に承認されています。画面を再読み込みしてください。');
     }
-    updateRow(SHEET.REGISTRATIONS, 'registration_id', existing.registration_id, row);
+    updateRow_(SHEET.REGISTRATIONS, 'registration_id', existing.registration_id, row);
     return { ok: true, registration_id: existing.registration_id, resubmitted: true };
   }
-  const id = appendRowWithId(SHEET.REGISTRATIONS, 'registration_id', 'R', row);
+  const id = appendRowWithId_(SHEET.REGISTRATIONS, 'registration_id', 'R', row);
   return { ok: true, registration_id: id, resubmitted: false };
 }
 
@@ -138,7 +138,7 @@ function submitRegistration(payload) {
  */
 function getRegistrations() {
   requireStaff_();
-  const rows = readRows(SHEET.REGISTRATIONS).map(function (r) {
+  const rows = readRows_(SHEET.REGISTRATIONS).map(function (r) {
     return {
       registration_id: String(r.registration_id || '').trim(),
       email: String(r.email || '').trim(),
@@ -175,7 +175,7 @@ function getRegistrations() {
  */
 function approveRegistration(registrationId, opts) {
   const me = requireStaff_();
-  const reg = findRow(SHEET.REGISTRATIONS, 'registration_id', registrationId);
+  const reg = findRow_(SHEET.REGISTRATIONS, 'registration_id', registrationId);
   if (!reg) throw new Error('対象の申請が見つかりません。');
   if (String(reg.status).trim() !== REGISTRATION_STATUS.PENDING) {
     throw new Error('この申請は既に「' + String(reg.status).trim() + '」です。画面を更新してください。');
@@ -186,6 +186,10 @@ function approveRegistration(registrationId, opts) {
     throw new Error('このメールは既に名簿にあります（二重登録の防止）。申請を却下してください。');
   }
 
+  // 申請の時点の確認と同じものを、名簿へ写す前にもう一度通す（申請はシートを直接直されることもある）
+  const name = validatePersonName_('申請の氏名', reg.name);
+  const phone = validatePhone_(reg.phone);
+
   const o = opts || {};
   const role = String(o.role || '').trim() === ROLE_STAFF ? ROLE_STAFF : '学生';
   const skills = splitSkills_(o.skills === undefined ? reg.skills : o.skills).join(',');
@@ -194,8 +198,8 @@ function approveRegistration(registrationId, opts) {
   // 2つのスプレッドシートをまたぐので原子的にはできない。staffs を先に作るのは、
   // staff_id の採番元がそちらだから。contacts 側で失敗したら staff_id を名指しで返し、
   // 職員が手で直せるようにする（黙って片側だけ残さない）。
-  const staffId = appendRowWithId(SHEET.STAFFS, 'staff_id', 'S', {
-    name: String(reg.name || '').trim(),
+  const staffId = appendRowWithId_(SHEET.STAFFS, 'staff_id', 'S', {
+    name: name,
     role: role,
     skills: skills,
     // 申請では空きコマを1つしか聞いていないので、テイク・介助の両方に同じ値を入れる。
@@ -208,11 +212,11 @@ function approveRegistration(registrationId, opts) {
   });
 
   try {
-    appendRow(SHEET.CONTACTS, {
+    appendRow_(SHEET.CONTACTS, {
       staff_id: staffId,
-      name: String(reg.name || '').trim(),
+      name: name,
       email: email,
-      phone: String(reg.phone || '').trim(),
+      phone: phone,
       webhook_url: String(reg.webhook_url || '').trim(),
     });
   } catch (e) {
@@ -220,7 +224,7 @@ function approveRegistration(registrationId, opts) {
       + e.message + '　連絡先DBに手で行を足すか、staffs の ' + staffId + ' を消してやり直してください。');
   }
 
-  updateRow(SHEET.REGISTRATIONS, 'registration_id', registrationId, {
+  updateRow_(SHEET.REGISTRATIONS, 'registration_id', registrationId, {
     status: REGISTRATION_STATUS.APPROVED,
     decided_at: nowString_(),
     decided_by: me.staff_id,
@@ -255,12 +259,12 @@ function approveRegistration(registrationId, opts) {
  */
 function rejectRegistration(registrationId, reason) {
   const me = requireStaff_();
-  const reg = findRow(SHEET.REGISTRATIONS, 'registration_id', registrationId);
+  const reg = findRow_(SHEET.REGISTRATIONS, 'registration_id', registrationId);
   if (!reg) throw new Error('対象の申請が見つかりません。');
   if (String(reg.status).trim() !== REGISTRATION_STATUS.PENDING) {
     throw new Error('この申請は既に「' + String(reg.status).trim() + '」です。画面を更新してください。');
   }
-  updateRow(SHEET.REGISTRATIONS, 'registration_id', registrationId, {
+  updateRow_(SHEET.REGISTRATIONS, 'registration_id', registrationId, {
     status: REGISTRATION_STATUS.REJECTED,
     decided_at: nowString_(),
     decided_by: me.staff_id,
@@ -274,7 +278,7 @@ function rejectRegistration(registrationId, reason) {
 /** メール（大文字小文字を無視）で申請を1件引く */
 function findRegistrationByEmail_(email) {
   const target = String(email).trim().toLowerCase();
-  const rows = readRows(SHEET.REGISTRATIONS);
+  const rows = readRows_(SHEET.REGISTRATIONS);
   for (var i = 0; i < rows.length; i++) {
     if (String(rows[i].email).trim().toLowerCase() === target) return rows[i];
   }

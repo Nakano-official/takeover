@@ -57,7 +57,7 @@ function handleDevicePoll_(params) {
  * @return {{count:number, latest:number}}
  */
 function getOpenVacancySummary_() {
-  const rows = readRows(SHEET.VACANCIES);
+  const rows = readRows_(SHEET.VACANCIES);
   var count = 0;
   var latest = 0;
   rows.forEach(function (v) {

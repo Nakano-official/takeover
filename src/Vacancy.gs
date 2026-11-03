@@ -27,7 +27,7 @@ function getMyCourses() {
   // 「過去分は削除しない」方針のため courses には旧学期が累積している。
   // 学期は term マスタで解決する（今日を含む学期の集合・11-3/D16）。
   // 先端理工のクォーターと他学部のセメスターが同時に走るため「現在」は集合になりうる。
-  const allCourses = readRows(SHEET.COURSES);
+  const allCourses = readRows_(SHEET.COURSES);
   const courseTermIds = [];
   allCourses.forEach(function (c) {
     const q = String(c.quarter).trim();
@@ -84,7 +84,7 @@ function submitAbsence(courseId, date, includeAttached) {
   const user = getCurrentUser_();
   if (!user) throw new Error('利用登録がありません。');
 
-  const course = findRow(SHEET.COURSES, 'course_id', courseId);
+  const course = findRow_(SHEET.COURSES, 'course_id', courseId);
   if (!course) throw new Error('指定のコマが見つかりません。');
 
   // なりすまし防止：本人がそのコマの担当か確認
@@ -140,7 +140,7 @@ function submitAbsence(courseId, date, includeAttached) {
 
   // 二重登録の防止（同じ人・同じコマ・同じ日で未解決の欠員が既にある）。
   // かたまりのうち1つでも既に出ていれば止める（部分的に重なった登録を作らない）。
-  const open = readRows(SHEET.VACANCIES).filter(function (v) {
+  const open = readRows_(SHEET.VACANCIES).filter(function (v) {
     return dateToStr_(v.date) === dateStr &&
            String(v.absent_staff_id).trim() === user.staff_id &&
            !String(v.result).trim();
@@ -157,7 +157,7 @@ function submitAbsence(courseId, date, includeAttached) {
   // 欠員を登録する。2件以上なら group_id で束ね、1件なら空のまま（従来と同じ形）。
   const groupId = block.length > 1 ? 'G' + nowString_().replace(/[^0-9]/g, '') : '';
   const vacancyIds = block.map(function (c) {
-    return appendRowWithId(SHEET.VACANCIES, 'vacancy_id', 'V', {
+    return appendRowWithId_(SHEET.VACANCIES, 'vacancy_id', 'V', {
       date: dateStr,
       course_id: String(c.course_id).trim(),
       absent_staff_id: user.staff_id,
@@ -189,12 +189,12 @@ function submitAbsence(courseId, date, includeAttached) {
     // 締切到達を処理済みとしてマークし、時間トリガーが同じ欠員をもう一度拾わないようにする。
     try {
       vacancyIds.forEach(function (id) {
-        updateRow(SHEET.VACANCIES, 'vacancy_id', id, { close_notified_at: nowString_() });
+        updateRow_(SHEET.VACANCIES, 'vacancy_id', id, { close_notified_at: nowString_() });
       });
     } catch (e) { /* マークに失敗してもトリガー側が拾い直すだけなので握りつぶす */ }
     var closeNotify;
     try {
-      closeNotify = notifyRecruitClosed(vacancyId, reason, suggestion);
+      closeNotify = notifyRecruitClosed_(vacancyId, reason, suggestion);
     } catch (e) {
       closeNotify = { error: e.message };
     }
@@ -236,7 +236,7 @@ function submitAbsence(courseId, date, includeAttached) {
   // 職員スペース＋候補者へ通知（失敗しても欠員登録は確定させる）
   var notify;
   try {
-    notify = notifyNewVacancy(vacancyId);
+    notify = notifyNewVacancy_(vacancyId);
   } catch (e) {
     notify = { error: e.message };
   }
@@ -267,16 +267,16 @@ function getVacancyForRespond(vacancyId) {
   const user = getCurrentUser_();
   if (!user) throw new Error('利用登録がありません。');
 
-  const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+  const vacancy = findRow_(SHEET.VACANCIES, 'vacancy_id', vacancyId);
   if (!vacancy) throw new Error('対象の欠員が見つかりません。');
 
-  const course = findRow(SHEET.COURSES, 'course_id', vacancy.course_id);
+  const course = findRow_(SHEET.COURSES, 'course_id', vacancy.course_id);
   const nameById = buildNameMap_();
   const periodById = buildPeriodMap_();
   const p = course ? (periodById[String(course.period).trim()] || {}) : {};
 
   // 自分の既存回答
-  const mine = readRows(SHEET.RESPONSES).filter(function (r) {
+  const mine = readRows_(SHEET.RESPONSES).filter(function (r) {
     return String(r.vacancy_id).trim() === String(vacancyId).trim() &&
            String(r.staff_id).trim() === user.staff_id;
   });
@@ -300,7 +300,7 @@ function getVacancyForRespond(vacancyId) {
 /**
  * 代行依頼に回答する（承諾 / 辞退）＝先着自動確定（decisions.md D1）。
  *  - 「承諾」: まだ誰も確定していなければ、その場でこの回答者を代行に確定する（職員は介在しない）。
- *             同時承諾は claimIfEmpty（LockService内の compare-and-set）で1人だけが確保。
+ *             同時承諾は claimIfEmpty_（LockService内の compare-and-set）で1人だけが確保。
  *  - 「辞退」: 記録のみ。欠員は開いたまま。
  * 回答者は Session から特定するため、URLのvacancy_idだけでは他人になりすませない。
  *
@@ -314,14 +314,14 @@ function respondToVacancy(vacancyId, answer) {
   if (!user) throw new Error('利用登録がありません。');
   if (answer !== ANSWER.ACCEPT && answer !== ANSWER.DECLINE) throw new Error('回答内容が不正です。');
 
-  const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+  const vacancy = findRow_(SHEET.VACANCIES, 'vacancy_id', vacancyId);
   if (!vacancy) throw new Error('対象の欠員が見つかりません。');
 
   // 対象日を過ぎた募集には回答不可（古いリンクからの後日承諾を弾く・backlog 10-9）。
   // 作成側 submitAbsence にしか過去日拒否が無かった非対称を是正する。
   assertVacancyNotPast_(vacancy.date);
 
-  const course = findRow(SHEET.COURSES, 'course_id', vacancy.course_id);
+  const course = findRow_(SHEET.COURSES, 'course_id', vacancy.course_id);
   if (!course) throw new Error('対象のコマが見つかりません。');
 
   // 候補資格チェック（候補以外は回答不可）
@@ -329,7 +329,7 @@ function respondToVacancy(vacancyId, answer) {
     throw new Error('あなたはこの欠員の代行候補ではありません。');
   }
 
-  // 早期判定：既に確定済みなら受け付けない（権威ある判定は後段の claimIfEmpty）
+  // 早期判定：既に確定済みなら受け付けない（権威ある判定は後段の claimIfEmpty_）
   if (String(vacancy.result).trim()) {
     return { ok: false, filled: true, closed: true };
   }
@@ -342,7 +342,7 @@ function respondToVacancy(vacancyId, answer) {
   }
 
   // 回答そのものは記録しておく（先着で負けても「承諾した事実」はログに残す）
-  upsertRow(
+  upsertRow_(
     SHEET.RESPONSES,
     { vacancy_id: vacancyId, staff_id: user.staff_id },
     { answer: answer, answered_at: nowString_() }
@@ -396,7 +396,7 @@ function settleBlockFor_(vacancy, staffId) {
   // 確定できた → 関係者へ通知（通知失敗でも確定は確定）
   var notify;
   try {
-    notify = notifyVacancyFilled(vacancyId, staffId);
+    notify = notifyVacancyFilled_(vacancyId, staffId);
   } catch (e) {
     notify = { error: e.message };
   }
@@ -430,14 +430,14 @@ function selfClaimBlocker_(vacancy, staff, ctx) {
   if (dateStr < todayJst_()) return 'この欠員は対象日を過ぎています。';
 
   const staffId = String(staff.staff_id).trim();
-  const allCourses = (ctx && ctx.courses) || readRows(SHEET.COURSES);
+  const allCourses = (ctx && ctx.courses) || readRows_(SHEET.COURSES);
   const courseById = {};
   allCourses.forEach(function (c) { courseById[String(c.course_id).trim()] = c; });
 
   // かたまりのうち、まだ決まっていない枠すべて（代表を含む）
   const gid = String(vacancy.group_id || '').trim();
   const open = (gid
-    ? ((ctx && ctx.vacancies) || readRows(SHEET.VACANCIES)).filter(function (v) {
+    ? ((ctx && ctx.vacancies) || readRows_(SHEET.VACANCIES)).filter(function (v) {
       return String(v.group_id || '').trim() === gid;
     })
     : [vacancy]
@@ -473,16 +473,16 @@ function claimVacancy(vacancyId) {
   const user = getCurrentUser_();
   if (!user) throw new Error('利用登録がありません。');
 
-  const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+  const vacancy = findRow_(SHEET.VACANCIES, 'vacancy_id', vacancyId);
   if (!vacancy) throw new Error('対象の欠員が見つかりません。');
   if (String(vacancy.result || '').trim()) return { ok: false, filled: true, closed: true };
 
-  const staff = findRow(SHEET.STAFFS, 'staff_id', user.staff_id);
+  const staff = findRow_(SHEET.STAFFS, 'staff_id', user.staff_id);
   const blocker = selfClaimBlocker_(vacancy, staff);
   if (blocker) return { ok: false, message: blocker };
 
   // 欠員補充管理の回答状況に「この人が承諾した」と出るよう、承諾と同じ形で記録しておく
-  upsertRow(
+  upsertRow_(
     SHEET.RESPONSES,
     { vacancy_id: String(vacancy.vacancy_id).trim(), staff_id: user.staff_id },
     { answer: ANSWER.ACCEPT, answered_at: nowString_() }
@@ -502,9 +502,9 @@ function getOpenVacancies() {
   const user = getCurrentUser_();
   if (!user) throw new Error('利用登録がありません。');
 
-  const staffs = readRows(SHEET.STAFFS);
-  const courses = readRows(SHEET.COURSES);
-  const vacancies = readRows(SHEET.VACANCIES);
+  const staffs = readRows_(SHEET.STAFFS);
+  const courses = readRows_(SHEET.COURSES);
+  const vacancies = readRows_(SHEET.VACANCIES);
   const ctx = { staffs: staffs, courses: courses, vacancies: vacancies };
   const today = todayJst_();
   const isStaff = user.role === ROLE_STAFF;
@@ -520,7 +520,7 @@ function getOpenVacancies() {
   courses.forEach(function (c) { courseById[String(c.course_id).trim()] = c; });
   const periodById = buildPeriodMap_();
   const periodOrder = {};
-  readRows(SHEET.PERIODS).forEach(function (p, i) { periodOrder[String(p.period).trim()] = i; });
+  readRows_(SHEET.PERIODS).forEach(function (p, i) { periodOrder[String(p.period).trim()] = i; });
 
   // かたまりごとにまとめる（group_id が空なら1件で1つ）
   const groups = {};
@@ -609,7 +609,7 @@ function pad2_(n) { return (n < 10 ? '0' : '') + n; }
  */
 function tryTransitionVacancy_(vacancyId, direction, updates) {
   if (direction === 'settle') {
-    const claim = claimIfEmpty(SHEET.VACANCIES, 'vacancy_id', vacancyId, 'result', updates);
+    const claim = claimIfEmpty_(SHEET.VACANCIES, 'vacancy_id', vacancyId, 'result', updates);
     return { ok: claim.ok, applied: claim.claimed, current: claim.current };
   }
   if (direction === 'reopen') {
@@ -710,7 +710,7 @@ function suggestSettleResult_(course, dateStr, absentStaffId) {
   const absentId = String(absentStaffId).trim();
 
   const absentSameSlot = {};
-  readRows(SHEET.VACANCIES).forEach(function (v) {
+  readRows_(SHEET.VACANCIES).forEach(function (v) {
     if (String(v.course_id).trim() === courseId && dateToStr_(v.date) === dateStr) {
       const a = String(v.absent_staff_id).trim();
       if (a) absentSameSlot[a] = true;
@@ -747,9 +747,9 @@ function getVacanciesForManage() {
 
   // 各シートは一度だけ読み、findCandidates_ に ctx として渡して
   // 欠員ごとのフルリード（courses/staffs/vacancies）を防ぐ（最適化）。
-  const allStaffs = readRows(SHEET.STAFFS);
-  const allCourses = readRows(SHEET.COURSES);
-  const allVacancies = readRows(SHEET.VACANCIES);
+  const allStaffs = readRows_(SHEET.STAFFS);
+  const allCourses = readRows_(SHEET.COURSES);
+  const allVacancies = readRows_(SHEET.VACANCIES);
   const ctx = { staffs: allStaffs, courses: allCourses, vacancies: allVacancies };
 
   const nameById = {};
@@ -762,14 +762,14 @@ function getVacanciesForManage() {
 
   // 連絡先（電話）。連絡先DBは職員のみ＝この画面（職員限定）でのみ表示する（D4）。
   const phoneById = {};
-  readRows(SHEET.CONTACTS).forEach(function (c) {
+  readRows_(SHEET.CONTACTS).forEach(function (c) {
     phoneById[String(c.staff_id).trim()] = String(c.phone || '').trim();
   });
 
   // 欠員ごとの回答をまとめる（＋ staff_id → answer の索引）
   const responsesByVacancy = {};
   const answerByVacancy = {};
-  readRows(SHEET.RESPONSES).forEach(function (r) {
+  readRows_(SHEET.RESPONSES).forEach(function (r) {
     const vid = String(r.vacancy_id).trim();
     const sid = String(r.staff_id).trim();
     if (!responsesByVacancy[vid]) responsesByVacancy[vid] = [];
@@ -852,7 +852,7 @@ function confirmSubstitute(vacancyId, substituteStaffId) {
   // 確定を関係者へ通知（先着確定と挙動を揃える・review #8）
   var notify;
   try {
-    notify = notifyVacancyFilled(vacancyId, substituteStaffId);
+    notify = notifyVacancyFilled_(vacancyId, substituteStaffId);
   } catch (e) {
     notify = { error: e.message };
   }
@@ -875,7 +875,7 @@ function setVacancyResult(vacancyId, result) {
   // 募集終了を候補者へ通知（先着確定と挙動を揃える・review #8）
   var notify;
   try {
-    notify = notifyVacancyClosed(vacancyId, result);
+    notify = notifyVacancyClosed_(vacancyId, result);
   } catch (e) {
     notify = { error: e.message };
   }
@@ -892,8 +892,8 @@ function reopenVacancy(vacancyId) {
 
   // 締切を過ぎてから開き直すのか、まだ募集できる時間帯なのかで挙動が変わる（D22）。
   // 判定に使うコマは、reopen の書き込み前に引いておく（ロックの中で別シートを読まない）。
-  const cur = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
-  const curCourse = cur ? findRow(SHEET.COURSES, 'course_id', cur.course_id) : null;
+  const cur = findRow_(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+  const curCourse = cur ? findRow_(SHEET.COURSES, 'course_id', cur.course_id) : null;
   const pastDeadline = cur && curCourse
     ? isPastRecruitDeadline_(dateToStr_(cur.date), curCourse.period)
     : false;
@@ -918,7 +918,7 @@ function reopenVacancy(vacancyId) {
   var released = null;
   if (prevSub) {
     try {
-      released = notifySubstituteReleased(vacancyId, prevSub);
+      released = notifySubstituteReleased_(vacancyId, prevSub);
     } catch (e) {
       released = { error: e.message };
     }
@@ -926,7 +926,7 @@ function reopenVacancy(vacancyId) {
 
   // 候補者へ再募集を送る（backlog 10-4）。
   // 従来は notify_status を戻すだけで再送経路が無く、全候補が「募集終了」を受信済みのまま
-  // 誰にも再依頼が届かず無人で当日を迎える恐れがあった。notifyNewVacancy を再利用する。
+  // 誰にも再依頼が届かず無人で当日を迎える恐れがあった。notifyNewVacancy_ を再利用する。
   //
   // ただし締切を過ぎているなら再募集はしない（D22）。respondToVacancy が締切超過の回答を
   // 弾くため、依頼を送っても候補は答えられず「押せないボタン」を配るだけになる。
@@ -936,7 +936,7 @@ function reopenVacancy(vacancyId) {
     reNotify = { skipped: true, reason: '締切を過ぎているため再募集は行いません（職員が決着します）。' };
   } else {
     try {
-      reNotify = notifyNewVacancy(vacancyId, true);
+      reNotify = notifyNewVacancy_(vacancyId, true);
     } catch (e) {
       reNotify = { error: e.message };
     }
@@ -957,7 +957,7 @@ function reopenVacancy(vacancyId) {
  * 「締切前に登録され、誰も承諾しないまま締切に達した」欠員を閉じる契機が存在しなかった。
  * 補充できずに当日を迎える欠員こそ職員が最も早く知る必要があるのに、通知が一切出なかった。
  *
- * 二重通知の防止：close_notified_at が空のときだけ処理者になる（claimIfEmpty の CAS）。
+ * 二重通知の防止：close_notified_at が空のときだけ処理者になる（claimIfEmpty_ の CAS）。
  * マークしてから通知するので、通知の途中で実行が落ちたときは「通知が届かない」側に倒れる。
  * 逆順（通知→マーク）にすると落ちるたびに全員へ再送されるため、こちらを選ぶ。
  *
@@ -987,11 +987,11 @@ function closeExpiredRecruits(verbose, onlyVacancyIds) {
 
   const today = todayJst_();
   const courseById = {};
-  readRows(SHEET.COURSES).forEach(function (c) {
+  readRows_(SHEET.COURSES).forEach(function (c) {
     courseById[String(c.course_id).trim()] = c;
   });
 
-  readRows(SHEET.VACANCIES).forEach(function (v) {
+  readRows_(SHEET.VACANCIES).forEach(function (v) {
     const vid = String(v.vacancy_id).trim();
     if (!vid) return;
     if (only && only.indexOf(vid) === -1) return;             // e2e で対象を限定しているとき
@@ -1003,7 +1003,7 @@ function closeExpiredRecruits(verbose, onlyVacancyIds) {
     if (!isPastRecruitDeadline_(dateStr, course.period)) return; // まだ募集中
     out.scanned++;
 
-    const claim = claimIfEmpty(SHEET.VACANCIES, 'vacancy_id', vid, 'close_notified_at',
+    const claim = claimIfEmpty_(SHEET.VACANCIES, 'vacancy_id', vid, 'close_notified_at',
       { close_notified_at: nowString_() });
     if (!claim.ok || !claim.claimed) return;  // 別の実行が先に処理した
 
@@ -1016,7 +1016,7 @@ function closeExpiredRecruits(verbose, onlyVacancyIds) {
     }
 
     try {
-      notifyRecruitClosed(vid, RECRUIT_CLOSE_REASON.DEADLINE_REACHED,
+      notifyRecruitClosed_(vid, RECRUIT_CLOSE_REASON.DEADLINE_REACHED,
         suggestSettleResult_(course, dateStr, String(v.absent_staff_id).trim()));
       out.notified.push(vid);
       say('・' + vid + '（' + dateStr + ' ' + course.day + course.period + '限）の募集をクローズ、職員へ通知');
@@ -1055,7 +1055,7 @@ function findCandidates_(course, excludeStaffIds, date, ctx) {
   const supportType = String(course.support_type || '').trim();        // テイク / 介助
   const busy = busyStaffIds_(course, date, ctx);
 
-  const allStaffs = (ctx && ctx.staffs) || readRows(SHEET.STAFFS);
+  const allStaffs = (ctx && ctx.staffs) || readRows_(SHEET.STAFFS);
   return allStaffs
     .filter(function (s) {
       const id = String(s.staff_id).trim();
@@ -1093,7 +1093,7 @@ function busyStaffIds_(course, date, ctx) {
   const courseId = String(course.course_id).trim();
 
   // 同一スロットで「埋まっている」学生（ダブルブッキング除外用）
-  const allCourses = (ctx && ctx.courses) || readRows(SHEET.COURSES);
+  const allCourses = (ctx && ctx.courses) || readRows_(SHEET.COURSES);
   const slotOf = {};   // course_id → day+period
   const busy = {};     // staff_id → そのスロットは空けられない
   allCourses.forEach(function (c) {
@@ -1114,7 +1114,7 @@ function busyStaffIds_(course, date, ctx) {
   // date 指定時：その日・同スロットで既に代行確定済みの学生も除外
   if (date) {
     const target = dateToStr_(date);
-    const allVacancies = (ctx && ctx.vacancies) || readRows(SHEET.VACANCIES);
+    const allVacancies = (ctx && ctx.vacancies) || readRows_(SHEET.VACANCIES);
     allVacancies.forEach(function (v) {
       const sub = String(v.substitute_staff_id || '').trim();
       if (!sub) return;
@@ -1198,7 +1198,7 @@ function absenceBlockOf_(course, staffId, dateStr) {
   const out = [];
   const type = String(course.support_type || '').trim();
   const id = String(staffId).trim();
-  const all = readRows(SHEET.COURSES);
+  const all = readRows_(SHEET.COURSES);
 
   const attached = function (side) {
     const mv = attachedMovePeriod_(course.period, type, side);
@@ -1225,7 +1225,7 @@ function absenceBlockOf_(course, staffId, dateStr) {
 /** かたまりに含まれるコマの行（通知や候補抽出で使う・D45） */
 function blockCoursesOfVacancy_(vacancy) {
   return vacancyGroupOf_(vacancy)
-    .map(function (v) { return findRow(SHEET.COURSES, 'course_id', String(v.course_id).trim()); })
+    .map(function (v) { return findRow_(SHEET.COURSES, 'course_id', String(v.course_id).trim()); })
     .filter(Boolean);
 }
 
@@ -1233,7 +1233,7 @@ function blockCoursesOfVacancy_(vacancy) {
 function vacancyGroupOf_(vacancy) {
   const gid = String((vacancy && vacancy.group_id) || '').trim();
   if (!gid) return vacancy ? [vacancy] : [];
-  return readRows(SHEET.VACANCIES).filter(function (v) {
+  return readRows_(SHEET.VACANCIES).filter(function (v) {
     return String(v.group_id || '').trim() === gid;
   });
 }
@@ -1276,7 +1276,7 @@ function findCandidatesForBlock_(courses, excludeStaffIds, dateStr) {
  */
 function attachedMovePeriod_(period, supportType, side) {
   const key = String(period == null ? '' : period).trim();
-  const rows = readRows(SHEET.PERIODS).filter(function (p) {
+  const rows = readRows_(SHEET.PERIODS).filter(function (p) {
     if (String(p.period).trim() === key) return false;
     // 通常の授業時限（support_types が空）は移動枠ではない
     if (!String(p.support_types || '').trim()) return false;
@@ -1291,7 +1291,7 @@ function attachedMovePeriod_(period, supportType, side) {
   if (declared) return declared;
 
   // 2) 宣言の無い枠だけを、時刻でつながっているかで探す
-  const target = readRows(SHEET.PERIODS).filter(function (p) {
+  const target = readRows_(SHEET.PERIODS).filter(function (p) {
     return String(p.period).trim() === key;
   })[0];
   if (!target) return null;
@@ -1342,7 +1342,7 @@ function periodAllowsSupportType_(periodRow, supportType) {
 // スタッフが指定コマの担当（A or B）か
 function courseDate_(course) {
   // セルがテキスト書式でないシートでは '2026-09-12' が**日付値**として保存され、
-  // readRows が Date を返す。生の String() を掛けると
+  // readRows_ が Date を返す。生の String() を掛けると
   // 'Sat Sep 12 2026 00:00:00 GMT+0900 (Japan Standard Time)' になり、
   // 時間割の照合（date === oneOffDate）が絶対に一致せず**そのコマが消える**。
   // エラーにならないので気づけない。10-6b（periods の時刻）と同じパターンなので、
@@ -1412,7 +1412,7 @@ function dateToStr_(d) {
 // staff_id → 氏名 のマップ
 function buildNameMap_() {
   const map = {};
-  readRows(SHEET.STAFFS).forEach(function (s) {
+  readRows_(SHEET.STAFFS).forEach(function (s) {
     map[String(s.staff_id).trim()] = s.name;
   });
   return map;
@@ -1442,7 +1442,7 @@ function periodStartMinutes_(value) {
 // period → periodsレコード のマップ
 function buildPeriodMap_() {
   const map = {};
-  readRows(SHEET.PERIODS).forEach(function (p) {
+  readRows_(SHEET.PERIODS).forEach(function (p) {
     map[String(p.period).trim()] = p;
   });
   return map;

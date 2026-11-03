@@ -35,7 +35,7 @@ const LOCK_TIMEOUT_MS = 15000;
 // GAS の1実行は数秒で終わる短命プロセスだが、従来はシートを読むたびに
 // SpreadsheetApp.openById() → getDataRange().getValues() を丸ごと走らせていた。
 // 候補者が「承諾」を1タップする経路（respondToVacancy → isCandidate_ →
-// notifyVacancyFilled）だけで同じシートを17回以上読み、さらに候補人数ぶん
+// notifyVacancyFilled_）だけで同じシートを17回以上読み、さらに候補人数ぶん
 // contacts を全読みしており、**先着確定（D1）の競合が起きるまさにその瞬間が
 // 最も遅い**という状態だった（ロック待ち LOCK_TIMEOUT_MS=15秒に接近する）。
 //
@@ -52,7 +52,7 @@ const LOCK_TIMEOUT_MS = 15000;
 //
 // ※ Sheets.gs を経由せず直接シートを書き換えるコード（Setup.js の各 migrate 等）は、
 //    書き換え後に invalidateSheetCache_() を呼ぶこと。
-// ※ readRows は毎回オブジェクトを組み直して返す（キャッシュしているのは生の値配列だけ）。
+// ※ readRows_ は毎回オブジェクトを組み直して返す（キャッシュしているのは生の値配列だけ）。
 //    呼び出し側が戻り値を書き換えても他の呼び出しに影響しない。
 
 var SS_CACHE_ = {};          // 'main' | 'contacts' → Spreadsheet
@@ -118,7 +118,7 @@ function readSheetData_(sheetName) {
  * 1行目をヘッダーとして扱い、完全に空の行は除外する。
  * 生データはキャッシュを使うが、オブジェクトは毎回組み直すので呼び出し側で自由に扱える。
  */
-function readRows(sheetName) {
+function readRows_(sheetName) {
   const data = readSheetData_(sheetName);
   const values = data.values;
   if (values.length < 2) return [];
@@ -141,8 +141,8 @@ function readRows(sheetName) {
  * 指定カラムが value と一致する最初の行を返す。なければ null。
  * 比較は文字列化して行う（ID等の型ゆれを吸収）。
  */
-function findRow(sheetName, columnName, value) {
-  const rows = readRows(sheetName);
+function findRow_(sheetName, columnName, value) {
+  const rows = readRows_(sheetName);
   for (var i = 0; i < rows.length; i++) {
     if (String(rows[i][columnName]).trim() === String(value).trim()) return rows[i];
   }
@@ -153,7 +153,7 @@ function findRow(sheetName, columnName, value) {
  * 指定カラムが value と一致する全行を返す。
  */
 /**
- * findRow の大文字小文字を無視する版。メールの照合に使う。
+ * findRow_ の大文字小文字を無視する版。メールの照合に使う。
  *
  * Google アカウントのメールは入力や表示で大小が揺れるため、contacts との突合を
  * 厳密一致にすると「登録してあるのに未登録扱い」になる（ログインできなくなる）。
@@ -161,15 +161,15 @@ function findRow(sheetName, columnName, value) {
  */
 function findRowCI_(sheetName, columnName, value) {
   const target = String(value).trim().toLowerCase();
-  const rows = readRows(sheetName);
+  const rows = readRows_(sheetName);
   for (var i = 0; i < rows.length; i++) {
     if (String(rows[i][columnName]).trim().toLowerCase() === target) return rows[i];
   }
   return null;
 }
 
-function filterRows(sheetName, columnName, value) {
-  return readRows(sheetName).filter(function (row) {
+function filterRows_(sheetName, columnName, value) {
+  return readRows_(sheetName).filter(function (row) {
     return String(row[columnName]).trim() === String(value).trim();
   });
 }
@@ -181,7 +181,7 @@ function filterRows(sheetName, columnName, value) {
  * ヘッダーに無いキーは無視し、足りないキーは空文字で埋める。
  */
 function appendRowValues_(sheet, sheetName, row) {
-  // **appendRow ではなく setValues で書く。**
+  // **Sheet.appendRow ではなく setValues で書く。**
   //
   // Sheet.appendRow はセルの表示形式を無視して値を解釈し直すため、テキスト固定にした列でも
   // '2' が**数値 2**に、'2026-09-12' が**日付値**に化ける（courses.period / courses.date /
@@ -194,7 +194,7 @@ function appendRowValues_(sheet, sheetName, row) {
   return rowNumber;
 }
 
-function appendRow(sheetName, rowObject) {
+function appendRow_(sheetName, rowObject) {
   return withLock_(function () {
     const sheet = getSheet_(sheetName);
     const headers = getHeaders_(sheetName);
@@ -211,7 +211,7 @@ function appendRow(sheetName, rowObject) {
  * keyColumn が keyValue と一致する行を、updates の内容で部分更新する。
  * updates に含まれるカラムのみ書き換える。更新できたら true、対象が無ければ false。
  */
-function updateRow(sheetName, keyColumn, keyValue, updates) {
+function updateRow_(sheetName, keyColumn, keyValue, updates) {
   return withLock_(function () {
     const sheet = getSheet_(sheetName);
     const data = readSheetData_(sheetName); // ロック取得時にキャッシュは捨てられているので実データ
@@ -287,7 +287,7 @@ function updateRowIfGuard_(sheetName, keyColumn, keyValue, guardColumn, mode, up
  *   ok=true, claimed=true : 確保成功（先着でこの呼び出しが書き込んだ）
  *   ok=true, claimed=false: 既に guardColumn が埋まっていた（current に確保前の行内容）
  */
-function claimIfEmpty(sheetName, keyColumn, keyValue, guardColumn, updates) {
+function claimIfEmpty_(sheetName, keyColumn, keyValue, guardColumn, updates) {
   const res = updateRowIfGuard_(sheetName, keyColumn, keyValue, guardColumn, 'empty', updates);
   return { ok: res.ok, claimed: res.applied, current: res.current };
 }
@@ -299,7 +299,7 @@ function claimIfEmpty(sheetName, keyColumn, keyValue, guardColumn, updates) {
  * 既存の idColumn の最大連番+1 を採番する。LockService 内で呼ぶこと前提。
  */
 function nextId_(sheetName, idColumn, prefix) {
-  const rows = readRows(sheetName);
+  const rows = readRows_(sheetName);
   var max = 0;
   rows.forEach(function (row) {
     const id = String(row[idColumn]);
@@ -318,7 +318,7 @@ function nextId_(sheetName, idColumn, prefix) {
  * 連番IDを採番しつつ1行を追記する。採番と追記を同一ロック内で行い競合を防ぐ。
  * rowObject の idColumn は自動採番で上書きする。生成したIDを返す。
  */
-function appendRowWithId(sheetName, idColumn, prefix, rowObject) {
+function appendRowWithId_(sheetName, idColumn, prefix, rowObject) {
   return withLock_(function () {
     const id = nextId_(sheetName, idColumn, prefix);
     const sheet = getSheet_(sheetName);
@@ -341,7 +341,7 @@ function appendRowWithId(sheetName, idColumn, prefix, rowObject) {
  * responses（vacancy_id + staff_id で1件）のような複合キー更新に使う。
  * @return {'updated'|'inserted'}
  */
-function upsertRow(sheetName, matchObj, rowObject) {
+function upsertRow_(sheetName, matchObj, rowObject) {
   return withLock_(function () {
     const sheet = getSheet_(sheetName);
     const data = readSheetData_(sheetName); // ロック取得時にキャッシュは捨てられているので実データ
@@ -374,7 +374,7 @@ function upsertRow(sheetName, matchObj, rowObject) {
  * keyColumn が keyValue と一致する行を物理削除する。削除件数を返す。
  * 下の行から走査するため、複数一致でも行番号がずれず安全。LockServiceで保護。
  */
-function deleteRowByKey(sheetName, keyColumn, keyValue) {
+function deleteRowByKey_(sheetName, keyColumn, keyValue) {
   return withLock_(function () {
     const sheet = getSheet_(sheetName);
     const data = readSheetData_(sheetName); // ロック取得時にキャッシュは捨てられているので実データ

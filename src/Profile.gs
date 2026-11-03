@@ -32,13 +32,13 @@ function getMyProfile() {
   const user = getCurrentUser_();
   if (!user) throw new Error('利用登録がありません。');
 
-  const staff = findRow(SHEET.STAFFS, 'staff_id', user.staff_id);
-  const contact = findRow(SHEET.CONTACTS, 'staff_id', user.staff_id);
+  const staff = findRow_(SHEET.STAFFS, 'staff_id', user.staff_id);
+  const contact = findRow_(SHEET.CONTACTS, 'staff_id', user.staff_id);
   const isStudent = String(user.role).trim() !== ROLE_STAFF;
 
   // 空きコマの選択肢（曜日 × 時限）。曜日は WORK_DAYS（Constants.gs）、時限は時限マスタが唯一の出所。
   // 業務ごとに選べる時限が違いうるので（介助だけの移動枠など・D32）、どの業務で出せるかも返す。
-  const periodRows = readRows(SHEET.PERIODS).filter(function (p) {
+  const periodRows = readRows_(SHEET.PERIODS).filter(function (p) {
     return String(p.period).trim();
   });
   const periods = periodRows.map(function (p) {
@@ -89,7 +89,7 @@ function updateMyProfile(payload) {
   const isStudent = String(user.role).trim() !== ROLE_STAFF;
   const warnings = [];
 
-  const phone = String(p.phone || '').trim();
+  const phone = validatePhone_(p.phone);
   const webhook = String(p.webhook_url || '').trim();
 
   // Webhook は宛先を間違えると他人のスペースへ通知が飛ぶので、形式が合うときだけ受け付ける。
@@ -100,7 +100,7 @@ function updateMyProfile(payload) {
   if (!webhook) warnings.push('Webhook URL が未登録です。代行依頼の通知が届きません。');
   if (!phone) warnings.push('電話番号が未登録です。返信が無いときに職員が連絡できません。');
 
-  const contactUpdated = updateRow(SHEET.CONTACTS, 'staff_id', user.staff_id, {
+  const contactUpdated = updateRow_(SHEET.CONTACTS, 'staff_id', user.staff_id, {
     phone: phone, webhook_url: webhook,
   });
   if (!contactUpdated) throw new Error('連絡先の行が見つかりませんでした。職員にお問い合わせください。');
@@ -111,7 +111,7 @@ function updateMyProfile(payload) {
   var skillsCsv = '';
   var updatedAt = '';
   if (isStudent) {
-    const staffRow = findRow(SHEET.STAFFS, 'staff_id', user.staff_id);
+    const staffRow = findRow_(SHEET.STAFFS, 'staff_id', user.staff_id);
     updatedAt = nowString_();
 
     const updates = { slots_updated_at: updatedAt };
@@ -145,7 +145,7 @@ function updateMyProfile(payload) {
 
     // 保存のたびに日時を更新する。値が変わらなくても「今学期これで出し直した」という
     // 本人の確認なので、職員が「まだ出していない人」を見分けられるようにする（D28）。
-    const staffUpdated = updateRow(SHEET.STAFFS, 'staff_id', user.staff_id, updates);
+    const staffUpdated = updateRow_(SHEET.STAFFS, 'staff_id', user.staff_id, updates);
     if (!staffUpdated) throw new Error('名簿の行が見つかりませんでした。職員にお問い合わせください。');
 
     // 「対応できる業務に入れているのに、その業務の空きコマが空」だけを警告する。
@@ -198,7 +198,7 @@ function normalizeSlots_(slots, supportType) {
   const validDay = {};
   WORK_DAYS.forEach(function (d) { validDay[d] = true; });
   const validPeriod = {};
-  readRows(SHEET.PERIODS).forEach(function (p) {
+  readRows_(SHEET.PERIODS).forEach(function (p) {
     const key = String(p.period).trim();
     if (!key) return;
     if (supportType && !periodAllowsSupportType_(p, supportType)) return;
@@ -268,7 +268,7 @@ function droppedSkillWarning_(staffId, staff, skillsCsv) {
 
   const id = String(staffId).trim();
   const counts = {};
-  readRows(SHEET.COURSES).forEach(function (c) {
+  readRows_(SHEET.COURSES).forEach(function (c) {
     const type = String(c.support_type || '').trim();
     if (dropped.indexOf(type) === -1) return;
     if (String(c.staff_a_id).trim() !== id && String(c.staff_b_id).trim() !== id) return;

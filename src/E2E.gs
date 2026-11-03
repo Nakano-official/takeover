@@ -28,6 +28,7 @@
  * @param {{notify?:boolean}} [opts] notify=true で確定・再募集の実通知も送る（既定 false）。
  */
 function e2eVacancyFlow(opts) {
+  requireEditorRun_();
   opts = opts || {};
   const notify = !!opts.notify;
   const say = function (m) { Logger.log(m); };
@@ -38,7 +39,7 @@ function e2eVacancyFlow(opts) {
 
   say('===== 機能A 実機e2e（内部関数駆動・ダミーDB / 通知=' + (notify ? 'ON' : 'OFF') + '）=====');
 
-  const courses = readRows(SHEET.COURSES);
+  const courses = readRows_(SHEET.COURSES);
   if (!courses.length) throw new Error('courses が空です。setupSpreadsheets を実行してください。');
 
   // 先着競合を実際に試すため「候補が2人以上」のコマを探す（無ければ候補最多のコマ）。
@@ -57,7 +58,7 @@ function e2eVacancyFlow(opts) {
     ' / ' + course.user_student + '）欠勤=' + absentId + ' 対象日=' + date);
 
   // 欠員を登録（submitAbsence の書き込み相当）
-  const vacancyId = appendRowWithId(SHEET.VACANCIES, 'vacancy_id', 'V', {
+  const vacancyId = appendRowWithId_(SHEET.VACANCIES, 'vacancy_id', 'V', {
     date: date, course_id: courseId, absent_staff_id: absentId,
     notify_status: NOTIFY_STATUS_PENDING, result: '',
   });
@@ -75,15 +76,15 @@ function e2eVacancyFlow(opts) {
       const r2 = tryTransitionVacancy_(vacancyId, 'settle', { result: VACANCY_RESULT.FILLED, substitute_staff_id: B });
       assert(r1.applied === true, '先着A（' + A + '）が確定');
       assert(r2.applied === false, '後着B（' + B + '）は確定不可（受付終了）');
-      const v = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+      const v = findRow_(SHEET.VACANCIES, 'vacancy_id', vacancyId);
       assert(String(v.result).trim() === VACANCY_RESULT.FILLED, 'result=補充済');
       assert(String(v.substitute_staff_id).trim() === A, '代行者=先着A（後着で上書きされない）');
-      if (notify) { notifyVacancyFilled(vacancyId, A); say('  （確定通知を送信）'); }
+      if (notify) { notifyVacancyFilled_(vacancyId, A); say('  （確定通知を送信）'); }
     } else if (cds.length === 1) {
       const A2 = String(cds[0].staff_id).trim();
       const r = tryTransitionVacancy_(vacancyId, 'settle', { result: VACANCY_RESULT.FILLED, substitute_staff_id: A2 });
       assert(r.applied === true, '唯一候補A（' + A2 + '）が確定');
-      if (notify) { notifyVacancyFilled(vacancyId, A2); }
+      if (notify) { notifyVacancyFilled_(vacancyId, A2); }
     } else {
       // 候補0人 → 自動決着の分岐（相方が残るか）。ここでは相方の有無だけ確認。
       say('  候補0人。自動決着（1人テイク/職員対応）の分岐は submitAbsence 経由で確認する。');
@@ -93,10 +94,10 @@ function e2eVacancyFlow(opts) {
     // 再オープン（決着 → 未決着）。旧値が current から読めること。
     const re = transitionVacancyOrThrow_(vacancyId, 'reopen',
       { result: '', substitute_staff_id: '', notify_status: NOTIFY_STATUS_PENDING });
-    const v2 = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+    const v2 = findRow_(SHEET.VACANCIES, 'vacancy_id', vacancyId);
     assert(String(v2.result).trim() === '', '再オープンで result がクリアされる');
     assert(re.current && !!String(re.current.result).trim(), '再オープンの current から旧決着値が読める');
-    if (notify) { notifyNewVacancy(vacancyId, true); say('  （再募集通知を送信）'); }
+    if (notify) { notifyNewVacancy_(vacancyId, true); say('  （再募集通知を送信）'); }
 
     // 二重再オープンは弾かれる（未決着への reopen は throw）
     var threw = false;
@@ -108,8 +109,8 @@ function e2eVacancyFlow(opts) {
     say('===== e2e 成功：実 LockService・実 Sheets で機能A中核を確認 =====');
   } finally {
     // 後片付け：作った欠員と紐づく回答を削除
-    const dv = deleteRowByKey(SHEET.VACANCIES, 'vacancy_id', vacancyId);
-    const dr = deleteRowByKey(SHEET.RESPONSES, 'vacancy_id', vacancyId);
+    const dv = deleteRowByKey_(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+    const dr = deleteRowByKey_(SHEET.RESPONSES, 'vacancy_id', vacancyId);
     say('後片付け: 欠員 ' + dv + ' 行 / 回答 ' + dr + ' 行を削除（' + vacancyId + '）');
   }
 }
@@ -135,6 +136,7 @@ function e2eVacancyFlow(opts) {
  * @param {{notify?:boolean}} [opts] notify=true で職員スペースへ実際に通知する（既定 false）
  */
 function e2eDeadlineFlow(opts) {
+  requireEditorRun_();
   opts = opts || {};
   const notify = !!opts.notify;
   const say = function (m) { Logger.log(m); };
@@ -164,7 +166,7 @@ function e2eDeadlineFlow(opts) {
   };
   // 一時時限の開始時刻を書き換える（＝授業時刻を動かす）
   const setStart = function (offsetMin) {
-    updateRow(SHEET.PERIODS, 'period', PERIOD, { start_time: at(offsetMin), end_time: at(offsetMin + 90) });
+    updateRow_(SHEET.PERIODS, 'period', PERIOD, { start_time: at(offsetMin), end_time: at(offsetMin + 90) });
     return at(offsetMin);
   };
 
@@ -178,15 +180,15 @@ function e2eDeadlineFlow(opts) {
 
   try {
     // ── 一時データを作る ──
-    appendRow(SHEET.PERIODS, { period: PERIOD, start_time: at(60), end_time: at(150) });
-    appendRow(SHEET.STAFFS, {
+    appendRow_(SHEET.PERIODS, { period: PERIOD, start_time: at(60), end_time: at(150) });
+    appendRow_(SHEET.STAFFS, {
       staff_id: 'ZTEST1', name: 'テスト候補', role: '学生', skills: 'テイク,介助', available_slots: SLOT,
     });
-    appendRow(SHEET.STAFFS, {
+    appendRow_(SHEET.STAFFS, {
       staff_id: 'ZTEST2', name: 'テスト相方', role: '学生', skills: 'テイク,介助', available_slots: '',
     });
     ['ZC1', 'ZC2'].forEach(function (cid) {
-      appendRow(SHEET.COURSES, {
+      appendRow_(SHEET.COURSES, {
         course_id: cid, quarter: TEST_Q, day: dayJp, period: PERIOD,
         support_type: 'テイク', user_student: 'テスト利用学生', subject: 'D21確認用',
         staff_a_id: me.staff_id, staff_b_id: 'ZTEST2', note: '★一時データ（e2eDeadlineFlow）',
@@ -197,7 +199,7 @@ function e2eDeadlineFlow(opts) {
     // ── 0) 時刻セルの型を確認（Date化していると締切判定も時刻表示も壊れる）──
     // periods のテキスト書式が既定7行ぶんしか無かった問題（migratePeriodsTextFormat）の確認も兼ねる。
     say('--- periods の時刻セルの型 ---');
-    readRows(SHEET.PERIODS).forEach(function (p) {
+    readRows_(SHEET.PERIODS).forEach(function (p) {
       const t = p.start_time;
       say('   ' + p.period + '限: ' + t + ' 〜 ' + p.end_time +
         '（型: ' + (t instanceof Date ? '⚠️Date' : typeof t) + ' → ' + periodStartMinutes_(t) + '分）');
@@ -224,7 +226,7 @@ function e2eDeadlineFlow(opts) {
     assert(late.candidates.length === 0, '代行候補への依頼を出さない');
     assert(late.recruitClosed === true, '募集はクローズされる（D22）');
     assert(late.suggestion === VACANCY_RESULT.SOLO, '相方 ZTEST2 が残るので「1人テイク」を職員へ提案する');
-    const vLate = findRow(SHEET.VACANCIES, 'vacancy_id', late.vacancy_id);
+    const vLate = findRow_(SHEET.VACANCIES, 'vacancy_id', late.vacancy_id);
     assert(!!vLate, '欠勤の記録自体は残る（登録はさせる）');
     assert(vLate && !String(vLate.result).trim(),
       'result は空のまま＝職員の決着待ち（D22：システムは決着させない）');
@@ -239,7 +241,7 @@ function e2eDeadlineFlow(opts) {
     assert(!early.lateAbsence, '従来どおり代行募集が走る（lateAbsence が立たない）');
     assert(early.candidates.length === 1 && String(early.candidates[0].staff_id).trim() === 'ZTEST1',
       '代行候補 ZTEST1 を抽出する');
-    const vEarly = findRow(SHEET.VACANCIES, 'vacancy_id', early.vacancy_id);
+    const vEarly = findRow_(SHEET.VACANCIES, 'vacancy_id', early.vacancy_id);
     assert(vEarly && !String(vEarly.result).trim(), '未解決のまま（回答待ち）になる');
     assert(vEarly && !String(vEarly.close_notified_at || '').trim(),
       'まだ募集中なので close_notified_at は空');
@@ -247,18 +249,18 @@ function e2eDeadlineFlow(opts) {
     // ── 4) 募集中に締切へ到達 → 時間トリガーがクローズする（D22 の中核）──
     // 対象を early の欠員1件に限定して走らせる（実データの欠員を巻き込まないため）。
     say('--- 締切到達の検知（closeExpiredRecruits）---');
-    assert(!isRecruitClosed_(vEarly, findRow(SHEET.COURSES, 'course_id', 'ZC2')),
+    assert(!isRecruitClosed_(vEarly, findRow_(SHEET.COURSES, 'course_id', 'ZC2')),
       '締切前は「募集クローズ」と判定されない');
 
     setStart(10); // 授業開始を10分後にずらす＝締切（30分前）を過ぎた状態にする
-    const vEarly2 = findRow(SHEET.VACANCIES, 'vacancy_id', early.vacancy_id);
-    assert(isRecruitClosed_(vEarly2, findRow(SHEET.COURSES, 'course_id', 'ZC2')),
+    const vEarly2 = findRow_(SHEET.VACANCIES, 'vacancy_id', early.vacancy_id);
+    assert(isRecruitClosed_(vEarly2, findRow_(SHEET.COURSES, 'course_id', 'ZC2')),
       '締切を過ぎると「募集クローズ」と判定される（保存ではなく毎回算出）');
 
     const tick1 = closeExpiredRecruits(false, [early.vacancy_id]);
     say('   1回目: ' + JSON.stringify(tick1));
     assert(tick1.scanned === 1, '締切超過の未決着欠員を1件拾う');
-    const vClosed = findRow(SHEET.VACANCIES, 'vacancy_id', early.vacancy_id);
+    const vClosed = findRow_(SHEET.VACANCIES, 'vacancy_id', early.vacancy_id);
     assert(vClosed && !String(vClosed.result).trim(),
       'トリガーは result を書かない（決着は職員・D22）');
     assert(vClosed && !!String(vClosed.close_notified_at).trim(),
@@ -280,18 +282,18 @@ function e2eDeadlineFlow(opts) {
     if (!notify && savedWebhook) props.setProperty(PROP_STAFF_WEBHOOK, savedWebhook);
     var removed = [];
     ['ZC1', 'ZC2'].forEach(function (cid) {
-      readRows(SHEET.VACANCIES)
+      readRows_(SHEET.VACANCIES)
         .filter(function (v) { return String(v.course_id).trim() === cid; })
         .forEach(function (v) {
-          deleteRowByKey(SHEET.RESPONSES, 'vacancy_id', v.vacancy_id);
-          deleteRowByKey(SHEET.VACANCIES, 'vacancy_id', v.vacancy_id);
+          deleteRowByKey_(SHEET.RESPONSES, 'vacancy_id', v.vacancy_id);
+          deleteRowByKey_(SHEET.VACANCIES, 'vacancy_id', v.vacancy_id);
           removed.push(v.vacancy_id);
         });
-      deleteRowByKey(SHEET.COURSES, 'course_id', cid);
+      deleteRowByKey_(SHEET.COURSES, 'course_id', cid);
     });
-    deleteRowByKey(SHEET.STAFFS, 'staff_id', 'ZTEST1');
-    deleteRowByKey(SHEET.STAFFS, 'staff_id', 'ZTEST2');
-    deleteRowByKey(SHEET.PERIODS, 'period', PERIOD);
+    deleteRowByKey_(SHEET.STAFFS, 'staff_id', 'ZTEST1');
+    deleteRowByKey_(SHEET.STAFFS, 'staff_id', 'ZTEST2');
+    deleteRowByKey_(SHEET.PERIODS, 'period', PERIOD);
     say('後片付け: 一時データを削除しました（欠員 ' + (removed.join('・') || 'なし') +
       ' / courses ZC1・ZC2 / staffs ZTEST1・ZTEST2 / periods ' + PERIOD + '）');
     say('   ※ 残っていたら、上記のIDでシートから手動削除してください。');

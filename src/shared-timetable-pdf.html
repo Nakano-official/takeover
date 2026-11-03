@@ -1,0 +1,337 @@
+<!--
+  受講登録確認表（履修登録の PDF）を読み取る部品（D52）。
+
+  使い方：画面のスクリプトより前に <?!= include('shared-timetable-pdf') ?> を置き、
+    tpdfReadFile(file)          … PDF を読んで { year, semester, studentName, rows, problems } を返す（Promise）
+    tpdfPlan(parsed, ctx)       … 読み取り結果を、学期つきのカードへ振り分ける（純粋関数）
+
+  ■ PDF は職員のブラウザの中だけで読む。サーバーにも Drive にも上げない。
+    サーバーへ届くのは、職員が確認して「登録」を押したコマの中身だけ（いまの手入力と同じ）。
+  ■ pdf.js は「読み込む」を押したときだけ CDN から取る。画面を開くたびには読まない。
+    取れなかったら手入力がそのまま使える（読み取りは唯一の入り口ではない）。
+  ■ 読むのは 2026 年からの「一覧表」の形（1行＝1コマ）。2024 年までの時間割の格子の形は読まない。
+    列の位置は**見出し行から決める**（数字を決め打ちしない）。余白が少し変わっても崩れないように。
+
+  tpdfParsePages / tpdfPlan は DOM も pdf.js も触らない。tools/sim-timetable-pdf.js が
+  架空の座標データで直接呼んで確かめている。
+-->
+<script>
+  // pdf.js は版を固定し、本体も worker もハッシュで中身を固定する（すり替わったら動かさない）。
+  // cdnjs の配布物が npm の pdfjs-dist@3.11.174 と同一であることを確認済み。
+  // 版を上げるときは2つの SRI を計算し直すこと：
+  //   openssl dgst -sha384 -binary pdf.min.js | openssl base64 -A
+  var TPDF_LIB_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+  var TPDF_LIB_SRI = 'sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e';
+  var TPDF_WORKER_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  var TPDF_WORKER_SRI = 'sha384-SnzOobpRMLXZ52iJvZm/C0fYw0OQemTXzTjIsdsfMcrCtCEe9qgzxTd3RSklO5x2';
+
+  var TPDF_DAYS = ['月', '火', '水', '木', '金', '土', '日'];
+  // 見出しの文字 → 列の名前。見出しは字を離して書かれる（「授 業 科 目 名」）ので、つなげてから引く
+  var TPDF_HEADS = {
+    '曜日': 'day', '講時': 'period', '開講期': 'term', '時間割番号': 'code', '区分': 'status',
+    '授業科目名': 'subject', '単位': 'units', '制限外': 'extra', '開講学舎': 'campus',
+    '担当教員名': 'instructor', '備考': 'note'
+  };
+
+  function tpdfZ2h_(s) {
+    return String(s).replace(/[０-９Ａ-Ｚａ-ｚ]/g, function (c) {
+      return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
+    });
+  }
+  function tpdfSqueeze_(s) { return String(s).replace(/[\s　]/g, ''); }
+
+  // ===== pdf.js の読み込みと、文字の取り出し（ブラウザでだけ動く）=====
+
+  var tpdfLibPromise_ = null;
+  function tpdfLoadLib_() {
+    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+    if (tpdfLibPromise_) return tpdfLibPromise_;
+    tpdfLibPromise_ = new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = TPDF_LIB_URL;
+      s.integrity = TPDF_LIB_SRI;
+      s.crossOrigin = 'anonymous';
+      s.onload = function () {
+        if (!window.pdfjsLib) { reject(new Error('PDFの読み取り部品を読み込めませんでした。')); return; }
+        // worker（PDF の中身を実際に解析する部分）は pdf.js に URL を渡すと SRI を掛けられない。
+        // 万一 CDN の中身がすり替わると、学生の氏名・時間割を外へ送るコードが動きうる。
+        // そこで**自分で取ってきてハッシュを確かめ**、確かめた中身だけを blob として渡す。
+        fetch(TPDF_WORKER_URL, { integrity: TPDF_WORKER_SRI, mode: 'cors', credentials: 'omit' })
+          .then(function (r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.blob();
+          })
+          .then(function (b) {
+            var url = URL.createObjectURL(new Blob([b], { type: 'text/javascript' }));
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = url;
+            resolve(window.pdfjsLib);
+          })
+          .catch(function (e) {
+            tpdfLibPromise_ = null;
+            reject(new Error('PDFの読み取り部品を確認できませんでした（' + (e && e.message ? e.message : e) + '）。'
+              + '手入力はそのまま使えます。'));
+          });
+      };
+      s.onerror = function () {
+        tpdfLibPromise_ = null;   // 次に押したときにもう一度試せるように
+        reject(new Error('PDFの読み取り部品を読み込めませんでした（ネットワークを確認してください）。'
+          + '手入力はそのまま使えます。'));
+      };
+      document.head.appendChild(s);
+    });
+    return tpdfLibPromise_;
+  }
+
+  /**
+   * PDF の各ページから、文字と位置を取り出す。
+   * 受講登録確認表は 90° 回転したページなので、表示の向き（viewport）へ直してから返す。
+   * @return {Promise<Array<Array<{x,y,w,s}>>>} ページごとの文字（y は上から）
+   */
+  function tpdfReadItems_(file) {
+    return tpdfLoadLib_().then(function (lib) {
+      return file.arrayBuffer().then(function (buf) {
+        // isEvalSupported:false … 細工した PDF でスクリプトが走る穴（CVE-2024-4367）を塞ぐ設定
+        return lib.getDocument({ data: new Uint8Array(buf), isEvalSupported: false, disableFontFace: true }).promise;
+      }).then(function (doc) {
+        var pages = [];
+        var chain = Promise.resolve();
+        for (var p = 1; p <= doc.numPages; p++) {
+          (function (no) {
+            chain = chain.then(function () { return doc.getPage(no); }).then(function (page) {
+              var vp = page.getViewport({ scale: 1 });
+              return page.getTextContent().then(function (tc) {
+                pages.push(tc.items.filter(function (i) { return i.str && i.str.trim(); }).map(function (i) {
+                  var m = lib.Util.transform(vp.transform, i.transform);
+                  return { x: m[4], y: m[5], w: i.width, s: i.str };
+                }));
+              });
+            });
+          })(p);
+        }
+        return chain.then(function () { return pages; });
+      });
+    });
+  }
+
+  /** PDF を読んで、受講登録確認表の中身を返す */
+  function tpdfReadFile(file) {
+    return tpdfReadItems_(file).then(tpdfParsePages);
+  }
+
+  // ===== 座標から表を組み立てる（DOM も pdf.js も触らない）=====
+
+  // 同じ高さの文字を1行にまとめる（科目名だけ 1.5 ほど上にずれるので、許容を持たせる）
+  function tpdfLines_(items) {
+    var sorted = items.slice().sort(function (a, b) { return a.y - b.y || a.x - b.x; });
+    var lines = [];
+    sorted.forEach(function (it) {
+      var last = lines[lines.length - 1];
+      if (last && Math.abs(it.y - last.y) <= 4) last.items.push(it);
+      else lines.push({ y: it.y, items: [it] });
+    });
+    lines.forEach(function (l) { l.items.sort(function (a, b) { return a.x - b.x; }); });
+    return lines;
+  }
+
+  /**
+   * 見出し行から列の境目を作る。
+   * 中身は左寄せ・見出しは中央寄せなので、見出しの左端では切れない。
+   * **列の左端＝ひとつ前の見出しの右端**とする。
+   */
+  function tpdfColumns_(line) {
+    var words = [];
+    line.items.forEach(function (it) {
+      var t = tpdfSqueeze_(it.s);
+      var last = words[words.length - 1];
+      // 1文字ずつ離した見出し（「授 業 科 目 名」「備　　考」）をつなぐ
+      if (last && last.single && t.length === 1 && it.x - last.end < 45) {
+        last.s += t; last.end = it.x + it.w;
+      } else {
+        words.push({ x: it.x, end: it.x + it.w, s: t, single: t.length === 1 });
+      }
+    });
+    var cols = [];
+    words.forEach(function (w, k) {
+      var key = TPDF_HEADS[w.s];
+      if (key) cols.push({ key: key, from: k > 0 ? words[k - 1].end : -Infinity });
+    });
+    var keys = cols.map(function (c) { return c.key; });
+    if (keys.indexOf('day') === -1 || keys.indexOf('code') === -1 || keys.indexOf('subject') === -1) return null;
+    return cols;
+  }
+
+  function tpdfColOf_(cols, x) {
+    var key = null;
+    cols.forEach(function (c) { if (x >= c.from) key = c.key; });
+    return key;
+  }
+
+  /**
+   * ページごとの文字から、受講登録確認表の中身を組み立てる。
+   * 1行＝「時間割番号」の列に番号がある行。番号を起点にするので、曜日が読めない行も
+   * 黙って落ちず problems に出る。
+   *
+   * @param {Array<Array<{x,y,w,s}>>} pages
+   * @return {{year:string, semester:string, studentName:string,
+   *           rows:Array<{day,period,term,code,subject,instructor,intensive}>, problems:string[]}}
+   */
+  function tpdfParsePages(pages) {
+    var out = { year: '', semester: '', studentName: '', rows: [], problems: [] };
+    var cols = null;      // 見出しの無い2ページ目以降は、前のページの列を使う
+    var sawHeader = false;
+
+    (pages || []).forEach(function (items) {
+      var lines = tpdfLines_(items);
+      var headIdx = -1;
+      lines.forEach(function (l, i) {
+        // 表の上の情報（年度・学期・氏名）
+        l.items.forEach(function (it, j) {
+          var t = tpdfSqueeze_(it.s);
+          var y = /^(\d{4})年度/.exec(tpdfZ2h_(t));
+          if (y && !out.year) out.year = y[1];
+          var s = /(前期|後期)履修登録/.exec(t);
+          if (s && !out.semester) out.semester = s[1];
+          if (t.indexOf('氏名') !== -1 && !out.studentName) {
+            out.studentName = tpdfNameAfter_(l.items.slice(j + 1));
+          }
+        });
+        if (headIdx === -1) {
+          var c = tpdfColumns_(l);
+          if (c) { cols = c; headIdx = i; sawHeader = true; }
+        }
+      });
+      if (!cols) return;
+
+      lines.forEach(function (l, i) {
+        if (headIdx !== -1 && i <= headIdx) return;
+        var cell = {};
+        l.items.forEach(function (it) {
+          var key = tpdfColOf_(cols, it.x);
+          if (!key) return;
+          (cell[key] = cell[key] || []).push(String(it.s).trim());
+        });
+        var code = tpdfSqueeze_((cell.code || []).join(''));
+        if (!/^[A-Z][A-Z0-9]{3,11}$/.test(tpdfZ2h_(code))) return;   // 表の行ではない
+
+        var dayRaw = tpdfSqueeze_((cell.day || []).join(''));
+        var perRaw = tpdfZ2h_(tpdfSqueeze_((cell.period || []).join('')));
+        // 「月３」のように曜日と時限がくっついて1つの文字になっている場合にも備える
+        var m = /^([月火水木金土日])([0-9]*)$/.exec(tpdfZ2h_(dayRaw));
+        var row = {
+          day: '', period: '', intensive: false,
+          term: tpdfZ2h_(tpdfSqueeze_((cell.term || []).join(''))),
+          code: tpdfZ2h_(code),
+          subject: (cell.subject || []).join('').trim(),
+          instructor: (cell.instructor || []).join('　').trim(),
+        };
+        if (dayRaw === '集中') {
+          row.intensive = true;
+        } else if (m) {
+          row.day = m[1];
+          row.period = m[2] || perRaw;
+        }
+        out.rows.push(row);
+      });
+    });
+
+    if (!sawHeader) {
+      out.problems.push('受講登録確認表の一覧（曜日・講時・時間割番号…の見出し）が見つかりませんでした。'
+        + '2026年度以降の「受講登録確認表」のPDFか確認してください。');
+    }
+    return out;
+  }
+
+  // 「学籍番号／氏名」の右：学籍番号を飛ばし、フリガナの「（」の手前までを氏名とする
+  function tpdfNameAfter_(items) {
+    var parts = [];
+    for (var i = 0; i < items.length; i++) {
+      var t = String(items[i].s).trim();
+      if (/^[A-Za-zＡ-Ｚ]?[0-9０-９]{5,}$/.test(t)) continue;   // 学籍番号
+      var cut = t.search(/[（(]/);
+      if (cut !== -1) { if (cut > 0) parts.push(t.slice(0, cut)); break; }
+      parts.push(t);
+    }
+    return parts.join('　').replace(/[\s　]+/g, '　').trim();
+  }
+
+  // ===== どの学期にどのコマを作るか（DOM を触らない）=====
+
+  /**
+   * 読み取った行を「カードにするもの（学期つき）」と「しないもの（理由つき）」に分ける。
+   * カードは**行ごとに学期を持つ**（シフト入力はカードごとに学期を選ぶ・D52）。
+   * 前期・1Q・2Q が混ざった PDF も、1回で全部カードになる。
+   *
+   * @param {Object} parsed  tpdfParsePages の戻り値
+   * @param {{terms:string[], days:string[], periods:Array<{period,label,supportTypes}>,
+   *          courses:Array<{quarter,day,period,date,user_student}>, user:string}} ctx
+   *   courses は全学期の登録済みのコマ（同じ利用者・学期・曜日・時限の二重登録を避ける）
+   * @return {{cards:Array<{termId,day,period,subject,instructor,code}>,
+   *           skipped:Array<{row,reason}>, byTerm:Object<string,number>}}
+   *   cards は学期の順（前期→1Q→2Q→後期→3Q→4Q）、同じ学期の中は PDF の順
+   */
+  function tpdfPlan(parsed, ctx) {
+    var res = { cards: [], skipped: [], byTerm: {} };
+    var termSet = {};
+    (ctx.terms || []).forEach(function (t) { termSet[t] = true; });
+    var daySet = {};
+    (ctx.days || []).forEach(function (d) { daySet[d] = true; });
+    var periodOf = {};
+    (ctx.periods || []).forEach(function (p) {
+      // 移動介助の枠（介助だけの枠）は授業の時限ではない
+      if ((p.supportTypes || []).length >= 2) periodOf[String(p.period)] = p;
+    });
+
+    var withTerm = [];
+    (parsed.rows || []).forEach(function (r) {
+      if (r.intensive) { res.skipped.push({ row: r, reason: '集中講義（曜日・時限なし）' }); return; }
+      var termId = tpdfTermId_(r.term, parsed);
+      if (!termId) { res.skipped.push({ row: r, reason: '開講期「' + (r.term || '空欄') + '」を学期に当てはめられません' }); return; }
+      if (!termSet[termId]) { res.skipped.push({ row: r, reason: '学期マスタに「' + termId + '」がありません（学期の設定で追加してください）' }); return; }
+      withTerm.push({ row: r, termId: termId });
+    });
+
+    // 学期の順に並べる（同じ学期の中は PDF の順のまま）。確認するとき学期ごとにまとまって見えるように
+    withTerm.forEach(function (x, i) { x.i = i; });
+    withTerm.sort(function (a, b) {
+      return tpdfTermOrder_(a.termId) - tpdfTermOrder_(b.termId) || a.i - b.i;
+    });
+
+    var user = tpdfSqueeze_(ctx.user || parsed.studentName || '');
+    var seen = {};
+    withTerm.forEach(function (x) {
+      var r = x.row;
+      if (!daySet[r.day]) { res.skipped.push({ row: r, reason: r.day + '曜は業務のある曜日ではありません' }); return; }
+      if (!periodOf[r.period]) { res.skipped.push({ row: r, reason: r.period + '限は時限の設定にありません' }); return; }
+      var key = x.termId + '|' + r.day + '|' + r.period;
+      if (seen[key]) { res.skipped.push({ row: r, reason: 'PDFの中で同じ学期・曜日・時限が重複しています' }); return; }
+      seen[key] = true;
+      var dup = user && (ctx.courses || []).some(function (c) {
+        return !c.date && String(c.quarter) === x.termId && c.day === r.day
+          && String(c.period) === r.period && tpdfSqueeze_(c.user_student) === user;
+      });
+      if (dup) { res.skipped.push({ row: r, reason: '登録済み（' + x.termId + ' に同じ利用者・曜日・時限のコマがあります）' }); return; }
+      res.cards.push({ termId: x.termId, day: r.day, period: r.period, subject: r.subject, instructor: r.instructor, code: r.code });
+      res.byTerm[x.termId] = (res.byTerm[x.termId] || 0) + 1;
+    });
+    return res;
+  }
+
+  // 学期の並び順（年度 → 前期・1Q・2Q・後期・3Q・4Q）。知らない形は最後
+  function tpdfTermOrder_(termId) {
+    var m = /^(\d{4})-(.+)$/.exec(String(termId));
+    if (!m) return 1e9;
+    var idx = ['前期', '1Q', '2Q', '後期', '3Q', '4Q'].indexOf(m[2]);
+    return Number(m[1]) * 10 + (idx === -1 ? 9 : idx);
+  }
+
+  // 開講期 → 学期ID（terms.term_id は「2026-後期」「2026-3Q」の形）。通年は PDF の学期で扱う
+  function tpdfTermId_(term, parsed) {
+    if (!parsed.year) return '';
+    var t = tpdfZ2h_(term || '');
+    if (t === '前期' || t === '後期') return parsed.year + '-' + t;
+    var q = /^第?([1-4])Q$/.exec(t.toUpperCase());
+    if (q) return parsed.year + '-' + q[1] + 'Q';
+    if (t === '通年' && parsed.semester) return parsed.year + '-' + parsed.semester;
+    return '';
+  }
+</script>

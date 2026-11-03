@@ -9,6 +9,7 @@
  * 架空のスタッフ・利用者・コマが入った状態で2つのDBを作る。デモ・実証実験向け。
  */
 function setupSpreadsheets() {
+  requireEditorRun_();
   runSetup_(buildDummyData_(), false);
 }
 
@@ -18,6 +19,7 @@ function setupSpreadsheets() {
  * 実データはフォーム取り込み・シフト入力画面・手入力で投入する（docs/guides/operations.md）。
  */
 function setupSpreadsheetsEmpty() {
+  requireEditorRun_();
   runSetup_(emptyData_(), true);
 }
 
@@ -256,6 +258,7 @@ function writeTable_(sheet, headers, rows) {
  * GASエディタから1回実行する。コードはヘッダー名で読むため列順は問わない。
  */
 function migrateCoursesColumns() {
+  requireEditorRun_();
   const NEEDED = ['support_type', 'user_student', 'subject', 'instructor', 'room', 'note'];
   const ss = openMainDb_();
   const sheet = ss.getSheetByName('courses');
@@ -303,6 +306,7 @@ const REGISTRATION_HEADERS = [
  * このシートが無いと申請画面が保存できない。冪等。
  */
 function migrateAddRegistrationsSheet() {
+  requireEditorRun_();
   const ss = openContactsDb_();
   var sheet = ss.getSheetByName('registrations');
   if (sheet) {
@@ -332,6 +336,7 @@ function migrateAddRegistrationsSheet() {
  * 追加した列はテキスト書式にして日時値への自動変換を防ぐ（10-6b と同じ理由）。冪等。
  */
 function migrateAddStaffSlotsUpdatedAt() {
+  requireEditorRun_();
   const ss = openMainDb_();
   const sheet = ss.getSheetByName('staffs');
   if (!sheet) { Logger.log('❌ staffs シートが見つかりません。'); return; }
@@ -371,6 +376,7 @@ function migrateAddStaffSlotsUpdatedAt() {
  *   画面へ反映するにはデプロイの更新が要る（`/dev` なら不要・CLAUDE.md 注意事項8）。
  */
 function migrateSlotsAndMovePeriods() {
+  requireEditorRun_();
   Logger.log('=== 空きコマの業務別分離（D32）と移動介助の枠（D33）===');
 
   Logger.log('--- 1/7 periods.support_types ---');
@@ -506,6 +512,7 @@ function shiftHhmm_(hhmm, deltaMin) {
  * 空＝従来どおり「3限」と表示する。移動介助のように「n限」と呼べない枠のために使う。冪等。
  */
 function migrateAddPeriodLabel() {
+  requireEditorRun_();
   const ss = openMainDb_();
   const sheet = ss.getSheetByName('periods');
   if (!sheet) { Logger.log('❌ periods シートが見つかりません。'); return; }
@@ -536,6 +543,7 @@ function migrateAddPeriodLabel() {
  * 先に migrateAddPeriodSupportTypes() と migrateAddPeriodLabel() を実行しておくこと。
  */
 function migrateAddMovePeriods() {
+  requireEditorRun_();
   const ss = openMainDb_();
   const sheet = ss.getSheetByName('periods');
   if (!sheet) { Logger.log('❌ periods シートが見つかりません。'); return; }
@@ -586,10 +594,10 @@ function migrateAddMovePeriods() {
   // **使われている行は消さない。** コマか空きコマに入っている枠を消すと、
   // その参照がどのコマとも一致しなくなり、静かに壊れる。
   const usedPeriods = {};
-  readRows(SHEET.COURSES).forEach(function (c) {
+  readRows_(SHEET.COURSES).forEach(function (c) {
     usedPeriods[String(c.period || '').trim()] = true;
   });
-  readRows(SHEET.STAFFS).forEach(function (st) {
+  readRows_(SHEET.STAFFS).forEach(function (st) {
     [st.available_slots, st.assist_slots].forEach(function (csv) {
       String(csv || '').split(',').forEach(function (x) {
         const key = String(x).trim().slice(1);   // 先頭1文字は曜日
@@ -679,6 +687,7 @@ function migrateAddMovePeriods() {
  * 消さずにログへ出すので、付け替えてから実行し直すこと。冪等。
  */
 function migrateRemoveUnusedPeriods() {
+  requireEditorRun_();
   const ss = openMainDb_();
   const sheet = ss.getSheetByName('periods');
   if (!sheet) { Logger.log('❌ periods シートが見つかりません。'); return; }
@@ -694,11 +703,11 @@ function migrateRemoveUnusedPeriods() {
 
   // どこかで参照されている枠は残す
   const used = {};
-  readRows(SHEET.COURSES).forEach(function (c) {
+  readRows_(SHEET.COURSES).forEach(function (c) {
     const key = String(c.period == null ? '' : c.period).trim();
     if (key) used[key] = true;
   });
-  readRows(SHEET.STAFFS).forEach(function (st) {
+  readRows_(SHEET.STAFFS).forEach(function (st) {
     [st.available_slots, st.assist_slots].forEach(function (csv) {
       String(csv == null ? '' : csv).split(',').forEach(function (x) {
         const key = String(x).trim().slice(1);   // 先頭1文字は曜日
@@ -757,6 +766,7 @@ function migrateRemoveUnusedPeriods() {
  * 重なっている行だけを、1つ上の枠の終わりまで遅らせる。それ以外は触らない。冪等。
  */
 function migrateFixMovePeriodTimes() {
+  requireEditorRun_();
   const ss = openMainDb_();
   const sheet = ss.getSheetByName('periods');
   if (!sheet) { Logger.log('❌ periods シートが見つかりません。'); return; }
@@ -818,6 +828,7 @@ function migrateFixMovePeriodTimes() {
  * 空＝単独の欠員（従来どおり）。後方互換なので、既存行は空のままでよい。冪等。
  */
 function migrateAddVacancyGroupId() {
+  requireEditorRun_();
   const ss = openMainDb_();
   const sheet = ss.getSheetByName('vacancies');
   if (!sheet) { Logger.log('❌ vacancies シートが見つかりません。'); return; }
@@ -849,6 +860,7 @@ function migrateAddVacancyGroupId() {
  * 冪等。
  */
 function migrateAddAssistSlots() {
+  requireEditorRun_();
   const ss = openMainDb_();
   const sheet = ss.getSheetByName('staffs');
   if (!sheet) { Logger.log('❌ staffs シートが見つかりません。'); return; }
@@ -888,6 +900,7 @@ function migrateAddAssistSlots() {
  * テイクの空きコマ表には出てこない。冪等。
  */
 function migrateAddPeriodSupportTypes() {
+  requireEditorRun_();
   const ss = openMainDb_();
   const sheet = ss.getSheetByName('periods');
   if (!sheet) { Logger.log('❌ periods シートが見つかりません。'); return; }
@@ -916,6 +929,7 @@ function migrateAddPeriodSupportTypes() {
  * 追加した列はテキスト書式にして日付値への自動変換を防ぐ（10-6b と同じ理由）。冪等。
  */
 function migrateAddCourseDate() {
+  requireEditorRun_();
   const ss = openMainDb_();
   const sheet = ss.getSheetByName('courses');
   if (!sheet) { Logger.log('❌ courses シートが見つかりません。'); return; }
@@ -944,7 +958,7 @@ function migrateAddCourseDate() {
  * 10-6 より前に作られたシートは、テキスト書式が初期データの行数ぶんにしか掛かっていない。
  * そのため職員や画面から**後で足した行**は型が変わる：
  *   - `period` … '3' が**数値 3** になる。`String()` で吸収しているので実害は出ていないが、同じ穴。
- *   - `date`   … '2026-09-12' が**日付値**になる。`readRows` が Date を返し、時間割の照合
+ *   - `date`   … '2026-09-12' が**日付値**になる。`readRows_` が Date を返し、時間割の照合
  *     （その週の日付 === 実施日）が絶対に一致せず、**単発コマが表示から消える**（D27）。
  *     エラーにならないので気づけない。
  *
@@ -952,6 +966,7 @@ function migrateAddCourseDate() {
  * 見た目を揃えたいときは、該当セルの値を入力し直せばよい。冪等。
  */
 function migrateCoursesTextFormat() {
+  requireEditorRun_();
   const ss = openMainDb_();
   const sheet = ss.getSheetByName('courses');
   if (!sheet) { Logger.log('❌ courses シートが見つかりません。'); return; }
@@ -986,6 +1001,7 @@ function migrateCoursesTextFormat() {
  * 何もせずエラーを記録して戻る。トリガーを入れる前に1回実行すること。冪等。
  */
 function migrateAddVacancyCloseNotifiedAt() {
+  requireEditorRun_();
   const ss = openMainDb_();
   const sheet = ss.getSheetByName('vacancies');
   if (!sheet) { Logger.log('❌ vacancies シートが見つかりません。'); return; }
@@ -1016,6 +1032,7 @@ function migrateAddVacancyCloseNotifiedAt() {
  * skills 未設定の行は findCandidates_ で「全対応扱い」となるため、運用前に入力すること。
  */
 function migrateStaffsColumns() {
+  requireEditorRun_();
   const ss = openMainDb_();
   const sheet = ss.getSheetByName('staffs');
   if (!sheet) { Logger.log('❌ staffs シートが見つかりません。'); return; }
@@ -1042,6 +1059,7 @@ function migrateStaffsColumns() {
  * 追加した列はテキスト書式にして先頭ゼロ・英字接頭辞の数値化を防ぐ。GASエディタから1回実行。
  */
 function migrateStaffsPersonalCode() {
+  requireEditorRun_();
   const ss = openMainDb_();
   const sheet = ss.getSheetByName('staffs');
   if (!sheet) { Logger.log('❌ staffs シートが見つかりません。'); return; }
@@ -1070,7 +1088,7 @@ function migrateStaffsPersonalCode() {
  *
  * セットアップ時のテキスト固定は既定の7行ぶんにしか掛かっておらず、職員が8行目以降に
  * 時限（8限・課外時限など）を手で足すと `09:15` が**時刻値**として保存される。
- * すると `readRows` が Date を返し、締切判定（D21・`isPastRecruitDeadline_`）が
+ * すると `readRows_` が Date を返し、締切判定（D21・`isPastRecruitDeadline_`）が
  * 黙って「締切前」に倒れたり、時刻表示が壊れたりする。10-6（personal_code）と同じパターン。
  *
  * 書式を広げるだけで、既に時刻値になっているセルは文字列へ直さない
@@ -1078,6 +1096,7 @@ function migrateStaffsPersonalCode() {
  * GASエディタから1回実行する。
  */
 function migratePeriodsTextFormat() {
+  requireEditorRun_();
   const ss = openMainDb_();
   const sheet = ss.getSheetByName('periods');
   if (!sheet) { Logger.log('❌ periods シートが見つかりません。'); return; }
@@ -1089,7 +1108,7 @@ function migratePeriodsTextFormat() {
   Logger.log('✅ periods の period / start_time / end_time を列全体（' + rows + '行）テキスト固定にしました。');
 
   // 既に時刻値（Date）として保存されている行があれば知らせる
-  const bad = readRows('periods').filter(function (p) {
+  const bad = readRows_('periods').filter(function (p) {
     return (p.start_time instanceof Date) || (p.end_time instanceof Date);
   });
   if (bad.length === 0) {
@@ -1143,6 +1162,7 @@ function currentYearTermsTemplate_() {
  * ※ terms が空/未作成でも画面は従来どおり courses 由来の学期で動く（後方互換）。
  */
 function migrateAddTermsSheet() {
+  requireEditorRun_();
   const ss = openMainDb_();
   if (ss.getSheetByName('terms')) {
     Logger.log('✅ terms シートは既に存在します（作成なし）。');
@@ -1169,6 +1189,7 @@ function migrateAddTermsSheet() {
  * 冪等（新表記は再変換されない）。GASエディタから1回実行する。
  */
 function migrateTermNotation() {
+  requireEditorRun_();
   const ss = openMainDb_();
 
   // 1つの term_id を新表記へ。旧ダミー固有ラベル → 現在/次クォーター、Q数字 → 数字Q。
@@ -1217,7 +1238,7 @@ function setupMainDb_(ss, data) {
   // 列全体をテキスト固定する（データ行数だけだと F2 しか保護されず 10-6 の数値化バグを踏む）。
   staffsSheet.getRange(2, 6, Math.max(staffsSheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
   // slots_updated_at（G列）は本人が空きコマを更新した日時（D28）。'yyyy-MM-dd HH:mm:ss' 文字列で
-  // 扱うためテキスト固定する（日時値に化けると readRows が Date を返す・10-6b と同じ理由）。
+  // 扱うためテキスト固定する（日時値に化けると readRows_ が Date を返す・10-6b と同じ理由）。
   staffsSheet.getRange(2, 7, Math.max(staffsSheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
   writeTable_(staffsSheet,
     ['staff_id', 'name', 'role', 'skills', 'available_slots', 'assist_slots',
@@ -1281,7 +1302,7 @@ function setupMainDb_(ss, data) {
   // period（数値型化を防ぐ）・start_time/end_time（時刻型化を防ぐ）を全てテキスト固定。
   // 既定の7行ぶんだけでなく**列全体**に掛ける（10-6 と同じ理由）。7行だけだと、職員が
   // 8行目以降に時限（8限・課外時限など）を手で足したとき '09:15' が時刻値に化け、
-  // readRows が Date を返して締切判定（D21）や時刻表示が黙って壊れる。
+  // readRows_ が Date を返して締切判定（D21）や時刻表示が黙って壊れる。
   periodsSheet.getRange(2, 1, Math.max(periodsSheet.getMaxRows() - 1, 1), 5).setNumberFormat('@');
   // 授業時限と、そのあいだの移動介助の枠（D33）を交互に置く。
   // **行の順番がそのまま時間割の並び順**なので、移動枠は前後の授業のあいだに入れること。

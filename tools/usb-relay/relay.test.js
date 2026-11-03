@@ -22,7 +22,7 @@ test('relay URL removes tokens and uses authenticated page', () => {
 test('GAS relay enforces staff before reading data', () => {
   let allowed = false, reads = 0;
   const ctx = vm.createContext({ requireStaff_() { if (!allowed) throw Error('denied'); },
-    readRows() { reads++; return [{result: '', vacancy_id: 'V002'}, {result: 'filled', vacancy_id: 'V009'}]; },
+    readRows_() { reads++; return [{result: '', vacancy_id: 'V002'}, {result: 'filled', vacancy_id: 'V009'}]; },
     SHEET: {VACANCIES: 'vacancies'} });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../../src/Device.gs'), 'utf8'), ctx);
   assert.throws(() => ctx.getDeviceRelaySummary(), /denied/);

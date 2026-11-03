@@ -139,7 +139,7 @@ function lookupIdentity_(email) {
   const contact = findRowCI_(SHEET.CONTACTS, 'email', email);
   if (!contact) return null;
 
-  const staff = findRow(SHEET.STAFFS, 'staff_id', contact.staff_id);
+  const staff = findRow_(SHEET.STAFFS, 'staff_id', contact.staff_id);
   return {
     // staff_id は正規化して返す（Vacancy.gs 等が String().trim() 済みIDと === で比較するため、
     // contacts のセルが数値や前後空白付きだと自己除外・重複欠勤チェック・相方表示が不成立になる）。
@@ -157,6 +157,22 @@ function requireStaff_() {
   if (!user) throw new Error('利用登録がありません。');
   if (user.role !== ROLE_STAFF) throw new Error('職員権限が必要です。');
   return user;
+}
+
+/**
+ * GASエディタ（または時間トリガー）から実行されたときだけ通す。保守・診断・テスト用の関数の先頭で使う。
+ *
+ * Web アプリは「デプロイした人として実行」なので、画面からの呼び出しでは
+ * 実行者（effective）＝デプロイした人、利用者（active）＝画面を開いた人、で2人が違う。
+ * エディタから自分で実行したときは2人が同じになる。
+ * 保守用の関数はエディタのメニューから選べるよう名前に _ を付けていないので、この確認で入口を絞る。
+ */
+function requireEditorRun_() {
+  const active = String(Session.getActiveUser().getEmail() || '').trim().toLowerCase();
+  const effective = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
+  if (!active || active !== effective) {
+    throw new Error('この関数はスクリプトエディタから実行してください。');
+  }
 }
 
 // ─── 画面描画 ────────────────────────────────────────────────
@@ -331,18 +347,18 @@ function getDashboardData() {
   if (!getCurrentUser_()) throw new Error('利用登録がありません。');
 
   const nameById = {};
-  readRows(SHEET.STAFFS).forEach(function (s) {
+  readRows_(SHEET.STAFFS).forEach(function (s) {
     nameById[String(s.staff_id).trim()] = s.name;
   });
 
   const periodById = {};
-  readRows(SHEET.PERIODS).forEach(function (p) {
+  readRows_(SHEET.PERIODS).forEach(function (p) {
     periodById[String(p.period).trim()] = p;
   });
 
-  const vacancies = readRows(SHEET.VACANCIES);
+  const vacancies = readRows_(SHEET.VACANCIES);
 
-  return readRows(SHEET.COURSES).map(function (c) {
+  return readRows_(SHEET.COURSES).map(function (c) {
     const courseId = String(c.course_id).trim();
     const p = periodById[String(c.period).trim()] || {};
 
@@ -393,13 +409,13 @@ function getTimetable(quarter) {
   if (!user) throw new Error('利用登録がありません。');
 
   const nameById = {};
-  readRows(SHEET.STAFFS).forEach(function (s) {
+  readRows_(SHEET.STAFFS).forEach(function (s) {
     nameById[String(s.staff_id).trim()] = s.name;
   });
 
   // ログイン中スタッフの「対応可能な内容（スキル）」と「空きコマ」。
   // クライアントで「自分が入れる募集中」を判定するために返す（D8③）。
-  const meRow = findRow(SHEET.STAFFS, 'staff_id', user.staff_id);
+  const meRow = findRow_(SHEET.STAFFS, 'staff_id', user.staff_id);
   const splitList = function (v) {
     return String(v || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
   };
@@ -416,15 +432,15 @@ function getTimetable(quarter) {
   const periodTime = {};
   const periodIndex = {};
   const periodRowById = {};
-  readRows(SHEET.PERIODS).forEach(function (p, i) {
+  readRows_(SHEET.PERIODS).forEach(function (p, i) {
     const key = String(p.period).trim();
     periodTime[key] = p.start_time ? p.start_time + '〜' + p.end_time : '';
     periodIndex[key] = i;
     periodRowById[key] = p;
   });
 
-  const vacancies = readRows(SHEET.VACANCIES);
-  const allCourses = readRows(SHEET.COURSES);
+  const vacancies = readRows_(SHEET.VACANCIES);
+  const allCourses = readRows_(SHEET.COURSES);
 
   const sysMap = termSystemMap_(); // term_id → system（詳細表示で体系を出すため）
 
@@ -604,6 +620,7 @@ function escapeHtml_(str) {
 
 // GASエディタから実行してログイン特定とロール判定を確認する
 function whoAmI() {
+  requireEditorRun_();
   const email = Session.getActiveUser().getEmail();
   Logger.log('ログインメール: ' + (email || '(取得できず)'));
   const user = getCurrentUser_();

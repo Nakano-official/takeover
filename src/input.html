@@ -8,8 +8,6 @@
   <style>
     :root { --main-max: 760px; }
 
-    .qbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .qbar label { font-weight: 700; font-size: .9rem; margin: 0; }
 
     label { display: block; font-size: .85rem; font-weight: 700; margin: 0 0 6px; }
     /* 入力フォームは1列＝1項目。幅はここで揃える（共通CSSは幅を決めない） */
@@ -31,6 +29,9 @@
 
     .cardhead { display: flex; align-items: center; gap: 10px; min-height: 22px; margin-bottom: 8px; }
     .cardno { font-size: .82rem; font-weight: 700; color: var(--text-muted); }
+    .termtag { font-size: .78rem; font-weight: 700; color: var(--brand-ink); background: var(--brand-soft);
+               border: 1px solid var(--brand-border); border-radius: var(--radius-pill); padding: 1px 10px; }
+    .termtag:empty { display: none; }
     .cardstate { font-size: .82rem; flex: 1; }
     .cardstate.ok  { color: var(--ok); font-weight: 700; }
     .cardstate.err { color: var(--danger); font-weight: 700; }
@@ -54,9 +55,14 @@
     .toast.ok, .toast.err { display: block; }
 
     .count { font-size: .82rem; color: var(--text-muted); margin-bottom: 10px; }
+    /* 一覧は学期ごとに区切る（学期はカードごとに選ぶので、上部の学期の選択は無い・D52） */
+    .termhead { font-size: .9rem; font-weight: 700; color: var(--brand-ink); margin: 16px 0 2px;
+                padding-bottom: 4px; border-bottom: 2px solid var(--brand-border); }
+    .termhead:first-child { margin-top: 0; }
+    .termhead .n { font-weight: 400; color: var(--text-muted); font-size: .8rem; margin-left: 6px; }
     .row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0;
            border-top: 1px solid var(--border); }
-    .row:first-child { border-top: none; }
+    .row:first-child, .termhead + .row { border-top: none; }
     .row .info { flex: 1; font-size: .88rem; line-height: 1.55; }
     .row .slot { font-weight: 700; color: var(--brand-ink); }
     .row .tag { display: inline-block; font-size: .7rem; padding: 0 7px;
@@ -70,6 +76,15 @@
     .ops { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; }
     /* 編集中の行は黄色く残して「いまどれを直しているか」を見失わないようにする */
     .row.editing { background: #fff8e6; border-radius: var(--radius-sm); }
+
+    /* ===== 時間割PDFから読み込む（D52）===== */
+    .pdfbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .pdfbar h2 { margin: 0; flex: 1; min-width: 12em; }
+    #pdfResult .notice { margin: 12px 0 0; }
+    #pdfResult ul { margin: 6px 0 0; padding-left: 1.3em; font-size: .85rem; }
+    #pdfResult .btn { margin-top: 8px; }
+    /* PDFから作ったカードの「内容」は未選択から始まる。選び忘れが見えるようにする */
+    .needpick { border-color: var(--warn) !important; background: #fff8e6; }
   </style>
 </head>
 <body>
@@ -77,11 +92,16 @@
 
   <main>
     <div class="card">
-      <div class="qbar">
-        <label for="quarter">学期</label>
-        <select id="quarter" style="max-width:280px" onchange="onQuarterChange()"></select>
-        <span class="hint" style="margin:0">クォーター／セメスターを選んでこの学期のコマを編集します（新規も可）</span>
+      <div class="pdfbar">
+        <h2>時間割PDFから読み込む</h2>
+        <input type="file" id="pdfFile" accept="application/pdf,.pdf" style="display:none" onchange="onPdfChosen(this)">
+        <button type="button" class="btn primary" id="pdfBtn" onclick="document.getElementById('pdfFile').click()">PDFを選ぶ</button>
       </div>
+      <p class="hint">利用学生の<b>受講登録確認表</b>（PDF）を選ぶと、授業ごとのカードが下に並びます。
+        <b>内容（テイク／介助）と担当を選んでから</b>登録してください。
+        PDFはこの端末の中だけで読み取り、どこにも送りません。
+        教室はPDFに載っていないので、決まったら一覧の「編集」で入れてください。</p>
+      <div id="pdfResult"></div>
     </div>
 
     <div class="card">
@@ -111,20 +131,24 @@
     </div>
   </main>
 
+  <?!= include('shared-timetable-pdf') ?>
   <script>
     var DATA = null;
     var EDIT_ID = null;  // 編集中のコマID（null＝新規追加モード）
 
     function escapeHtml(s) {
       return String(s == null ? '' : s)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
     function escapeAttr(s) {
       return escapeHtml(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
     }
     function val(id) { return document.getElementById(id).value; }
 
-    function load(quarter) {
+    // 学期はカードごとに選ぶ（D52）。画面全体の学期の選択は無い。
+    // DATA.quarter は「手で足すカードの学期の初期値」（開講中の学期）。
+    function load() {
       document.getElementById('form').className = 'state';
       document.getElementById('form').textContent = '読み込み中…';
       google.script.run
@@ -132,43 +156,22 @@
         .withFailureHandler(function (err) {
           document.getElementById('form').textContent = 'エラー: ' + err.message;
         })
-        .getInputData(quarter || null);
-    }
-
-    // 学期セレクタを DATA.terms（体系ラベル付き）で埋め、選択値を合わせる。
-    function fillTermSelect() {
-      var sel = document.getElementById('quarter');
-      var terms = DATA.terms || [];
-      if (!terms.length) {
-        sel.innerHTML = '<option value="">（学期マスタ未設定）</option>';
-        return;
-      }
-      sel.innerHTML = terms.map(function (t) {
-        return '<option value="' + escapeHtml(t.value) + '">' + escapeHtml(t.label) + '</option>';
-      }).join('');
-      // 現在値（無ければ先頭）を選択
-      var want = DATA.quarter || terms[0].value;
-      sel.value = terms.some(function (t) { return t.value === want; }) ? want : terms[0].value;
+        .getInputData(null);
     }
 
     function onData(data) {
       DATA = data;
-      fillTermSelect();
       buildForm();
       renderList();
-    }
-
-    function onQuarterChange() {
-      var q = val('quarter').trim();
-      if (q) load(q);
     }
 
     // ===== 入力カード（D44）=====
     //
     // 1カード＝1コマ。「＋」で増やし、最後に1回の操作でまとめて登録する。
+    // **学期はカードごとに持つ**（D52）。時間割PDFから作るカードは前期・1Q・2Q のように学期がまちまちなので。
     // 登録は**上から順に addCourse を呼ぶだけ**で、サーバーは変えていない。
     // 順に呼べばカード①はカード②の検証時にはもうシートに入っているので、
-    // 二重起用チェックがそのまま効く（appendRowWithId が書き込み後に
+    // 二重起用チェックがそのまま効く（appendRowWithId_ が書き込み後に
     // invalidateSheetCache_ を呼ぶため、同一実行内でも読み直される）。
     //
     // 編集モード（EDIT_ID あり）はカード1枚に固定する。既存の1コマを直す操作なので
@@ -195,15 +198,19 @@
     // カードを1枚足す。from を渡すと、その内容を引き継ぐ（科目・教員・教室・備考は空）。
     // 引き継ぐのは曜日・時限・内容・利用者・担当・移動のチェックで、
     // 「同じ利用者の別のコマを続けて入れる」という実際の使い方に合わせている。
-    function addCard(from) {
+    // opts.pickType … 内容（テイク／介助）を未選択から始める（PDFから作るカード・D52）
+    // opts.term     … カードの学期（PDFから作るカードは行ごとの開講期から決まる）
+    function addCard(from, opts) {
       var n = ++CARD_SEQ;
       CARDS.push(n);
       var host = document.getElementById('form');
       var wrap = document.createElement('div');
       wrap.className = 'shiftcard';
       wrap.id = 'card-' + n;
-      wrap.innerHTML = cardHtml(n);
+      wrap.innerHTML = cardHtml(n, opts || {});
       host.appendChild(wrap);
+      // 学期：指定があればそれ、引き継ぐならそのカードの学期、無ければ開講中の学期
+      el(n, 'term').value = (opts && opts.term) || (from ? v(from, 'term') : '') || DATA.quarter || '';
 
       fillUserOptions(n);
       rebuildPeriods(n);
@@ -223,10 +230,11 @@
     }
 
     function copyCard(from, to) {
-      ['recurrence', 'day', 'date', 'support_type'].forEach(function (name) {
+      ['term', 'recurrence', 'day', 'date', 'support_type'].forEach(function (name) {
         var src = el(from, name);
         var dst = el(to, name);
-        if (src && dst) dst.value = src.value;
+        // 内容が未選択のカード（PDFから作ったもの）からは内容を引き継がない（新しいカードには空の選択肢が無い）
+        if (src && dst && src.value) dst.value = src.value;
       });
       // 時限は内容によって選択肢が変わるので、内容を移してから組み直す
       rebuildPeriods(to);
@@ -253,19 +261,26 @@
       });
     }
 
-    function cardHtml(n) {
+    function cardHtml(n, opts) {
       var dayOpts = DATA.days.map(function (d) {
         return '<option value="' + escapeHtml(d) + '">' + escapeHtml(d) + '</option>';
       }).join('');
 
+      var termOpts = (DATA.terms || []).map(function (t) {
+        return '<option value="' + escapeHtml(t.value) + '">' + escapeHtml(t.label) + '</option>';
+      }).join('');
+
       return '<div class="cardhead">' +
           '<span class="cardno" id="cardno-' + n + '"></span>' +
+          '<span class="termtag" id="termtag-' + n + '"></span>' +
           '<span class="cardstate" id="cardstate-' + n + '"></span>' +
           '<button type="button" class="cardx" id="cardx-' + n + '" ' +
             'onclick="removeCard(' + n + ')" title="このカードを削除">×</button>' +
         '</div>' +
         '<div class="grid">' +
-          '<div class="full"><label>種別<span class="req">*</span></label>' +
+          '<div><label>学期<span class="req">*</span></label>' +
+            '<select id="term-' + n + '" onchange="renderFormChrome()">' + termOpts + '</select></div>' +
+          '<div><label>種別<span class="req">*</span></label>' +
             '<select id="recurrence-' + n + '" onchange="onRecurrenceChange(' + n + ')">' +
             '<option value="weekly">毎週（学期中くり返す授業）</option>' +
             '<option value="once">この日だけ（特別授業・説明会などのイベント）</option>' +
@@ -280,6 +295,7 @@
             '<div class="hint" id="periodNote-' + n + '" style="margin:4px 0 0"></div></div>' +
           '<div><label>内容<span class="req">*</span></label>' +
             '<select id="support_type-' + n + '" onchange="onTypeChange(' + n + ')">' +
+            (opts.pickType ? '<option value="">（選んでください）</option>' : '') +
             '<option value="テイク">テイク（原則2名）</option>' +
             '<option value="介助">介助（1名）</option></select></div>' +
           '<div><label>利用者（被支援者）<span class="req">*</span></label>' +
@@ -314,6 +330,9 @@
       CARDS.forEach(function (n, i) {
         var no = document.getElementById('cardno-' + n);
         if (no) no.textContent = multi ? (i + 1) + 'コマ目' : '';
+        // 学期は見出しにも出す（カードごとに違いうるので、並べて見たときに分かるように）
+        var tag = document.getElementById('termtag-' + n);
+        if (tag) tag.textContent = v(n, 'term');
         var x = document.getElementById('cardx-' + n);
         if (x) x.style.display = (multi && !EDIT_ID) ? '' : 'none';
       });
@@ -356,6 +375,8 @@
     function onTypeChange(n) {
       rebuildPeriods(n);
       onPeriodChange(n);
+      var t = el(n, 'support_type');
+      t.className = t.value ? '' : 'needpick';
       var b = el(n, 'staff_b_id');
       if (v(n, 'support_type') === '介助') { b.value = ''; b.disabled = true; }
       else { b.disabled = false; }
@@ -422,6 +443,8 @@
      */
     function periodOptions(type) {
       return DATA.periods.filter(function (p) {
+        // 内容が未選択（PDFから作ったカード）のあいだは、どちらの内容でも選べる授業の時限だけを出す
+        if (!type) return (p.supportTypes || []).length >= 2;
         return (p.supportTypes || []).indexOf(type) !== -1;
       }).map(function (p) {
         return '<option value="' + escapeAttr(p.period) + '">'
@@ -530,8 +553,10 @@
       var prevA = a.value, prevB = b.value;
       // 担当は未定のままでも登録できる（D38）。授業だけ先に入れて、
       // 学生の空きコマが集まってから割り当てる、という実務の順番に合わせる。
-      a.innerHTML = '<option value="">（未定）</option>' +
-        (body || '<option value="" disabled>該当者なし（絞り込みを外してください）</option>');
+      var empty = (eligOnly && !v(n, 'support_type'))
+        ? '<option value="" disabled>内容を選ぶと候補が出ます</option>'
+        : '<option value="" disabled>該当者なし（絞り込みを外してください）</option>';
+      a.innerHTML = '<option value="">（未定）</option>' + (body || empty);
       b.innerHTML = '<option value="">（なし・1名）</option>' + body;
       if (prevA && list.some(function (s) { return s.staff_id === prevA; })) a.value = prevA;
       if (prevB && list.some(function (s) { return s.staff_id === prevB; })) b.value = prevB;
@@ -542,7 +567,7 @@
     function payloadOf(n) {
       var once = isOnce(n);
       return {
-        quarter: val('quarter').trim(),
+        quarter: v(n, 'term'),
         day: once ? '' : v(n, 'day'),
         date: once ? v(n, 'date') : '',
         period: v(n, 'period'),
@@ -562,6 +587,15 @@
     function clientError(n, p) {
       if (!p.quarter) return '学期を選択してください。';
       if (isOnce(n) && !p.date) return '実施日を選んでください。';
+      if (!p.support_type) return '内容（テイク／介助）を選んでください。';
+      // サーバー（Input.gs の FORMULA_LIKE_RE_）と同じ検査。まとめて登録の途中で止まらないよう先に見る
+      var fields = [['利用者', p.user_student], ['科目名', p.subject], ['担当教員', p.instructor],
+                    ['教室', p.room], ['備考', p.note]];
+      for (var i = 0; i < fields.length; i++) {
+        if (/^[=+\-@＝＋－＠]/.test(String(fields[i][1] || '').trim())) {
+          return fields[i][0] + 'の先頭に = + - @ は使えません（スプレッドシートで数式として扱われるため）。';
+        }
+      }
       if (!p.user_student) return '利用者を入力してください。';
       return '';
     }
@@ -605,15 +639,15 @@
      * GASにトランザクションは無いので、途中で失敗したら**そこで止めて、
      * どこまで登録できたかを見せる**。成功したカードは消し、失敗したカードは残す。
      */
-    function runQueue(queue, doneIds) {
+    function runQueue(queue, done) {
       var btn = document.getElementById('submit');
       btn.disabled = true;
 
       if (queue.length === 0) {
-        var q = val('quarter').trim();
-        showToast(doneIds.length + 'コマを登録しました（' + doneIds.join('・') + '）。', true);
+        showToast(doneSummary(done) + '。', true);
+        clearPdfResult();
         buildForm();          // カードを1枚に戻す
-        refreshList(q);
+        refreshList();
         return;
       }
 
@@ -625,22 +659,31 @@
       google.script.run
         .withSuccessHandler(function (res) {
           var ids = [res.course_id].concat(res.move_course_ids || []);
+          var term = v(n, 'term');
           markCard(n, 'ok', '✅ ' + ids.join('・'));
           var node = document.getElementById('card-' + n);
           if (node) node.parentNode.removeChild(node);
           CARDS = CARDS.filter(function (x) { return x !== n; });
-          runQueue(rest, doneIds.concat(ids));
+          runQueue(rest, done.concat(ids.map(function (id) { return { term: term, id: id }; })));
         })
         .withFailureHandler(function (err) {
           markCard(n, 'err', '❌ ' + err.message);
           renderFormChrome();
-          var q = val('quarter').trim();
-          showToast(
-            (doneIds.length ? doneIds.length + 'コマを登録しました（' + doneIds.join('・') + '）。残りは止めました。' : '')
-            + ' ' + err.message, false);
-          refreshList(q);   // 登録済みのぶんを一覧へ反映
+          showToast((done.length ? doneSummary(done) + '。残りは止めました。' : '') + ' ' + err.message, false);
+          refreshList();    // 登録済みのぶんを一覧へ反映
         })
         .addCourse(payloadOf(n));
+    }
+
+    // 「2026-1Q に4コマ・2026-2Q に4コマを登録しました（C…）」。一覧には上部の学期しか出ないので、学期ごとに知らせる
+    function doneSummary(done) {
+      var order = [], count = {};
+      done.forEach(function (d) {
+        if (!count[d.term]) { count[d.term] = 0; order.push(d.term); }
+        count[d.term]++;
+      });
+      var per = order.map(function (t) { return t + ' に' + count[t] + 'コマ'; }).join('・');
+      return per + 'を登録しました（' + done.map(function (d) { return d.id; }).join('・') + '）';
     }
 
     function runUpdate(payload) {
@@ -650,13 +693,174 @@
       google.script.run
         .withSuccessHandler(function (res) {
           showToast('更新しました（' + res.course_id + '）。', true);
-          load(payload.quarter); // フォームごと再構築 → 新規追加モードに戻る
+          load();               // フォームごと再構築 → 新規追加モードに戻る
         })
         .withFailureHandler(function (err) {
           showToast(err.message, false);
           renderFormChrome();
         })
         .updateCourse(payload);
+    }
+
+    // ===== 時間割PDFから読み込む（D52）=====
+    //
+    // PDF を読むのはブラウザの中だけ（shared-timetable-pdf）。読み取った授業を**カードとして並べるだけ**で、
+    // 登録はいつもの「まとめて登録」（runQueue → addCourse）を通す。サーバーは変えていない。
+    // 内容（テイク／介助）と担当は職員が選ぶ。内容は未選択から始め、選ぶまで登録できない。
+    // 学期はカードごとに持つので、前期・1Q・2Q が混ざった PDF も1回で全部カードになる。
+
+    var PDF_LAST = null;   // { parsed, plan } … 結果欄の表示に使う
+
+    function onPdfChosen(input) {
+      var file = input.files && input.files[0];
+      input.value = '';    // 同じファイルをもう一度選んでも反応するように
+      if (!file) return;
+      if (!confirmReplaceCards()) return;
+      setPdfBusy(true);
+      pdfNotice('info', '読み取り中…（PDFはこの端末の中だけで読み取ります）');
+      tpdfReadFile(file).then(function (parsed) {
+        if (parsed.problems.length) {
+          setPdfBusy(false);
+          pdfNotice('err', parsed.problems.join(' '));
+          return;
+        }
+        applyPdf(parsed);
+      }).catch(function (e) {
+        setPdfBusy(false);
+        pdfNotice('err', 'PDFを読み取れませんでした：' + (e && e.message ? e.message : e));
+      });
+    }
+
+    /**
+     * 読み取り結果をカードにする。
+     * 先にデータを**読み直してから**振り分ける。登録済みのコマ（全学期）と突き合わせて
+     * 二重登録を避けるので、別の職員がいま足した分も含めて最新で比べたい。
+     */
+    function applyPdf(parsed) {
+      google.script.run
+        .withSuccessHandler(function (data) {
+          DATA = data;
+          var plan = tpdfPlan(parsed, {
+            terms: (DATA.terms || []).map(function (t) { return t.value; }),
+            days: DATA.days,
+            periods: DATA.periods,
+            courses: DATA.courseSlots || [],
+            user: matchUser(parsed.studentName) || parsed.studentName,
+          });
+          PDF_LAST = { parsed: parsed, plan: plan };
+          buildPdfCards(plan, parsed);
+          setPdfBusy(false);
+          renderPdfResult();
+        })
+        .withFailureHandler(function (err) {
+          setPdfBusy(false);
+          pdfNotice('err', err.message);
+        })
+        .getInputData(null);
+    }
+
+    // PDFの氏名と同じ利用者がもう登録されていれば、その表記を返す（空白の違いは無視する）
+    function matchUser(name) {
+      var key = String(name || '').replace(/[\s　]/g, '');
+      if (!key) return '';
+      for (var i = 0; i < DATA.users.length; i++) {
+        if (String(DATA.users[i]).replace(/[\s　]/g, '') === key) return DATA.users[i];
+      }
+      return '';
+    }
+
+    function buildPdfCards(plan, parsed) {
+      EDIT_ID = null;
+      document.getElementById('formTitle').textContent = 'コマを追加';
+      if (!plan.cards.length) { buildForm(); renderList(); return; }
+      CARDS = [];
+      CARD_SEQ = 0;
+      var host = document.getElementById('form');
+      host.className = '';
+      host.innerHTML = '';
+      var existing = matchUser(parsed.studentName);
+      plan.cards.forEach(function (c) {
+        var n = addCard(null, { pickType: true, term: c.termId });
+        el(n, 'day').value = c.day;
+        rebuildPeriods(n);
+        el(n, 'period').value = c.period;
+        if (existing) {
+          el(n, 'user_sel').value = existing;
+        } else if (parsed.studentName) {
+          el(n, 'user_sel').value = '__new__';
+          el(n, 'user_new').style.display = '';
+          el(n, 'user_new').value = parsed.studentName;
+        }
+        el(n, 'subject').value = c.subject || '';
+        el(n, 'instructor').value = c.instructor || '';
+        onTypeChange(n);
+      });
+      renderFormChrome();
+      renderList();
+    }
+
+    function renderPdfResult() {
+      var host = document.getElementById('pdfResult');
+      if (!PDF_LAST) { host.innerHTML = ''; return; }
+      var parsed = PDF_LAST.parsed, plan = PDF_LAST.plan;
+      var html = '';
+      var n = plan.cards.length;
+      if (n) {
+        var who = matchUser(parsed.studentName);
+        var per = Object.keys(plan.byTerm).map(function (t) {
+          return '<b>' + escapeHtml(t) + '</b> ' + plan.byTerm[t] + 'コマ';
+        }).join('・');
+        html += '<div class="notice ok">' + per + '（計 <b>' + n + 'コマ</b>）を読み取りました。'
+          + '各カードの<b>内容（テイク／介助）</b>と担当を選んでから、下の「' + (n > 1 ? n + 'コマをまとめて登録' : 'このコマを追加') + '」を押してください。'
+          + '学期はカードの見出しとカードの「学期」欄に出ています。'
+          + (parsed.studentName
+              ? '<br>利用者：' + escapeHtml(who || parsed.studentName) + (who ? '（登録済みの利用者）' : '（新しい利用者として入れています。表記が違えば直してください）')
+              : '')
+          + '</div>';
+      }
+      if (!parsed.studentName && n) {
+        html += '<div class="notice warn">PDFから利用者名を読み取れませんでした。各カードで利用者を選んでください。</div>';
+      }
+      if (plan.skipped.length) {
+        html += '<div class="notice warn">カードにしなかった行（' + plan.skipped.length + '件）<ul>'
+          + plan.skipped.map(function (s) {
+              var r = s.row;
+              var slot = r.intensive ? '集中' : (r.day + r.period);
+              return '<li>' + escapeHtml(slot) + ' ' + escapeHtml(r.subject || r.code) + ' — ' + escapeHtml(s.reason) + '</li>';
+            }).join('')
+          + '</ul></div>';
+      }
+      if (!html) html = '<div class="notice warn">読み取れる授業がありませんでした。</div>';
+      host.innerHTML = html;
+    }
+
+    // 登録が済んだら、読み取り結果の案内は消す（カードはもう無いので）
+    function clearPdfResult() {
+      PDF_LAST = null;
+      document.getElementById('pdfResult').innerHTML = '';
+    }
+
+    // 入力済みのカードがあれば、置き換えてよいか聞く
+    function confirmReplaceCards() {
+      var touched = CARDS.some(function (n) {
+        return userValue(n) || v(n, 'subject').trim() || v(n, 'instructor').trim()
+          || v(n, 'room').trim() || v(n, 'note').trim();
+      });
+      if (EDIT_ID || touched) {
+        return confirm('入力中のカードを、PDFの内容で置き換えます。よろしいですか？');
+      }
+      return true;
+    }
+
+    function setPdfBusy(on) {
+      var b = document.getElementById('pdfBtn');
+      b.disabled = on;
+      b.textContent = on ? '読み取り中…' : 'PDFを選ぶ';
+    }
+
+    function pdfNotice(kind, msg) {
+      document.getElementById('pdfResult').innerHTML =
+        '<div class="notice ' + kind + '">' + escapeHtml(msg) + '</div>';
     }
 
     // ===== 編集（カードは1枚に固定）=====
@@ -673,6 +877,7 @@
 
       // 担当に現在の人が必ず出るよう、まず絞り込みを外して全員表示にする
       el(n, 'eligOnly').checked = false;
+      el(n, 'term').value = c.quarter;
       el(n, 'recurrence').value = c.date ? 'once' : 'weekly';
       el(n, 'date').value = c.date || '';
       onRecurrenceChange(n);
@@ -721,11 +926,10 @@
     }
 
     // フォームを再構築せず、一覧と候補リストだけ更新する
-    function refreshList(quarter) {
+    function refreshList() {
       google.script.run
         .withSuccessHandler(function (data) {
           DATA = data;
-          fillTermSelect();
           // 新しい利用者が増えている場合に備えて、各カードのプルダウンを更新する
           CARDS.forEach(function (n) {
             var keep = v(n, 'user_sel');
@@ -736,15 +940,24 @@
           renderList();
         })
         .withFailureHandler(function (err) { showToast(err.message, false); })
-        .getInputData(quarter || null);
+        .getInputData(null);
     }
 
-    function delCourse(id, label) {
+    // 確認の文言は画面のデータから組み立てる。ボタンには ID だけを持たせる
+    // （名前などの文字は属性に入れない。記号が入っても一覧の表示が崩れないように）。
+    function delCourse(id) {
+      var c = null;
+      for (var i = 0; i < DATA.courses.length; i++) {
+        if (DATA.courses[i].course_id === id) { c = DATA.courses[i]; break; }
+      }
+      if (!c) { showToast('対象のコマが見つかりません。一覧を更新してください。', false); return; }
+      var label = (c.date ? dateLabel(c.date) : c.day) + (c.periodLabel || (c.period + '限'))
+        + ' ' + c.support_type + ' ' + (c.user_student || '');
       if (!confirm(label + '\nこのコマを削除しますか？')) return;
       google.script.run
         .withSuccessHandler(function () {
           showToast('削除しました。', true);
-          load(val('quarter').trim());
+          load();
         })
         .withFailureHandler(function (err) { showToast(err.message, false); })
         .deleteCourse(id);
@@ -754,21 +967,31 @@
       var host = document.getElementById('list');
       var countEl = document.getElementById('count');
       var courses = DATA.courses;
-      countEl.textContent = 'この学期のコマ: ' + courses.length + ' 件';
+      // 終わっていない学期のコマを、学期ごとに区切って出す（並びはサーバーが学期順にしている）
+      countEl.textContent = '終わっていない学期のコマ: ' + courses.length + ' 件'
+        + '（終わった学期のコマは一覧に出しません）';
       if (courses.length === 0) {
         host.className = 'state';
         host.textContent = 'まだコマがありません。上のフォームから追加してください。';
         return;
       }
+      var perTerm = {};
+      courses.forEach(function (c) { perTerm[c.quarter] = (perTerm[c.quarter] || 0) + 1; });
+      var lastTerm = null;
       host.className = '';
       host.innerHTML = courses.map(function (c) {
+        var head = '';
+        if (c.quarter !== lastTerm) {
+          lastTerm = c.quarter;
+          head = '<div class="termhead">' + escapeHtml(c.quarter || '（学期なし）')
+            + '<span class="n">' + perTerm[c.quarter] + '件</span></div>';
+        }
         var isTake = c.support_type === 'テイク';
         var staff = escapeHtml(c.staffA || '—') + (c.staffB ? ' ・ ' + escapeHtml(c.staffB) : '');
         // 単発コマは曜日ではなく実施日で示す（毎週のコマと読み分けられるように）
         var slot = c.date
           ? escapeHtml(dateLabel(c.date)) + escapeHtml(c.periodLabel || (c.period + '限'))
           : escapeHtml(c.day) + escapeHtml(c.periodLabel || (c.period + '限'));
-        var label = slot + ' ' + c.support_type + ' ' + (c.user_student || '');
         var info =
           '<span class="slot">' + slot + '</span>' +
           '<span class="tag ' + (isTake ? 'take' : 'help') + '">' + escapeHtml(c.support_type) + '</span>' +
@@ -779,13 +1002,13 @@
             + (c.instructor ? ' / ' + escapeHtml(c.instructor) : '') + '</div>' +
           '<div class="stf">担当: ' + staff + '</div>' +
           (c.note ? '<div class="sub">備考: ' + escapeHtml(c.note) + '</div>' : '');
-        var cid = escapeHtml(c.course_id);
+        // ID も属性の値として持たせ、onclick 側で読む（シートを手で直した ID に記号が入っていても壊れない）
+        var cid = escapeAttr(c.course_id);
         var editing = (c.course_id === EDIT_ID) ? ' editing' : '';
-        return '<div class="row' + editing + '"><div class="info">' + info + '</div>' +
+        return head + '<div class="row' + editing + '"><div class="info">' + info + '</div>' +
           '<div class="ops">' +
-            '<button class="btn sm ed" onclick="editCourse(\'' + cid + '\')">編集</button>' +
-            '<button class="btn sm del" onclick="delCourse(\'' + cid + '\',\''
-              + escapeHtml(label).replace(/'/g, '') + '\')">削除</button>' +
+            '<button class="btn sm ed" data-id="' + cid + '" onclick="editCourse(this.getAttribute(\'data-id\'))">編集</button>' +
+            '<button class="btn sm del" data-id="' + cid + '" onclick="delCourse(this.getAttribute(\'data-id\'))">削除</button>' +
           '</div></div>';
       }).join('');
     }
@@ -796,7 +1019,7 @@
       t.textContent = msg;
     }
 
-    load(null);
+    load();
   </script>
 </body>
 </html>

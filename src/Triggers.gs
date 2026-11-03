@@ -59,6 +59,7 @@ function managedTriggers_() {
  * 既存トリガーは間隔を後から変更できないため、消してから作る。
  */
 function installTriggers() {
+  requireEditorRun_();
   const managed = managedTriggers_();
   const names = managed.map(function (t) { return t.handler; });
 
@@ -99,6 +100,7 @@ function installTriggers() {
  * 検証中に通知を止めたいとき、または引き継ぎで作り直すときに使う。
  */
 function removeTriggers() {
+  requireEditorRun_();
   // 変更トリガーが無くなると、シートを直してもキャッシュが捨てられない。先に止める（D48）
   stopIdentityCache_();
   Logger.log('本人確認キャッシュを止めました（以後は毎回シートを読みます）。');
@@ -119,6 +121,7 @@ function removeTriggers() {
  * 今あるトリガーを一覧表示する（何が・誰の権限で動いているかの確認用）。
  */
 function listTriggers() {
+  requireEditorRun_();
   const triggers = ScriptApp.getProjectTriggers();
   Logger.log('===== 登録済みトリガー（' + triggers.length + '件）=====');
   triggers.forEach(function (t) {
@@ -153,6 +156,7 @@ function listTriggers() {
  * ログに「どの欠員をクローズし、誰に通知したか」が出る。
  */
 function runDeadlineCheckNow() {
+  requireEditorRun_();
   Logger.log('===== 締切チェックを手動実行 =====');
   const res = closeExpiredRecruits(true);
   Logger.log(JSON.stringify(res));

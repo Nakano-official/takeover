@@ -20,7 +20,7 @@
 function readTerms_() {
   var rows;
   try {
-    rows = readRows(SHEET.TERMS);
+    rows = readRows_(SHEET.TERMS);
   } catch (e) {
     return []; // シート未作成の旧DB
   }
@@ -269,7 +269,7 @@ function getTermsAdmin() {
 
   // courses から参照されている学期（＝授業あり）。削除可否の判定に使う。
   const usedSet = {};
-  readRows(SHEET.COURSES).forEach(function (c) {
+  readRows_(SHEET.COURSES).forEach(function (c) {
     const q = String(c.quarter).trim();
     if (q) usedSet[q] = true;
   });
@@ -377,7 +377,7 @@ function updateTermDates(termId, startDate, endDate) {
   }
   if (s > e) throw new Error('開始日が終了日より後になっています。');
 
-  const ok = updateRow(SHEET.TERMS, 'term_id', id, { start_date: s, end_date: e });
+  const ok = updateRow_(SHEET.TERMS, 'term_id', id, { start_date: s, end_date: e });
   if (!ok) throw new Error('対象の学期が見つかりません（' + id + '）。画面を更新してください。');
   return { term_id: id, start_date: s, end_date: e };
 }
@@ -393,7 +393,7 @@ function deleteTerm(termId) {
   if (!id) throw new Error('学期が指定されていません。');
 
   // この学期を参照するコマ（courses.quarter）があれば削除不可（記録保全・deleteCourse と同方針）
-  const used = readRows(SHEET.COURSES).some(function (c) {
+  const used = readRows_(SHEET.COURSES).some(function (c) {
     return String(c.quarter).trim() === id;
   });
   if (used) {
@@ -401,7 +401,7 @@ function deleteTerm(termId) {
       '先にシフト入力で該当コマを削除／別学期へ移してください。');
   }
 
-  const n = deleteRowByKey(SHEET.TERMS, 'term_id', id);
+  const n = deleteRowByKey_(SHEET.TERMS, 'term_id', id);
   if (!n) throw new Error('対象の学期が見つかりません（' + id + '）。画面を更新してください。');
   return { ok: true, deleted: n, term_id: id };
 }

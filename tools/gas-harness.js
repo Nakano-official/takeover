@@ -108,7 +108,7 @@ class Harness {
     return o;
   }
 
-  /** 1行追加する。指定しなかった列は空文字で埋まる（本番の appendRow と同じ） */
+  /** 1行追加する。指定しなかった列は空文字で埋まる（本番の appendRow_ と同じ） */
   add(sheet, row) {
     const o = this.blank(sheet);
     Object.keys(row).forEach((k) => { o[k] = row[k]; });
@@ -203,8 +203,9 @@ class Harness {
         getActiveUser: function () {
           return { getEmail: function () { return self.email || (self.user && self.user.email) || ''; } };
         },
+        // 実行者（Web アプリでは「デプロイした人」）。deployerEmail を入れると利用者と別人にできる
         getEffectiveUser: function () {
-          return { getEmail: function () { return self.email || 'harness@example.invalid'; } };
+          return { getEmail: function () { return self.deployerEmail || self.email || 'harness@example.invalid'; } };
         },
       },
 
@@ -283,9 +284,9 @@ class Harness {
         STAFFS: 'staffs', COURSES: 'courses', VACANCIES: 'vacancies', RESPONSES: 'responses',
         PERIODS: 'periods', TERMS: 'terms', CONTACTS: 'contacts', REGISTRATIONS: 'registrations',
       },
-      readRows: function (s) { return copy(DB()[s]); },
+      readRows_: function (s) { return copy(DB()[s]); },
       getHeaders_: function (s) { return H()[s].slice(); },
-      findRow: function (s, col, val) {
+      findRow_: function (s, col, val) {
         const r = self.row(s, col, val);
         return r ? copy(r) : null;
       },
@@ -296,10 +297,10 @@ class Harness {
         })[0];
         return r ? copy(r) : null;
       },
-      filterRows: function (s, col, val) {
+      filterRows_: function (s, col, val) {
         return copy(DB()[s].filter((x) => String(x[col]).trim() === String(val).trim()));
       },
-      updateRow: function (s, col, val, updates) {
+      updateRow_: function (s, col, val, updates) {
         const r = self.row(s, col, val);
         if (!r) return false;
         // ヘッダーに無い列は書かない（本番の writeRowUpdates_ と同じ）
@@ -317,12 +318,12 @@ class Harness {
         Object.keys(updates).forEach((k) => { if (H()[s].indexOf(k) !== -1) r[k] = updates[k]; });
         return { ok: true, applied: true, current: before };
       },
-      claimIfEmpty: function (s, col, val, guard, updates) {
+      claimIfEmpty_: function (s, col, val, guard, updates) {
         const res = self.context.updateRowIfGuard_(s, col, val, guard, 'empty', updates);
         return { ok: res.ok, claimed: res.applied, current: res.current };
       },
-      appendRow: function (s, row) { self.add(s, row); return true; },
-      appendRowWithId: function (s, idCol, prefix, row) {
+      appendRow_: function (s, row) { self.add(s, row); return true; },
+      appendRowWithId_: function (s, idCol, prefix, row) {
         const max = DB()[s].reduce((m, r) => {
           const n = parseInt(String(r[idCol]).slice(prefix.length), 10);
           return isNaN(n) ? m : Math.max(m, n);
@@ -334,7 +335,7 @@ class Harness {
         DB()[s].push(o);
         return id;
       },
-      upsertRow: function (s, matchObj, row) {
+      upsertRow_: function (s, matchObj, row) {
         const hit = DB()[s].filter((x) => Object.keys(matchObj).every(
           (k) => String(x[k]).trim() === String(matchObj[k]).trim()))[0];
         if (hit) {
@@ -347,7 +348,7 @@ class Harness {
         DB()[s].push(o);
         return 'inserted';
       },
-      deleteRowByKey: function (s, col, val) {
+      deleteRowByKey_: function (s, col, val) {
         const before = DB()[s].length;
         self.db[s] = DB()[s].filter((x) => String(x[col]).trim() !== String(val).trim());
         return before - self.db[s].length;
@@ -368,19 +369,19 @@ class Harness {
 
       // ── Notify.gs 相当 ──
       // 実送信の代わりに notifyLog へ積む。宛先と種別が正しいかをテスト側で見る。
-      notifyNewVacancy: function (id, reopened) {
+      notifyNewVacancy_: function (id, reopened) {
         self.notifyLog.push({ kind: 'new', id: id, reopened: !!reopened });
         return { staff: true, candidates: [], errors: [] };
       },
-      notifyVacancyFilled: function (id, sub) {
+      notifyVacancyFilled_: function (id, sub) {
         self.notifyLog.push({ kind: 'filled', id: id, sub: sub });
         return { staff: true, substitute: true, others: [], errors: [] };
       },
-      notifyVacancyClosed: function (id, label) {
+      notifyVacancyClosed_: function (id, label) {
         self.notifyLog.push({ kind: 'closed', id: id, label: label });
         return { others: [], errors: [] };
       },
-      notifySubstituteReleased: function (id, sub) {
+      notifySubstituteReleased_: function (id, sub) {
         self.notifyLog.push({ kind: 'released', id: id, sub: sub });
         return { sent: true, reason: '' };
       },
@@ -389,7 +390,7 @@ class Harness {
         self.notifyLog.push({ kind: 'post', url: url, text: text });
         return true;
       },
-      notifyRecruitClosed: function (id, reason, suggestion) {
+      notifyRecruitClosed_: function (id, reason, suggestion) {
         self.notifyLog.push({ kind: 'recruitClosed', id: id, reason: reason, suggestion: suggestion });
         return { staff: true, others: [], errors: [] };
       },

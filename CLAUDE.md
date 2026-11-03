@@ -281,8 +281,15 @@ GASエディタの「スクリプトのプロパティ」から設定し、コ�
    「デプロイを管理 → 鉛筆 → 新しいバージョン」。**新規デプロイは作らない**＝URLが変わるため）。
    検証中だけなら「デプロイをテスト」の `/dev` URL が常に最新を配信する（編集権限のあるアカウント限定）。
    詳細は `docs/guides/setup.md`。
-9. **シートへのアクセスは必ず `Sheets.gs` の関数を経由**する（`readRows` / `findRow` / `updateRow` /
-   `claimIfEmpty` 等）。`Sheets.gs` は1実行の間だけ読み取り結果をキャッシュしており、整合性は
+9. **シートへのアクセスは必ず `Sheets.gs` の関数を経由**する（`readRows_` / `findRow_` / `updateRow_` /
+   `claimIfEmpty_` 等）。`Sheets.gs` は1実行の間だけ読み取り結果をキャッシュしており、整合性は
    「ロックを跨いだら捨てる」（`withLock_`）で担保している。この前提を壊さないため：
    - 直接 `SpreadsheetApp` で書き換えたら、その後に `invalidateSheetCache_()` を呼ぶ（`Setup.js` の各 migrate が例）
    - `withLock_` の中で「書き込み対象と**別**のシート」を読んで書き込みを判断しない
+10. **サーバー関数の名前の決まり**。名前が `_` で終わらない関数は画面から呼べる入口になる。
+   - 画面から呼ぶ関数は、先頭で呼び出した人を確かめる（`requireStaff_()` / `getCurrentUser_()`）
+   - 内部でしか使わない関数は、名前を `_` で終わらせる（`Sheets.gs` や通知の関数がこの形）
+   - GASエディタから実行する保守・診断・テスト用の関数は、先頭で `requireEditorRun_()` を呼ぶ
+   - `node tools/check-entrypoints.js`（`run-all.js` に含まれる）がこの決まりを確かめる
+   - 自由に書ける欄をシートに書くときは `Util.gs` の `assertNotFormula_` / `validatePersonName_` /
+     `validatePhone_` を通す。画面で文字を HTML に入れるときは `escapeHtml`（属性も含む）を通す

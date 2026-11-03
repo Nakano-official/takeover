@@ -15,7 +15,7 @@
 const { Harness } = require('./gas-harness');
 
 const h = new Harness();
-h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Util.gs', 'Profile.gs',
+h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Profile.gs',
   'Registration.gs']);
 const G = h.G;
 
@@ -207,5 +207,34 @@ h.check(h.db.staffs.length === 2, '拒否されたときは名簿が増えてい
 asStaff();
 h.check(G.getRegistrations().length === 1, '職員は一覧を取れる');
 h.check(G.getRegistrations()[0].status === '申請中', '申請中のまま');
+
+// ── 入力の形 ──────────────────────────────────────────────
+h.section('入力の形（氏名・電話・備考）');
+function applyErr(over) {
+  setup(); asNewcomer();
+  try { G.submitRegistration(Object.assign({}, APPLY, over)); return ''; } catch (e) { return e.message; }
+}
+h.check(applyErr({}) === '', 'ふつうの申請は通る');
+h.check(applyErr({ name: '' }).indexOf('氏名を入力') !== -1, '氏名が空なら弾く');
+h.check(applyErr({ name: '=1+1' }).indexOf('先頭に') !== -1, '先頭が = の氏名は弾く');
+h.check(applyErr({ name: '<users/all>' }).indexOf('使えない記号') !== -1, '< > を含む氏名は弾く（Chat の書式になる）');
+h.check(applyErr({ name: '新人" 太郎' }).indexOf('使えない記号') !== -1, '" を含む氏名は弾く');
+h.check(applyErr({ name: 'あ'.repeat(41) }).indexOf('40文字') !== -1, '41文字以上の氏名は弾く');
+h.check(applyErr({ name: "オブライエン O'Brien" }) === '', "' を含むだけの氏名は通す");
+h.check(applyErr({ phone: '090-1234-abcd' }).indexOf('電話番号') !== -1, '数字以外の電話番号は弾く');
+h.check(applyErr({ phone: '＋８１ ９０－１２３４－５６７８' }) === '', '全角や + の電話番号は通す');
+h.check(applyErr({ phone: '' }) === '', '電話番号は空でもよい（あとでマイページで入れる）');
+h.check(applyErr({ note: '@SUM(A1)' }).indexOf('備考の先頭に') !== -1, '先頭が @ の備考は弾く');
+h.check(h.db.registrations.length === 0, '弾いた申請はシートに書いていない');
+
+h.section('承認のときにも氏名を確かめる（シートを直接直された申請）');
+setup(); asNewcomer();
+G.submitRegistration(APPLY);
+reg().name = '=A1&B1';
+asStaff();
+threw = '';
+try { G.approveRegistration(reg().registration_id, {}); } catch (e) { threw = e.message; }
+h.check(threw.indexOf('申請の氏名の先頭に') !== -1, '名簿へ写す前に弾く');
+h.check(h.db.staffs.length === 2, '名簿は増えていない');
 
 process.exitCode = h.report();
