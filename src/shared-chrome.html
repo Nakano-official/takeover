@@ -1,0 +1,46 @@
+<!--
+  ヘッダー（画面名・ヘルプ・マイページ）とナビを、スクロールに合わせて隠す・出す（D20 の追記）
+
+  code.js の renderChrome_ が、ヘッダーとナビを div.appchrome にまとめ、その後ろにこれを付ける。
+  各画面の HTML を触る必要はない。
+
+  ■ 動き
+    下へスクロール … 隠す（読む場所を広くする）
+    上へスクロール … すぐ出す（ヘルプ・マイページ・ほかの画面へすぐ行ける）
+    一番上の付近   … 常に出す
+    数ピクセルの揺れは無視する（指の小さな動きで出たり消えたりしないように）
+    キーボードでヘッダーのボタンへ移ったときは出す
+-->
+<script>
+  (function () {
+    var bar = document.getElementById('appChrome');
+    if (!bar) return;
+    var JITTER = 8;          // これより小さい動きは無視する（px）
+    var lastY = Math.max(0, window.pageYOffset || 0);
+    var ticking = false;
+
+    function update() {
+      ticking = false;
+      var y = Math.max(0, window.pageYOffset || 0);   // iOS の引っぱりで負になるのを 0 に
+      var dy = y - lastY;
+      if (y <= bar.offsetHeight) {
+        bar.classList.remove('hide');
+      } else if (dy > JITTER) {
+        if (!bar.contains(document.activeElement)) bar.classList.add('hide');
+      } else if (dy < -JITTER) {
+        bar.classList.remove('hide');
+      } else {
+        return;              // 小さな動きは積み上げて、まとまったら判断する
+      }
+      lastY = y;
+    }
+
+    window.addEventListener('scroll', function () {
+      if (ticking) return;
+      ticking = true;
+      window.requestAnimationFrame(update);
+    }, { passive: true });
+
+    bar.addEventListener('focusin', function () { bar.classList.remove('hide'); });
+  })();
+</script>

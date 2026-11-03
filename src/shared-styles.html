@@ -98,9 +98,16 @@
   /* 狭い画面では名前を隠してアイコンだけにする（画面名を優先） */
   @media (max-width: 430px) { .appbar .user .uname { display: none; } }
 
-  /* スクロールしてもナビは上に残す（時間割など縦に長い画面で効く） */
-  .appnav {
+  /* ヘッダーとナビは1つにまとめて上に張り付ける。下へスクロールすると隠れ（.hide）、
+     上へスクロールすると出てくる（shared-chrome.html）。どこからでもヘルプ・マイページ・ほかの画面へ戻れる */
+  .appchrome {
     position: sticky; top: 0; z-index: 20;
+    transition: transform .22s ease;
+  }
+  .appchrome.hide { transform: translateY(-100%); }
+  @media (prefers-reduced-motion: reduce) { .appchrome { transition: none; } }
+
+  .appnav {
     display: flex; gap: 8px;
     padding: 10px 16px;
     background: var(--surface);

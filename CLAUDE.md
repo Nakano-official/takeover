@@ -182,6 +182,8 @@ GAS は src/ 一式（.gs と .html を同居）を clasp で push する。html
 
 - **ヘッダーとナビは各HTMLに書かない**。`code.js` の `renderChrome_` がサーバー側で組み立て、
   各画面は `<?!= chrome ?>` を1行貼るだけ。ナビの内容は `PAGES` と `NAV_PAGES` から導出される。
+  ヘッダーとナビは `div.appchrome` にまとめて上に張り付き、下へスクロールすると隠れ、上へスクロールすると出る
+  （`shared-chrome.html`）。画面側で `position: sticky; top: 0` の要素を足すと、出ているときにヘッダーと重なる。
 - **画面を追加するとき**は `PAGES` に足し、ナビに出すなら `NAV_PAGES` にも足す。それだけで全画面の
   ナビに載り、`staffOnly` による出し分け・現在地ハイライトも自動で効く（各HTMLの編集は不要）。
   - `staffOnly: true` … 職員限定（`doGet` がアクセスも拒否する）

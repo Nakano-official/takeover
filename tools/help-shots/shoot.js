@@ -234,7 +234,7 @@ async function shoot(browser, shot) {
 
   await page.goto(pathToFileURL(path.join(render.OUT, shot.page + '.html')).href);
   // ナビは画面上部に張り付く（sticky）。スクロールすると写したい所がナビの下に隠れるので、撮影中は外す
-  await page.addStyleTag({ content: '.appnav { position: static !important; }' });
+  await page.addStyleTag({ content: '.appchrome { position: static !important; transform: none !important; }' });
   await page.waitForTimeout(400);
   for (const step of shot.steps || []) {
     if (step.click) await page.locator(visible(step.click)).first().click();
