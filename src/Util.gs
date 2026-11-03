@@ -17,6 +17,47 @@ function isChatWebhook_(url) {
   return /^https:\/\/chat\.googleapis\.com\//.test(String(url).trim());
 }
 
+// ─── 入力の形（シートに書く前の確認）────────────────────────
+//
+// 先頭が = + - @ の文字は、スプレッドシートが式として扱う（文字列に固定した列を除く）。
+// 自由に書ける欄は、書き込む前にここを通す。画面（input.html）にも同じ形の確認がある。
+const FORMULA_LIKE_RE_ = /^[=+\-@＝＋－＠]/;
+
+function assertNotFormula_(label, value) {
+  if (FORMULA_LIKE_RE_.test(String(value == null ? '' : value).trim())) {
+    throw new Error(label + 'の先頭に = + - @ は使えません（スプレッドシートで数式として扱われるため）。');
+  }
+}
+
+/**
+ * 人の名前として受け付けられるか（利用登録の氏名など）。
+ * 名前は画面・Chat の通知・シートのあちこちに出るので、記号は最小限にする。
+ * < > は Chat の文面でメンションやリンクの書式になるので使わせない。
+ * @return {string} 前後の空白を除いた名前
+ */
+function validatePersonName_(label, value) {
+  const s = String(value == null ? '' : value).trim();
+  if (!s) throw new Error(label + 'を入力してください。');
+  if (s.length > 40) throw new Error(label + 'は40文字以内で入力してください。');
+  if (/[<>"\\\u0000-\u001f\u007f]/.test(s)) {
+    throw new Error(label + 'に使えない記号が含まれています（< > " \\ など）。');
+  }
+  assertNotFormula_(label, s);
+  return s;
+}
+
+/**
+ * 電話番号として受け付けられるか。数字と + - ( ) 空白だけ（全角も可）。空は許す（必須かどうかは呼び出し側）。
+ * @return {string} 前後の空白を除いた値
+ */
+function validatePhone_(value) {
+  const s = String(value == null ? '' : value).trim();
+  if (s.length > 20 || !/^[0-9０-９+＋\-－ー‐()（）\s　]*$/.test(s)) {
+    throw new Error('電話番号は数字と - だけで入力してください（例：090-1234-5678）。');
+  }
+  return s;
+}
+
 /**
  * 時刻のパース（機能Aの締切判定が使う）。
  *

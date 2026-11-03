@@ -17,7 +17,7 @@
 const { Harness } = require('./gas-harness');
 
 const h = new Harness();
-h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Util.gs', 'Profile.gs']);
+h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Profile.gs']);
 const G = h.G;
 const T = h.time;
 
@@ -272,5 +272,10 @@ try {
 } catch (e) { rejected = /テイクでは選べません/.test(e.message); }
 h.check(rejected, '★テイクの空きコマに移動枠は入れられない（画面を通さない経路でも弾く）');
 h.check(staffRow('S101').assist_slots === '月移動1-2', '★弾いたときは介助ぶんも書き換えない');
+
+h.section('電話番号の形');
+threw = '';
+try { G.updateMyProfile({ phone: '=1+1', webhook_url: OK_HOOK, slots: ['月1'] }); } catch (e) { threw = e.message; }
+h.check(threw.indexOf('電話番号') !== -1, '数字と - 以外の電話番号は保存しない');
 
 process.exitCode = h.report();

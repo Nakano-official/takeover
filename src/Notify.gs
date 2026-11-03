@@ -120,12 +120,12 @@ function getStaffSpaceWebhookOrEmpty_() {
 
 /**
  * staff_id → webhook_url のマップを1回の読み取りで作る（backlog 10-10）。
- * 従来は候補1人ごとに getStaffWebhook_ → findRow → contacts 全読みで、
+ * 従来は候補1人ごとに getStaffWebhook_ → findRow_ → contacts 全読みで、
  * 候補n人なら contacts をn回読んでいた。
  */
 function buildWebhookMap_() {
   const map = {};
-  readRows(SHEET.CONTACTS).forEach(function (c) {
+  readRows_(SHEET.CONTACTS).forEach(function (c) {
     map[String(c.staff_id).trim()] = String(c.webhook_url || '').trim();
   });
   return map;
@@ -166,10 +166,10 @@ function blockSlotsText_(vacancy) {
   return parts.join(' ／ ') + '　※ ' + parts.length + '枠まとめて';
 }
 
-function notifyNewVacancy(vacancyId, reopened) {
-  const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+function notifyNewVacancy_(vacancyId, reopened) {
+  const vacancy = findRow_(SHEET.VACANCIES, 'vacancy_id', vacancyId);
   if (!vacancy) throw new Error('対象の欠員が見つかりません。');
-  const course = findRow(SHEET.COURSES, 'course_id', vacancy.course_id);
+  const course = findRow_(SHEET.COURSES, 'course_id', vacancy.course_id);
   if (!course) throw new Error('対象のコマが見つかりません。');
 
   const nameById = buildNameMap_();
@@ -252,7 +252,7 @@ function notifyNewVacancy(vacancyId, reopened) {
     status = NOTIFY_STATUS.DONE;
   }
   try {
-    updateRow(SHEET.VACANCIES, 'vacancy_id', vacancyId, { notify_status: status });
+    updateRow_(SHEET.VACANCIES, 'vacancy_id', vacancyId, { notify_status: status });
   } catch (e) {
     result.errors.push('ステータス更新: ' + e.message);
   }
@@ -274,10 +274,10 @@ function notifyNewVacancy(vacancyId, reopened) {
  * @param  {string} substituteStaffId  確定した代行者
  * @return {{staff:boolean, substitute:boolean, others:Array, errors:Array}}
  */
-function notifyVacancyFilled(vacancyId, substituteStaffId) {
-  const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+function notifyVacancyFilled_(vacancyId, substituteStaffId) {
+  const vacancy = findRow_(SHEET.VACANCIES, 'vacancy_id', vacancyId);
   if (!vacancy) throw new Error('対象の欠員が見つかりません。');
-  const course = findRow(SHEET.COURSES, 'course_id', vacancy.course_id);
+  const course = findRow_(SHEET.COURSES, 'course_id', vacancy.course_id);
   if (!course) throw new Error('対象のコマが見つかりません。');
 
   const nameById = buildNameMap_();
@@ -370,16 +370,16 @@ function notifyVacancyFilled(vacancyId, substituteStaffId) {
 
 /**
  * 代行者なしで決着（1人テイク / 職員対応）したことを候補者へ知らせる。
- * 先着自動確定（notifyVacancyFilled）と挙動を対称にし、候補が放置されないようにする。
+ * 先着自動確定（notifyVacancyFilled_）と挙動を対称にし、候補が放置されないようにする。
  *
  * @param  {string} vacancyId
  * @param  {string} resultLabel  '1人テイク' / '職員対応'
  * @return {{others:Array, errors:Array}}
  */
-function notifyVacancyClosed(vacancyId, resultLabel) {
-  const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+function notifyVacancyClosed_(vacancyId, resultLabel) {
+  const vacancy = findRow_(SHEET.VACANCIES, 'vacancy_id', vacancyId);
   if (!vacancy) throw new Error('対象の欠員が見つかりません。');
-  const course = findRow(SHEET.COURSES, 'course_id', vacancy.course_id);
+  const course = findRow_(SHEET.COURSES, 'course_id', vacancy.course_id);
   if (!course) throw new Error('対象のコマが見つかりません。');
 
   const periodById = buildPeriodMap_();
@@ -425,10 +425,10 @@ function notifyVacancyClosed(vacancyId, resultLabel) {
  * @param  {string} substituteStaffId  解除された元の代行者
  * @return {{sent:boolean, reason:string}}
  */
-function notifySubstituteReleased(vacancyId, substituteStaffId) {
-  const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+function notifySubstituteReleased_(vacancyId, substituteStaffId) {
+  const vacancy = findRow_(SHEET.VACANCIES, 'vacancy_id', vacancyId);
   if (!vacancy) throw new Error('対象の欠員が見つかりません。');
-  const course = findRow(SHEET.COURSES, 'course_id', vacancy.course_id);
+  const course = findRow_(SHEET.COURSES, 'course_id', vacancy.course_id);
   if (!course) throw new Error('対象のコマが見つかりません。');
 
   const periodById = buildPeriodMap_();
@@ -476,10 +476,10 @@ function notifySubstituteReleased(vacancyId, substituteStaffId) {
  * @param  {string} [suggestion] 決着の提案（'1人テイク' / '職員対応'）。職員が判断する材料
  * @return {{staff:boolean, others:Array, errors:Array}}
  */
-function notifyRecruitClosed(vacancyId, reason, suggestion) {
-  const vacancy = findRow(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+function notifyRecruitClosed_(vacancyId, reason, suggestion) {
+  const vacancy = findRow_(SHEET.VACANCIES, 'vacancy_id', vacancyId);
   if (!vacancy) throw new Error('対象の欠員が見つかりません。');
-  const course = findRow(SHEET.COURSES, 'course_id', vacancy.course_id);
+  const course = findRow_(SHEET.COURSES, 'course_id', vacancy.course_id);
   if (!course) throw new Error('対象のコマが見つかりません。');
 
   const nameById = buildNameMap_();
@@ -551,7 +551,7 @@ function notifyRecruitClosed(vacancyId, reason, suggestion) {
   }
 
   try {
-    updateRow(SHEET.VACANCIES, 'vacancy_id', vacancyId, { notify_status: NOTIFY_STATUS.DONE });
+    updateRow_(SHEET.VACANCIES, 'vacancy_id', vacancyId, { notify_status: NOTIFY_STATUS.DONE });
   } catch (e) {
     result.errors.push('ステータス更新: ' + e.message);
   }

@@ -35,9 +35,9 @@
 function getStaffRoster() {
   requireStaff_();
 
-  const staffs = readRows(SHEET.STAFFS);
-  const contacts = readRows(SHEET.CONTACTS);
-  const courses = readRows(SHEET.COURSES);
+  const staffs = readRows_(SHEET.STAFFS);
+  const contacts = readRows_(SHEET.CONTACTS);
+  const courses = readRows_(SHEET.COURSES);
 
   // staff_id → 連絡先。連絡先DBに行が無い人は**ログインできない**ので、
   // 名簿にいても使えていない（承認の途中で片側だけ作られた等）。それが分かるように保持する。
@@ -209,7 +209,7 @@ function rosterSummary_(rows) {
 /** 未処理の利用登録申請の件数（承認画面への導線に出す）。registrations が無くても落とさない */
 function rosterPendingCount_() {
   try {
-    return readRows(SHEET.REGISTRATIONS).filter(function (r) {
+    return readRows_(SHEET.REGISTRATIONS).filter(function (r) {
       return String(r.status || '').trim() === REGISTRATION_STATUS.PENDING;
     }).length;
   } catch (e) {

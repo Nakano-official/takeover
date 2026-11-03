@@ -25,6 +25,7 @@
  * 実行後「実行ログ」を確認すること。実データは変更しない（テスト行は最後に削除）。
  */
 function testSheets() {
+  requireEditorRun_();
   Logger.log('===== Sheets.gs 動作確認 開始 =====');
 
   // 1) プロパティ確認
@@ -33,17 +34,17 @@ function testSheets() {
   Logger.log('[プロパティ] CONTACTS_SPREADSHEET_ID = ' + (props.getProperty('CONTACTS_SPREADSHEET_ID') ? 'OK' : '未設定!'));
 
   // 2) 各シートの読み取り件数
-  Logger.log('--- readRows 件数 ---');
+  Logger.log('--- readRows_ 件数 ---');
   [SHEET.STAFFS, SHEET.COURSES, SHEET.VACANCIES, SHEET.RESPONSES, SHEET.PERIODS, SHEET.CONTACTS].forEach(function (name) {
     try {
-      Logger.log('  ' + name + ': ' + readRows(name).length + ' 件');
+      Logger.log('  ' + name + ': ' + readRows_(name).length + ' 件');
     } catch (e) {
       Logger.log('  ' + name + ': ❌ ' + e.message);
     }
   });
 
   // 3) staffs の中身サンプル
-  const staffs = readRows(SHEET.STAFFS);
+  const staffs = readRows_(SHEET.STAFFS);
   Logger.log('--- staffs サンプル ---');
   staffs.forEach(function (s) {
     Logger.log('  ' + s.staff_id + ' / ' + s.name + ' / ' + s.role + ' / [' + s.available_slots + ']');
@@ -51,27 +52,27 @@ function testSheets() {
 
   // 4) periods が時刻テキストとして読めているか（Date化していないか）
   Logger.log('--- periods 型チェック ---');
-  readRows(SHEET.PERIODS).forEach(function (p) {
+  readRows_(SHEET.PERIODS).forEach(function (p) {
     const t = p.start_time;
     const type = (t instanceof Date) ? '⚠️Date型（要修正）' : typeof t;
     Logger.log('  ' + p.period + '限: ' + t + ' 〜 ' + p.end_time + '（型: ' + type + '）');
   });
 
-  // 5) findRow / filterRows
+  // 5) findRow_ / filterRows_
   Logger.log('--- 検索テスト ---');
-  const found = findRow(SHEET.STAFFS, 'staff_id', 'S002');
-  Logger.log('  findRow S002 = ' + (found ? found.name : '見つからず'));
-  Logger.log('  filterRows role=学生 = ' + filterRows(SHEET.STAFFS, 'role', '学生').length + ' 件');
+  const found = findRow_(SHEET.STAFFS, 'staff_id', 'S002');
+  Logger.log('  findRow_ S002 = ' + (found ? found.name : '見つからず'));
+  Logger.log('  filterRows_ role=学生 = ' + filterRows_(SHEET.STAFFS, 'role', '学生').length + ' 件');
 
   // 6) 書き込みテスト（vacancies にテスト行 → 削除）
   Logger.log('--- 書き込みテスト（追記→削除）---');
   try {
     const testId = '__TEST__' + new Date().getTime();
-    appendRow(SHEET.VACANCIES, { vacancy_id: testId, date: '2026-06-12', notify_status: 'test' });
-    const writeOk = findRow(SHEET.VACANCIES, 'vacancy_id', testId) !== null;
+    appendRow_(SHEET.VACANCIES, { vacancy_id: testId, date: '2026-06-12', notify_status: 'test' });
+    const writeOk = findRow_(SHEET.VACANCIES, 'vacancy_id', testId) !== null;
     Logger.log('  追記: ' + (writeOk ? 'OK' : '❌失敗'));
     deleteTestRow_(SHEET.VACANCIES, 'vacancy_id', testId);
-    const cleanOk = findRow(SHEET.VACANCIES, 'vacancy_id', testId) === null;
+    const cleanOk = findRow_(SHEET.VACANCIES, 'vacancy_id', testId) === null;
     Logger.log('  テスト行削除: ' + (cleanOk ? 'OK' : '❌残存'));
   } catch (e) {
     Logger.log('  ❌ ' + e.message);
@@ -103,6 +104,7 @@ function deleteTestRow_(sheetName, keyColumn, keyValue) {
  * 初回は外部リクエストの承認ダイアログが出るので「許可」する。
  */
 function testNotify() {
+  requireEditorRun_();
   Logger.log('===== Notify 疎通確認 =====');
   try {
     const url = getStaffSpaceWebhook_();
@@ -116,11 +118,12 @@ function testNotify() {
 }
 
 /**
- * 最新の欠員に対して notifyNewVacancy を実行する（実送信あり）。
+ * 最新の欠員に対して notifyNewVacancy_ を実行する（実送信あり）。
  * testNotify で疎通確認できた後に使う。
  */
 function testNotifyVacancy() {
-  const vacancies = readRows(SHEET.VACANCIES);
+  requireEditorRun_();
+  const vacancies = readRows_(SHEET.VACANCIES);
   if (vacancies.length === 0) {
     Logger.log('vacancies が空です。先に欠勤連絡で欠員を作ってください。');
     return;
@@ -128,7 +131,7 @@ function testNotifyVacancy() {
   const vid = vacancies[vacancies.length - 1].vacancy_id;
   Logger.log('対象 vacancy_id: ' + vid);
   try {
-    const res = notifyNewVacancy(vid);
+    const res = notifyNewVacancy_(vid);
     Logger.log('結果: ' + JSON.stringify(res, null, 2));
   } catch (e) {
     Logger.log('❌ ' + e.message);
@@ -145,7 +148,8 @@ function testNotifyVacancy() {
  * 「読み込み中で固まる」原因（サーバー側エラー）を切り分けるために使う。
  */
 function testRespond() {
-  const vacancies = readRows(SHEET.VACANCIES);
+  requireEditorRun_();
+  const vacancies = readRows_(SHEET.VACANCIES);
   if (vacancies.length === 0) {
     Logger.log('vacancies が空です。先に欠勤連絡で欠員を作ってください。');
     return;
@@ -169,9 +173,10 @@ function testRespond() {
  * 実データは変更しない。
  */
 function testVacancy() {
+  requireEditorRun_();
   Logger.log('===== Vacancy 候補スクリーニング確認 =====');
 
-  const courses = readRows(SHEET.COURSES);
+  const courses = readRows_(SHEET.COURSES);
   if (courses.length === 0) {
     Logger.log('courses が空です。Setup を確認してください。');
     return;
@@ -183,7 +188,7 @@ function testVacancy() {
       c.staff_a_id + '/' + c.staff_b_id + ' ---');
 
     // 全学生のスロットを可視化（なぜ候補になる/ならないかを確認できる）
-    readRows(SHEET.STAFFS).forEach(function (s) {
+    readRows_(SHEET.STAFFS).forEach(function (s) {
       if (String(s.role).trim() !== '学生') return;
       const slots = String(s.available_slots).split(',').map(function (x) { return x.trim(); });
       const hit = slots.indexOf(slotKey) !== -1;
@@ -208,6 +213,7 @@ function testVacancy() {
  * 実トークンは使わず集計ロジックだけ検証する（ネットワーク不要）。
  */
 function testDevicePoll() {
+  requireEditorRun_();
   Logger.log('===== 端末エンドポイント 動作確認 =====');
 
   const tokenSet = !!PropertiesService.getScriptProperties().getProperty(PROP_DEVICE_TOKEN);
@@ -233,6 +239,7 @@ function testDevicePoll() {
  * まずこれを実行して、見ているカレンダーが意図通りか確かめる。
  */
 function testCalendarConnection() {
+  requireEditorRun_();
   Logger.log('===== カレンダー接続確認 =====');
   try {
     const cal = getCalendar_();
@@ -255,6 +262,7 @@ function testCalendarConnection() {
  * 確認したい日付をここで書き換える。シフト（テイク）が2人入っている日を選ぶこと。
  */
 function testInspectCalendar() {
+  requireEditorRun_();
   inspectCalendarDay('2026-05-01'); // ← 2人テイクが入っている日付に書き換えて実行
 }
 
@@ -263,6 +271,7 @@ function testInspectCalendar() {
  * listCalendars で見つけたIDと、2人テイクが入っている日付を書き換えて実行する。
  */
 function testInspectCalendarOn() {
+  requireEditorRun_();
   const calendarId = 'ここにカレンダーのIDを貼る';
   inspectCalendarDay('2026-05-12', calendarId);
 }
@@ -285,16 +294,19 @@ function testCalId_() {
 
 // 1) 疑似イベントを作成
 function testSeed() {
+  requireEditorRun_();
   seedTestCalendar(testCalId_());
 }
 
 // 2) 作った疑似イベントを診断（重なり検出まで）
 function testInspectSeed() {
+  requireEditorRun_();
   inspectCalendarDay('2026-05-12', testCalId_());
 }
 
 // 3) 疑似イベントを掃除
 function testClearSeed() {
+  requireEditorRun_();
   clearTestCalendarSeed(testCalId_(), '2026-05-12');
 }
 
@@ -311,6 +323,7 @@ function testClearSeed() {
  * 実データは一切変更しない。
  */
 function testOneOffDiagnosis() {
+  requireEditorRun_();
   Logger.log('===== 単発コマ 診断 =====');
 
   const today = todayJst_();
@@ -330,7 +343,7 @@ function testOneOffDiagnosis() {
 
   // ── 1) シートの生の値と型 ──
   Logger.log('--- courses シートの生データ（型つき）---');
-  const rows = readRows(SHEET.COURSES);
+  const rows = readRows_(SHEET.COURSES);
   if (rows.length === 0) Logger.log('（courses が空です）');
   rows.forEach(function (c) {
     const rawDate = c.date;
@@ -397,6 +410,7 @@ function testOneOffDiagnosis() {
  * それぞれ実際に開いてみて結果を表示する。実データは変更しない。
  */
 function showConfig() {
+  requireEditorRun_();
   Logger.log('===== 設定の診断 =====');
 
   // 実行アカウント。GASエディタから実行すると「いまエディタを開いている人」になり、

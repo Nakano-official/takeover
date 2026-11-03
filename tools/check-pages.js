@@ -28,7 +28,7 @@ const KNOWN_GLOBALS = new Set([
   'if', 'for', 'while', 'switch', 'catch', 'return', 'typeof', 'function', 'do', 'else',
   // 組み込み
   'Array', 'Object', 'String', 'Number', 'Boolean', 'Date', 'Math', 'JSON', 'RegExp',
-  'Error', 'Promise', 'Set', 'Map', 'parseInt', 'parseFloat', 'isNaN', 'isFinite',
+  'Error', 'Promise', 'Set', 'Map', 'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'Uint8Array',
   'encodeURIComponent', 'decodeURIComponent', 'encodeURI', 'decodeURI',
   // ブラウザ
   'alert', 'confirm', 'prompt', 'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval',

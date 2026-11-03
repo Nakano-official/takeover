@@ -120,8 +120,8 @@ h.section('6) 読み込み中にシートが直されても、古い内容を新
 setup();
 G.keepIdentityCacheAlive();
 var fired = false;
-const origFindRow = G.findRow;
-G.findRow = function () {
+const origFindRow = G.findRow_;
+G.findRow_ = function () {
   const r = origFindRow.apply(this, arguments);
   if (!fired) {
     fired = true;
@@ -132,7 +132,7 @@ G.findRow = function () {
   return r;
 };
 h.check(G.getCurrentUser_().role === '職員', '（その回は読んだ時点の内容を返す）');
-G.findRow = origFindRow;
+G.findRow_ = origFindRow;
 h.check(G.getCurrentUser_().role === '学生', '★次の呼び出しでは直した内容になる（古い世代で保存されている）');
 
 // ── 7) 未登録は持たない ──────────────────────────────────

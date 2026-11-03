@@ -60,7 +60,7 @@ function runAttendanceCheck(payload) {
   const actualRaw = parseAttendanceCsv_(text); // [{code,name,date,startMin,endMin,block}]
 
   // 2) staffs から突合マップを作る
-  const staffs = readRows(SHEET.STAFFS);
+  const staffs = readRows_(SHEET.STAFFS);
   const idByName = {};        // 正規化氏名 → staff_id（予定側の突合）
   const idByCode = {};        // personal_code → staff_id（実績側の突合）
   const nameById = {};

@@ -21,7 +21,7 @@ function getInputData(quarter) {
 
   const nameById = {};
   const students = [];
-  readRows(SHEET.STAFFS).forEach(function (s) {
+  readRows_(SHEET.STAFFS).forEach(function (s) {
     const id = String(s.staff_id).trim();
     nameById[id] = s.name;
     if (String(s.role).trim() === '学生') {
@@ -35,7 +35,7 @@ function getInputData(quarter) {
     }
   });
 
-  const periodRows = readRows(SHEET.PERIODS);
+  const periodRows = readRows_(SHEET.PERIODS);
   const periodById = {};
   periodRows.forEach(function (p) { periodById[String(p.period).trim()] = p; });
   const periods = periodRows.map(function (p) {
@@ -56,7 +56,7 @@ function getInputData(quarter) {
   const periodIndex = {};
   periods.forEach(function (p, i) { periodIndex[p.period] = i; });
 
-  const allCourses = readRows(SHEET.COURSES);
+  const allCourses = readRows_(SHEET.COURSES);
   const courseTermIds = [];
   const users = [];
   allCourses.forEach(function (c) {
@@ -184,6 +184,13 @@ function validateCoursePayload_(p, excludeCourseId) {
   }
   if (!userStudent) throw new Error('利用者を入力してください。');
 
+  // 自由に書ける欄は、シートで数式として扱われる形（先頭が = など）を受け付けない（Util.gs）。
+  // 時間割PDFから入る値（D52）も手入力と同じくここを通る。
+  [
+    ['利用者', userStudent], ['科目名', p.subject], ['担当教員', p.instructor],
+    ['教室', p.room], ['備考', p.note],
+  ].forEach(function (f) { assertNotFormula_(f[0], f[1]); });
+
   // **担当は未定のままでよい（D38）。** 実務では授業（科目・教室・教員・利用学生・曜日時限）が
   // 学期開始前に確定し、担当の割り当ては学生の空きコマが集まってから決まる。
   // 必須にしていたせいで、担当が決まる前は「仮の担当」を入れるしかなく、
@@ -201,7 +208,7 @@ function validateCoursePayload_(p, excludeCourseId) {
 
   // スタッフ実在チェック
   const roleById = {};
-  readRows(SHEET.STAFFS).forEach(function (s) {
+  readRows_(SHEET.STAFFS).forEach(function (s) {
     roleById[String(s.staff_id).trim()] = String(s.role).trim();
   });
   [a, b].forEach(function (id) {
@@ -212,7 +219,7 @@ function validateCoursePayload_(p, excludeCourseId) {
   // 単発同士は日付が違えばぶつからない（occurrencesOverlap_・D27）。
   const exclude = String(excludeCourseId || '').trim();
   const assigned = {};
-  readRows(SHEET.COURSES).forEach(function (c) {
+  readRows_(SHEET.COURSES).forEach(function (c) {
     if (exclude && String(c.course_id).trim() === exclude) return;
     if (String(c.quarter).trim() !== quarter) return;
     if (String(c.day).trim() !== day) return;
@@ -284,12 +291,12 @@ function addCourse(payload) {
     }, null));
   });
 
-  const id = appendRowWithId(SHEET.COURSES, 'course_id', 'C', row);
+  const id = appendRowWithId_(SHEET.COURSES, 'course_id', 'C', row);
 
   const moveIds = [];
   for (var i = 0; i < planned.length; i++) {
     try {
-      moveIds.push(appendRowWithId(SHEET.COURSES, 'course_id', 'C', planned[i]));
+      moveIds.push(appendRowWithId_(SHEET.COURSES, 'course_id', 'C', planned[i]));
     } catch (e) {
       // 作れたものは消さずに名指しで返す（黙って片方だけ残さない）
       throw new Error('授業（' + id + '）'
@@ -319,7 +326,7 @@ function updateCourse(payload) {
   const courseId = String(p.course_id || '').trim();
   if (!courseId) throw new Error('course_id がありません。');
 
-  const existing = findRow(SHEET.COURSES, 'course_id', courseId);
+  const existing = findRow_(SHEET.COURSES, 'course_id', courseId);
   if (!existing) throw new Error('対象のコマが見つかりませんでした。');
 
   const row = validateCoursePayload_(p, courseId);
@@ -328,7 +335,7 @@ function updateCourse(payload) {
   // 科目・教室・担当・備考などの修正は許可する。
   // 実施日を含めるのは、単発コマ（D27）の日付を後から動かすと、その日に紐づいた欠員
   //（vacancies.date）と食い違い、どの回の欠員だったのか分からなくなるため。
-  const hasVacancy = readRows(SHEET.VACANCIES).some(function (v) {
+  const hasVacancy = readRows_(SHEET.VACANCIES).some(function (v) {
     return String(v.course_id).trim() === courseId;
   });
   if (hasVacancy) {
@@ -341,7 +348,7 @@ function updateCourse(payload) {
     }
   }
 
-  const updated = updateRow(SHEET.COURSES, 'course_id', courseId, row);
+  const updated = updateRow_(SHEET.COURSES, 'course_id', courseId, row);
   if (!updated) throw new Error('更新できませんでした（対象が見つかりません）。');
   return { ok: true, course_id: courseId };
 }
@@ -353,20 +360,20 @@ function deleteCourse(courseId) {
   if (!id) throw new Error('course_id がありません。');
 
   // 欠員記録が紐づくコマは削除しない（記録保全のため）
-  const hasVacancy = readRows(SHEET.VACANCIES).some(function (v) {
+  const hasVacancy = readRows_(SHEET.VACANCIES).some(function (v) {
     return String(v.course_id).trim() === id;
   });
   if (hasVacancy) {
     throw new Error('このコマには欠員記録が紐づいているため削除できません。先に欠員側を整理してください。');
   }
 
-  const n = deleteRowByKey(SHEET.COURSES, 'course_id', id);
+  const n = deleteRowByKey_(SHEET.COURSES, 'course_id', id);
   if (!n) throw new Error('対象のコマが見つかりませんでした。');
   return { ok: true, deleted: n };
 }
 
 // staff_id → 氏名（無ければIDをそのまま返す）
 function nameOf_(id) {
-  const s = findRow(SHEET.STAFFS, 'staff_id', id);
+  const s = findRow_(SHEET.STAFFS, 'staff_id', id);
   return s ? s.name : id;
 }
