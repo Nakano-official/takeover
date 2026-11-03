@@ -101,6 +101,13 @@ const R = {
   intensive: { day: '集中', term: '後期', code: 'U88Z007', subject: '集中セミナー', units: '2', instructor: '仮名　七子' },
   sat6: { day: '土', period: '６', term: '後期', code: 'U66Z008', subject: '夜間講座', units: '2', instructor: '仮名　八郎' },
   sun1: { day: '日', period: '１', term: '後期', code: 'U71Z009', subject: '日曜講座', units: '2', instructor: '仮名　九郎' },
+  // 前期の PDF（先端理工）：前期・1Q・2Q が混ざる。同じ曜日・時限に 1Q と 2Q で別の授業がある形と、
+  // 同じ授業が別の曜日にもある形（たまたまそうなることがある）を含める
+  spMon1Q2: { day: '月', period: '１', term: '２Ｑ', code: 'U11Z101', subject: '確率統計', units: '2', instructor: '仮名　十郎' },
+  spMon1Q1: { day: '月', period: '１', term: '１Ｑ', code: 'U11Z102', subject: '離散数学', units: '2', instructor: '仮名　十一' },
+  spMon2: { day: '月', period: '２', term: '前期', code: 'U23Z103', subject: '構成論', units: '2', instructor: '仮名　十二' },
+  spThu4Q2: { day: '木', period: '４', term: '２Ｑ', code: 'U11Z101', subject: '確率統計', units: '2', instructor: '仮名　十郎' },
+  spFri2Q1: { day: '金', period: '２', term: '１Ｑ', code: 'U52Z104', subject: '組込み', units: '1', instructor: '仮名　十三' },
 };
 
 const CTX = {
@@ -109,10 +116,10 @@ const CTX = {
   periods: ['1', '2', '3', '4', '5'].map((p) => ({ period: p, label: p + '限', supportTypes: ['テイク', '介助'] }))
     .concat([{ period: '移動前3', label: '移動（3限の前）', supportTypes: ['介助'] }]),
   courses: [],
-  current: '2026-後期',
 };
 const ctx = (over) => Object.assign({}, CTX, over || {});
 const slots = (plan) => plan.cards.map((c) => c.day + c.period).join(',');
+const termSlots = (plan) => plan.cards.map((c) => c.termId.replace('2026-', '') + ':' + c.day + c.period).join(',');
 const reasons = (plan) => plan.skipped.map((s) => s.reason);
 
 // ─── 1. 基本の読み取り ────────────────────────────────────────────
@@ -131,9 +138,10 @@ check(r0.instructor.indexOf('オープン') === -1, '備考（「備　　考」
 check(p.rows[2].subject === '情報演習' && p.rows[2].period === '5', '単位の無い行（2コマ続きの2つ目）も読む');
 
 // ─── 2. カードへの振り分け ─────────────────────────────────────────
-console.log('\n2. どの学期にどのカードを作るか');
+console.log('\n2. カードと学期');
 let plan = G.tpdfPlan(p, ctx());
-check(plan.target === '2026-後期', '開講期「後期」→ 学期「2026-後期」');
+check(plan.cards.every((c) => c.termId === '2026-後期'), '開講期「後期」→ 学期「2026-後期」をカードに持たせる');
+check(plan.byTerm['2026-後期'] === 4, '学期ごとの件数を返す');
 check(slots(plan) === '月3,月4,月5,火2', '2コマ続きは2枚のカード（いまの手入力と同じ）');
 check(plan.cards[0].subject === '基礎数学Ａ' && plan.cards[0].instructor === '仮名　一郎', '科目・教員をカードへ渡す');
 check(plan.skipped.length === 0, '外すものは無い');
@@ -147,22 +155,25 @@ check(reasons(plan).some((x) => x.indexOf('集中講義') !== -1), '集中講義
 check(reasons(plan).some((x) => x.indexOf('6限') !== -1), '時限の設定に無い 6限 は外して理由を出す（D47）');
 check(reasons(plan).some((x) => x.indexOf('日曜') !== -1), '業務のある曜日に無い日曜は外して理由を出す');
 
-console.log('\n4. 学期が混ざっている PDF（先端理工：後期と 3Q）');
+console.log('\n4. 学期が混ざっている PDF（カードごとに学期を持つ）');
 p = G.tpdfParsePages([page([R.mon3, R.thu1Q3, R.fri2Q3, R.tue2, R.mon4])]);
-plan = G.tpdfPlan(p, ctx({ current: '2026-後期' }));
-check(plan.target === '2026-後期' && slots(plan) === '月3,火2,月4', 'いま選んでいる学期（後期）の行だけカードにする');
-check(plan.otherTerms['2026-3Q'] === 2, '残りの 3Q は「別の学期」として件数を返す（ボタンで作り直せる）');
-plan = G.tpdfPlan(p, ctx({ current: '2026-3Q' }));
-check(plan.target === '2026-3Q' && slots(plan) === '木1,金2', '3Q を選べば 3Q の行だけ');
-plan = G.tpdfPlan(p, ctx({ current: '2026-1Q' }));
-check(plan.target === '2026-後期', '選んでいる学期の行が無ければ、行のいちばん多い学期へ寄せる');
+plan = G.tpdfPlan(p, ctx());
+check(termSlots(plan) === '後期:月3,後期:火2,後期:月4,3Q:木1,3Q:金2',
+  '後期と 3Q を1回で全部カードにし、学期の順（後期→3Q）に並べる（同じ学期の中は PDF の順）');
+check(plan.byTerm['2026-後期'] === 3 && plan.byTerm['2026-3Q'] === 2, '学期ごとの件数');
+
+p = G.tpdfParsePages([page([R.spMon1Q2, R.spMon2, R.spMon1Q1, R.spThu4Q2, R.spFri2Q1], { sem: '前期' })]);
+plan = G.tpdfPlan(p, ctx());
+check(termSlots(plan) === '前期:月2,1Q:月1,1Q:金2,2Q:月1,2Q:木4', '前期の PDF：前期→1Q→2Q の順で全部カードにする');
+check(plan.skipped.length === 0, '同じ曜日・時限でも 1Q と 2Q は別のコマ（重複として外さない）');
+check(plan.cards.filter((c) => c.code === 'U11Z101').length === 2, '同じ授業が別の曜日にもあれば、それぞれカードにする');
 
 console.log('\n5. 二重登録を避ける');
 p = G.tpdfParsePages([page([R.mon3, R.tue2])]);
 plan = G.tpdfPlan(p, ctx({
   courses: [{ quarter: '2026-後期', day: '月', period: '3', date: '', user_student: '架空 花子' }],
 }));
-check(slots(plan) === '火2', '同じ利用者・曜日・時限のコマが登録済みなら作らない（空白の違いは無視）');
+check(slots(plan) === '火2', '同じ利用者・学期・曜日・時限のコマが登録済みなら作らない（空白の違いは無視）');
 check(reasons(plan).some((x) => x.indexOf('登録済み') !== -1), '登録済みとして理由を出す');
 plan = G.tpdfPlan(p, ctx({
   courses: [{ quarter: '2026-後期', day: '月', period: '3', date: '', user_student: '別の 利用者' }],
@@ -172,13 +183,17 @@ plan = G.tpdfPlan(p, ctx({
   courses: [{ quarter: '2026-後期', day: '月', period: '3', date: '2026-11-02', user_student: '架空 花子' }],
 }));
 check(slots(plan) === '月3,火2', '同じ曜日・時限でも単発コマ（D27）は毎週の授業と別物');
+plan = G.tpdfPlan(p, ctx({
+  courses: [{ quarter: '2026-3Q', day: '月', period: '3', date: '', user_student: '架空 花子' }],
+}));
+check(slots(plan) === '月3,火2', '別の学期の同じ曜日・時限は重複ではない（登録済みの確認は学期ごと）');
 plan = G.tpdfPlan(p, ctx({ user: '架空花子（登録名）' }));
 check(slots(plan) === '月3,火2', '画面で利用者名を差し替えたときはその名前で比べる');
 
 console.log('\n6. 学期マスタに無い年度');
 p = G.tpdfParsePages([page([R.mon3], { year: '2027' })]);
 plan = G.tpdfPlan(p, ctx());
-check(plan.target === '' && plan.cards.length === 0, '学期マスタに無い学期のカードは作らない');
+check(plan.cards.length === 0, '学期マスタに無い学期のカードは作らない');
 check(reasons(plan).some((x) => x.indexOf('2027-後期') !== -1), '「学期マスタに 2027-後期 がありません」と出す');
 
 console.log('\n7. 2ページにわたる PDF');
@@ -237,6 +252,54 @@ function rejects(over) {
 });
 check(rejects({ subject: '線形代数Ｂ（=演習つき）' }) === '', '途中に = があるだけなら登録できる');
 check(h.G.readRows_('courses').length === 1, '弾いた値は1件もシートに書いていない（書けたのは通常の1件だけ）');
+
+console.log('\n11. 学期をカードごとに選ぶようになったので（Input.gs）');
+const h2 = new Harness();
+h2.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Input.gs']);
+[
+  ['2026-前期', 'semester', '2026-04-07', '2026-08-04'],
+  ['2026-1Q', 'quarter', '2026-04-07', '2026-06-08'],
+  ['2026-2Q', 'quarter', '2026-06-08', '2026-08-04'],   // わざと 1Q の終わりと同じ日から始める
+  ['2026-後期', 'semester', '2026-09-21', '2027-01-30'],
+].forEach((t) => h2.add('terms', { term_id: t[0], system: t[1], start_date: t[2], end_date: t[3] }));
+h2.add('periods', { period: '1', start_time: '09:00', end_time: '10:30' });
+h2.add('staffs', { staff_id: 'T1', name: '職員', role: '職員' });
+h2.add('staffs', { staff_id: 'S1', name: '学生A', role: '学生', skills: '' });
+h2.setUser({ staff_id: 'T1', name: '職員', role: '職員' });
+const one = { day: '月', period: '1', support_type: 'テイク', user_student: '架空 花子', staff_a_id: 'S1' };
+function add2(over) {
+  try { h2.G.addCourse(Object.assign({}, one, over)); return ''; } catch (e) { return e.message; }
+}
+check(add2({ quarter: '2027-前期' }).indexOf('学期マスタに無い') !== -1, '学期マスタに無い学期は登録しない');
+check(add2({ quarter: '2026-1Q' }) === '', '1Q の月1 に学生A');
+check(add2({ quarter: '2026-2Q', user_student: '別の 利用者' }) === '',
+  '★2Q の月1 にも学生A を入れられる（境目の1日だけ重なる学期は同時とみなさない）');
+check(add2({ quarter: '2026-前期', user_student: '三人目' }).indexOf('既に別のコマ') !== -1,
+  '★前期の月1 には入れない（前期は 1Q・2Q と期間が重なる＝同じ時間に2か所）');
+check(add2({ quarter: '2026-後期', user_student: '三人目' }) === '', '後期は前期・1Q・2Q と重ならないので入れる');
+
+console.log('\n12. 一覧に出す学期（上部の学期の選択は無い・Input.gs の getInputData）');
+const h3 = new Harness();
+h3.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Input.gs']);
+const D = h3.time.dateIn;
+[
+  ['T-過去', 'semester', D(-200), D(-10)],
+  ['T-今Q', 'quarter', D(-30), D(30)],
+  ['T-今期', 'semester', D(-30), D(90)],
+  ['T-次期', 'semester', D(120), D(300)],
+].forEach((t) => h3.add('terms', { term_id: t[0], system: t[1], start_date: t[2], end_date: t[3] }));
+h3.add('periods', { period: '1', start_time: '09:00', end_time: '10:30' });
+h3.add('staffs', { staff_id: 'T1', name: '職員', role: '職員' });
+h3.setUser({ staff_id: 'T1', name: '職員', role: '職員' });
+['T-過去', 'T-今Q', 'T-今期', 'T-次期', 'T-今期'].forEach((q, i) => h3.add('courses', {
+  course_id: 'C' + i, quarter: q, day: '月', period: '1', support_type: 'テイク', user_student: '利用 学生',
+}));
+const data = h3.G.getInputData('T-過去');   // 古い呼び出し（引数あり）でも同じ結果になること
+check(data.courses.map((c) => c.quarter).join(',') === 'T-今期,T-今期,T-今Q,T-次期',
+  '終わっていない学期のコマだけを、学期の順（同じ日に始まるならセメスターが先）に並べる');
+check(data.courses.every((c) => c.quarter !== 'T-過去'), '終わった学期のコマは一覧に出さない（引数で古い学期を渡しても）');
+check(data.quarter === 'T-今期', '手で足すカードの学期の初期値は開講中の学期（セメスターとクォーターが並ぶならセメスター）');
+check(data.courseSlots.length === 5, '二重登録の確認用には、終わった学期も含めて全部渡す');
 
 console.log('\n' + '='.repeat(50));
 if (fails.length) {

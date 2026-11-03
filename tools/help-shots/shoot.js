@@ -11,7 +11,8 @@
  * ■ 撮るものを足す・直すときは下の SHOTS だけを触る
  *   page    … render.js の SHOTS のキー（どの画面を開くか）
  *   device  … 'phone'（幅390）／'pc'（幅1280）。学生向けはスマホ、職員向けはPC
- *   steps   … 撮る前の操作（click: 押すもの）
+ *   steps   … 撮る前の操作（click: 押すもの／run: 画面の中で実行する関数。ファイルを選ぶ操作など、
+ *             押すだけでは作れない状態を作るときに使う）
  *   clip    … 写す範囲。並べた要素をすべて含む長方形を撮る
  *   marks   … 囲むもの。1つなら「枠＋矢印」、2つ以上なら「枠＋番号」（矢印は引かない）
  *             番号付きで矢印を引くと、押す場所が近いとき矢印が文字を横切るため（D46 と同じ決まり）
@@ -115,8 +116,39 @@ const SHOTS = [
   { id: 'staff-4', page: 'staff-manage', device: 'pc',
     clip: ['.vac.done:has-text("V006")'], marks: [{ sel: '.vac.done:has-text("V006") .alt button' }] },
   { id: 'staff-5', page: 'staff-input', device: 'pc',
-    clip: ['[id^="card-"] >> nth=0', '#addCard'], marks: [{ sel: '#addCard' }] },
+    clip: ['[id^="termtag-"] >> nth=0', '[id^="period-"] >> nth=0'],
+    marks: [{ sel: '[id^="term-"] >> nth=0', n: 1 }] },
+  // 時間割PDFから読み込んだ後（D52）。本物の PDF は使えないので、読み取り結果（架空）を画面に渡して
+  // カードを並べる。カードを作る処理と結果欄は本物（buildPdfCards / renderPdfResult）
+  { id: 'staff-6', page: 'staff-input', device: 'pc',
+    steps: [{ run: demoPdfImport }],
+    clip: ['#pdfBtn', '#pdfResult', '[id^="support_type-"] >> nth=0', '[id^="user_sel-"] >> nth=0'],
+    marks: [
+      { sel: '#pdfBtn', n: 1 },
+      { sel: '[id^="termtag-"] >> nth=0', n: 2 },
+      { sel: '[id^="support_type-"] >> nth=0', n: 3 },
+    ] },
 ];
+
+// 画面の中で実行する（staff-6）。架空の受講登録確認表を読み取った結果を渡す
+function demoPdfImport() {
+  /* global buildPdfCards, renderPdfResult */
+  const parsed = { year: '2026', semester: '後期', studentName: '利用者A', rows: [], problems: [] };
+  const cards = [
+    { termId: '2026-後期', day: '月', period: '2', subject: '線形代数', instructor: '担当 教員' },
+    { termId: '2026-後期', day: '水', period: '1', subject: 'データ構造', instructor: '担当 教員' },
+    { termId: '2026-3Q', day: '火', period: '3', subject: '情報数学', instructor: '担当 教員' },
+    { termId: '2026-4Q', day: '火', period: '3', subject: '確率統計', instructor: '担当 教員' },
+  ];
+  const plan = {
+    cards: cards,
+    skipped: [{ row: { intensive: true, subject: '集中セミナー', code: '' }, reason: '集中講義（曜日・時限なし）' }],
+    byTerm: { '2026-後期': 2, '2026-3Q': 1, '2026-4Q': 1 },
+  };
+  window.PDF_LAST = { parsed: parsed, plan: plan };
+  buildPdfCards(plan, parsed);
+  renderPdfResult();
+}
 
 // ── 撮影 ────────────────────────────────────────────────
 
@@ -206,6 +238,7 @@ async function shoot(browser, shot) {
   await page.waitForTimeout(400);
   for (const step of shot.steps || []) {
     if (step.click) await page.locator(visible(step.click)).first().click();
+    if (step.run) await page.evaluate(step.run);
     await page.waitForTimeout(step.wait || 350);
   }
 

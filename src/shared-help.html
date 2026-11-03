@@ -9,6 +9,8 @@
       話題が1つ … すぐその話題を開く
       2つ以上   … 話題の一覧を出し、選んだものを開く
     話題は getHelp(key) で取り寄せ、section.help-step を1枚ずつ「次へ」でめくって見せる。
+    見出しの下に、その話題の**ページの題名（data-title）を並べたナビ**を出す。何についての説明かが
+    一目で分かり、押せばそのページへ飛べる（順にめくらなくてよい）。
 
   ■ 画面遷移を重くしないために
     話題の中身（画像を base64 で持つ）は**押したときに初めて取り寄せる**。取り寄せた中身は
@@ -24,6 +26,7 @@
       <h2 id="helpTitle">ヘルプ</h2>
       <button type="button" class="help-x" onclick="closeHelp()" aria-label="閉じる">×</button>
     </div>
+    <nav class="help-nav" id="helpNav" hidden aria-label="この話題のページ"></nav>
     <div class="help-body" id="helpBody"></div>
     <div class="help-foot" id="helpFoot" hidden>
       <button type="button" class="btn sm" id="helpPrev" onclick="helpGo(-1)">◀ 前へ</button>
@@ -56,6 +59,7 @@
     document.getElementById('helpTitle').textContent = 'ヘルプ';
     document.getElementById('helpBack').hidden = true;
     document.getElementById('helpFoot').hidden = true;
+    document.getElementById('helpNav').hidden = true;
     var topics = window.HELP_TOPICS_HERE || [];
     document.getElementById('helpBody').innerHTML =
       '<p class="help-lead">知りたいことを選んでください。</p>' +
@@ -71,6 +75,7 @@
     document.getElementById('helpTitle').textContent = t ? t.title : 'ヘルプ';
     document.getElementById('helpBack').hidden = topics.length <= 1;
     document.getElementById('helpFoot').hidden = true;
+    document.getElementById('helpNav').hidden = true;
 
     var cached = helpCacheRead_(key);
     if (cached) { helpStart_(key, cached); return; }
@@ -114,6 +119,13 @@
     helpRender_();
   }
 
+  // ナビの題名を押したとき
+  function helpJump(k) {
+    if (k < 0 || k >= HELP_STATE.steps.length) return;
+    HELP_STATE.index = k;
+    helpRender_();
+  }
+
   function helpRender_() {
     var steps = HELP_STATE.steps;
     var body = document.getElementById('helpBody');
@@ -125,6 +137,21 @@
     }
     var i = HELP_STATE.index;
     var step = steps[i];
+
+    // ページの題名を並べる（1ページだけの話題には出さない）
+    var nav = document.getElementById('helpNav');
+    nav.hidden = steps.length <= 1;
+    nav.innerHTML = steps.map(function (s, k) {
+      return '<button type="button"' + (k === i ? ' class="on" aria-current="step"' : '') +
+        ' onclick="helpJump(' + k + ')"><span class="no">' + (k + 1) + '</span>' +
+        helpEsc_(s.getAttribute('data-title') || '') + '</button>';
+    }).join('');
+    var on = nav.querySelector('button.on');
+    // スマホでは横にスクロールする1列なので、今のページの題名が見える位置まで送る
+    if (on && nav.scrollWidth > nav.clientWidth) {
+      nav.scrollLeft = on.offsetLeft - (nav.clientWidth - on.offsetWidth) / 2;
+    }
+
     body.innerHTML = '<h3 class="help-step-title">' + helpEsc_(step.getAttribute('data-title') || '') +
       '</h3>' + step.innerHTML;
     body.scrollTop = 0;
@@ -133,9 +160,7 @@
     var last = i === steps.length - 1;
     document.getElementById('helpNext').textContent = !last ? '次へ ▶'
       : ((window.HELP_TOPICS_HERE || []).length > 1 ? '一覧へ' : '閉じる');
-    document.getElementById('helpDots').innerHTML = steps.map(function (s, k) {
-      return '<i' + (k === i ? ' class="on"' : '') + '></i>';
-    }).join('');
+    document.getElementById('helpDots').textContent = steps.length > 1 ? (i + 1) + ' / ' + steps.length : '';
   }
 
   function helpCacheRead_(key) {

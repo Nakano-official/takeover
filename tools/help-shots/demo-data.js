@@ -90,6 +90,9 @@ function seed(h) {
     h.add('periods', { period: r[0], start_time: r[1], end_time: r[2], support_types: r[3], label: r[4] });
   });
   h.add('terms', { term_id: TERM, system: 'semester', start_date: '2026-09-21', end_date: '2027-01-30' });
+  // クォーター（先端理工）。シフト入力のカードに学期を付けて撮るため（D52）
+  h.add('terms', { term_id: '2026-3Q', system: 'quarter', start_date: '2026-09-21', end_date: '2026-11-20' });
+  h.add('terms', { term_id: '2026-4Q', system: 'quarter', start_date: '2026-11-21', end_date: '2027-01-30' });
 
   STAFFS.forEach(function (s, i) {
     h.add('staffs', {
