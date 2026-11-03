@@ -242,12 +242,17 @@ function renderChrome_(config, pageKey, user) {
 
   const help = renderHelp_(config, isStaff);
 
+  // ヘッダーとナビは1つにまとめて画面の上に張り付け、下へスクロールすると隠し、
+  // 上へスクロールすると出す（shared-chrome.html）。ヘルプやマイページへ、どこからでもすぐ戻れるように
   return '' +
-    '<header class="appbar">' +
-      '<h1>' + escapeHtml_(config.title) + '</h1>' +
-      '<div class="appbar-right">' + help.button + renderUserChip_(appUrl, pageKey, user) + '</div>' +
-    '</header>' +
-    '<nav class="appnav' + few + '">' + links + '</nav>' +
+    '<div class="appchrome" id="appChrome">' +
+      '<header class="appbar">' +
+        '<h1>' + escapeHtml_(config.title) + '</h1>' +
+        '<div class="appbar-right">' + help.button + renderUserChip_(appUrl, pageKey, user) + '</div>' +
+      '</header>' +
+      '<nav class="appnav' + few + '">' + links + '</nav>' +
+    '</div>' +
+    include('shared-chrome') +
     help.body;
 }
 
