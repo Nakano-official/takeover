@@ -53,6 +53,16 @@
 
     .toast { margin-top: 14px; display: none; }
     .toast.show { display: block; }
+
+    /* Google Chat アプリの案内（shared-chat-install.html） */
+    .chat-install { margin-bottom: 16px; padding: 14px 16px; background: var(--surface-alt);
+                    border: 1px solid var(--border); border-radius: var(--radius); }
+    .chat-install[hidden] { display: none; }
+    .chat-stores { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; }
+    .chat-store { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 150px; }
+    .chat-store-name { font-size: .82rem; font-weight: 700; text-align: center; }
+    .chat-qr svg { display: block; width: 150px; height: 150px; background: #fff;
+                   border: 1px solid var(--border); border-radius: var(--radius-sm); }
   </style>
 </head>
 <body>
@@ -60,6 +70,7 @@
 
   <main>
     <div id="body" class="state">読み込み中…</div>
+    <?!= include('shared-chat-install') ?>
   </main>
 
   <?!= include('shared-contact') ?>
@@ -79,6 +90,9 @@
     function render(c) {
       C = c;
       var host = document.getElementById('body');
+      var chat = document.getElementById('chatInstall');
+      host.parentNode.appendChild(chat);     // 描き直しで一緒に消えないよう、いったん元の場所（最後）へ戻す
+      chat.hidden = !!c.alreadyRegistered;   // 登録済みの人には出さない
 
       if (c.alreadyRegistered) {
         host.className = '';
@@ -147,6 +161,10 @@
           (c.status === '申請中' ? 'この内容で出し直す' : 'この内容で申請する') + '</button>' +
         '<div id="toast" class="toast"></div>' +
         '</div>';
+
+      // 申請ボタンのすぐ上に出す（押す前に必ず目に入るように）
+      var submit = document.getElementById('submit');
+      submit.parentNode.insertBefore(chat, submit);
     }
 
     function skillBox(name, current) {
