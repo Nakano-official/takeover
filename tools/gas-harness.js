@@ -213,6 +213,7 @@ class Harness {
         formatDate: function (d, tz, fmt) {
           const Y = d.getFullYear(), M = pad(d.getMonth() + 1), D = pad(d.getDate());
           const h = pad(d.getHours()), m = pad(d.getMinutes()), s = pad(d.getSeconds());
+          if (fmt === 'yyyy') return String(Y);
           if (fmt === 'yyyy-MM-dd') return Y + '-' + M + '-' + D;
           if (fmt === 'yyyy-MM-dd HH:mm:ss') return Y + '-' + M + '-' + D + ' ' + h + ':' + m + ':' + s;
           if (fmt === 'HH:mm') return h + ':' + m;

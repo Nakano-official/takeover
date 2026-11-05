@@ -90,6 +90,12 @@ function seed(h) {
     h.add('periods', { period: r[0], start_time: r[1], end_time: r[2], support_types: r[3], label: r[4] });
   });
   h.add('terms', { term_id: TERM, system: 'semester', start_date: '2026-09-21', end_date: '2027-01-30' });
+  // 承認待ちの申請（利用登録の承認画面を撮るため）
+  h.add('registrations', {
+    registration_id: 'R001', email: 'taro.shinjin@example.jp', name: '新人 太郎', phone: '090-0000-1100',
+    webhook_url: 'https://chat.googleapis.com/v1/spaces/DEMO/messages', skills: 'テイク', slots: '月1,水2,木3',
+    note: '', status: '申請中', applied_at: '2026-11-09 18:00',
+  });
   // クォーター（先端理工）。シフト入力のカードに学期を付けて撮るため（D52）
   h.add('terms', { term_id: '2026-3Q', system: 'quarter', start_date: '2026-09-21', end_date: '2026-11-20' });
   h.add('terms', { term_id: '2026-4Q', system: 'quarter', start_date: '2026-11-21', end_date: '2027-01-30' });
@@ -98,6 +104,8 @@ function seed(h) {
     h.add('staffs', {
       staff_id: s[0], name: s[1], role: s[2], skills: s[3],
       available_slots: s[4], assist_slots: s[5],
+      // 名簿の「本人未更新」の例として、1人だけ未提出にする
+      slots_updated_at: s[0] === 'S07' ? '' : '2026-09-15 20:00:00',
     });
     h.add('contacts', {
       staff_id: s[0], name: s[1], email: s[0].toLowerCase() + '@example.jp',

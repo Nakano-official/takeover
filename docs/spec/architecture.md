@@ -34,7 +34,7 @@
 - ナビに出るのは `home` / `absence` / `vacancies` / `input` / `manage` / `roster` / `approvals` / `terms`。
   `respond` / `mypage` / `signup` / `deviceRelay` は出さない（`code.js` の `NAV_PAGES`）。
 - マイページへは**右上のユーザー名**から入る。ナビの項目を増やさないため。
-- その隣の「**？ ヘルプ**」は、`PAGES` の `help` に話題がある画面にだけ出る（D51）。
+- その隣の「**？ ヘルプ**」はどの画面からも同じ話題の一覧を開ける（職員向けは職員にだけ・D51）。未登録の人の申請画面と USB 中継の画面には出さない。
   中身（`src/help-*.html`）は押したときに `getHelp` で取り寄せ、画面の HTML には入れない。
 
 ---
