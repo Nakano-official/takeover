@@ -14,7 +14,7 @@ OUT = os.path.join(ROOT, 'src', 'help-webhook.html')
 
 def img(name, alt):
     data = base64.b64encode(open(os.path.join(IMG, name + '.png'), 'rb').read()).decode()
-    return ('<img class="hw-shot" alt="' + alt + '" '
+    return ('<img class="help-img" alt="' + alt + '" '
             'src="data:image/png;base64,' + data + '">')
 
 
@@ -34,7 +34,7 @@ STEPS = [
      'newspace', '新しいチャットのメニュー'),
     (None,
      '名前を付けて<b>「作成」</b>。名前は何でもかまいません。'
-     '<b>自分ひとりのままでOK</b>で、他の人を追加する必要はありません。',
+     '<b>他の設定はそのままで大丈夫です。</b>',
      'create', 'スペースを作成のダイアログ'),
     ('Webhook を発行する',
      'スペース名の<b>「∨」→「アプリと統合」</b>を開きます。',
@@ -55,65 +55,38 @@ parts = []
 n = 0
 for title, body, shot, alt in STEPS:
     if title:
+        if n:
+            parts.append('</section>\n')
         n += 1
-        parts.append('<h4 class="hw-h"><span class="hw-n">' + str(n) + '</span>' + title + '</h4>')
-    parts.append('<p class="hw-p">' + body + '</p>')
-    parts.append(img(shot, alt))
+        parts.append('<section class="help-step" data-title="' + title + '">')
+    parts.append('  <p>' + body + '</p>')
+    parts.append('  ' + img(shot, alt))
 
-html = '''<!--
-  Google Chat の通知先URL（Webhook）の作り方（D46）
+HEAD = '''<!--
+  ヘルプ：Google Chat の通知先URL（Webhook）の作り方（D46・D54）
 
-  マイページ（mypage）と利用登録の申請（signup）の**両方から include する**。
-  同じ手順を2か所に書くと必ずずれるので、ここを唯一の出所にする。
+  マイページと利用登録の申請の「詳細はこちら」から開く（ヘルプの一覧にも出る）。
+  書き方は help-shift.html の冒頭を参照。
 
-  画像は base64 で埋め込んでいる。GAS の HtmlService は src/ のファイルしか配信できず、
-  docs/img/ に置いてもブラウザからは見えないため。Drive の共有リンクは大学ドメインの
-  共有設定に左右されるので使わない。
-
-  画像の元ファイルは tmp-img/（.gitignore 済み）。差し替えるときは
-  scratchpad の prep_img.py / build_help.py を使って作り直す。
+  画像だけは help-shots ではなく実際の Chat の画面なので、tools/help-images/ で作る。
+  このファイルは tools/help-images/build_help.py が組み立てる。
 -->
-<style>
-  .hw { border: 1px solid var(--border); border-radius: var(--radius);
-        background: var(--surface-alt); margin: 10px 0 0; }
-  .hw > summary { cursor: pointer; padding: 10px 14px; font-size: .88rem;
-                  font-weight: 700; color: var(--brand-ink); list-style: none; }
-  .hw > summary::-webkit-details-marker { display: none; }
-  .hw > summary::before { content: '▸ '; }
-  .hw[open] > summary::before { content: '▾ '; }
-  .hw > summary:hover { background: var(--brand-soft); border-radius: var(--radius); }
-  .hw-body { padding: 4px 14px 14px; }
-  .hw-h { font-size: .92rem; margin: 16px 0 6px; display: flex; align-items: center; gap: 8px; }
-  .hw-h:first-child { margin-top: 4px; }
-  .hw-n { display: inline-flex; align-items: center; justify-content: center;
-          width: 22px; height: 22px; border-radius: 50%; background: var(--brand);
-          color: #fff; font-size: .78rem; flex: 0 0 auto; }
-  .hw-p { font-size: .85rem; line-height: 1.75; margin: 0 0 8px; color: var(--text); }
-  .hw-shot { display: block; max-width: 100%; height: auto; margin: 0 0 14px;
-             border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
-  .hw-note { font-size: .82rem; line-height: 1.7; margin: 14px 0 0; padding: 10px 12px;
-             border-radius: var(--radius-sm); background: var(--warn-bg); color: var(--warn);
-             border: 1px solid var(--warn-border); }
-  .hw-note.info { background: var(--info-bg); color: var(--info);
-                  border-color: var(--info-border); margin: 4px 0 14px; }
-</style>
+<section class="help-step" data-title="はじめに">
+  <p>代行のお願いは、ここで作るあなた専用の場所に届きます。
+    <b>登録しないと代行依頼の通知が届きません。</b></p>
+  <div class="notice info">💻 <b>この作業はPCのブラウザでしかできません。</b>
+    スマホの Chat アプリには、ここで使う「アプリと統合」の画面がありません。
+    <b>PCでこのページを開き直して</b>、最後の貼り付けまで済ませてください（一度きりです）。
+    できあがったあとの代行依頼は、スマホの Chat アプリにちゃんと届きます。</div>
+</section>
 
-<details class="hw">
-  <summary>通知先URLの作り方を見る（PCのブラウザで一度だけ・所要3分）</summary>
-  <div class="hw-body">
-    <p class="hw-p">代行のお願いは、ここで作るあなた専用の場所に届きます。
-      <b>登録しないと代行依頼の通知が届きません。</b></p>
-    <p class="hw-note info">💻 <b>この作業はPCのブラウザでしかできません。</b>
-      スマホの Chat アプリには、ここで使う「アプリと統合」の画面がありません。
-      <b>PCでこのページを開き直して</b>、最後の貼り付けまで済ませてください（一度きりです）。
-      できあがったあとの代行依頼は、スマホの Chat アプリにちゃんと届きます。</p>
-''' + '\n    '.join(parts) + '''
-    <p class="hw-note">⚠️ このURLは<b>あなた宛の通知の鍵</b>です。他の人に教えないでください。
-      もし他の人に知られたら、同じ画面から Webhook を削除して作り直し、
-      新しいURLをここに貼り直してください。</p>
-  </div>
-</details>
+'''
+TAIL = '''  <div class="notice warn">⚠️ このURLは<b>あなた宛の通知の鍵</b>です。他の人に教えないでください。
+    もし他の人に知られたら、同じ画面から Webhook を削除して作り直し、
+    新しいURLをここに貼り直してください。</div>
+</section>
 '''
 
+html = HEAD + '\n'.join(parts) + '\n' + TAIL
 io.open(OUT, 'w', encoding='utf-8', newline='\n').write(html)
 print('作成: src/help-webhook.html', round(len(html) / 1024), 'KB')

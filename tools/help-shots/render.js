@@ -70,6 +70,10 @@ const G = h.G;
 
 /** 画面を見る人に切り替える（本物の getCurrentUser_ が contacts から引く） */
 function viewAs(staffId) {
+  if (!staffId) {           // 名簿に無いアカウント（利用登録の申請画面を見る人）
+    h.setEmail(DEMO.NEWCOMER_EMAIL);
+    return null;
+  }
   const s = h.row('staffs', 'staff_id', staffId);
   h.setUser({ staff_id: staffId, name: s.name, role: s.role, email: staffId.toLowerCase() + '@example.jp' });
   return G.getCurrentUser_();
@@ -91,6 +95,7 @@ function precompute(pages, params) {
   tryPut('getStaffRoster', function () { return G.getStaffRoster(); });
   tryPut('getRegistrations', function () { return G.getRegistrations(); });
   tryPut('getTermsAdmin', function () { return G.getTermsAdmin(); });
+  tryPut('getSignupContext', function () { return G.getSignupContext(); });
   if (params.vacancy) {
     tryPut('getVacancyForRespond|' + params.vacancy, function () { return G.getVacancyForRespond(params.vacancy); });
   }
@@ -175,6 +180,7 @@ const SHOTS = {
   'staff-input': ['staff', 'input', {}],
   'staff-vacancies': ['staff', 'vacancies', {}],
   'student-mypage': ['student', 'mypage', {}],
+  'newcomer-signup': ['newcomer', 'signup', {}],
   'staff-roster': ['staff', 'roster', {}],
   'staff-approvals': ['staff', 'approvals', {}],
   'staff-terms': ['staff', 'terms', {}],

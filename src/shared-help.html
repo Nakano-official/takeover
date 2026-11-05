@@ -48,6 +48,13 @@
     else helpShowMenu();
   }
 
+  // 画面の中のボタンから、話題を直接開く（「詳細はこちら」・D54）
+  function openHelpTopic(key) {
+    document.getElementById('helpModal').hidden = false;
+    document.body.classList.add('help-open');
+    helpOpenTopic(key);
+  }
+
   function closeHelp() {
     document.getElementById('helpModal').hidden = true;
     document.body.classList.remove('help-open');

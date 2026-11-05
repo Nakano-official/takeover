@@ -51,7 +51,7 @@ const DEFAULT_HEADERS = {
   terms: ['term_id', 'system', 'start_date', 'end_date'],
   contacts: ['staff_id', 'name', 'email', 'phone', 'webhook_url'],
   registrations: ['registration_id', 'email', 'name', 'phone', 'webhook_url', 'skills', 'slots',
-    'note', 'status', 'applied_at', 'decided_at', 'decided_by', 'staff_id', 'reject_reason'],
+    'note', 'status', 'applied_at', 'decided_at', 'decided_by', 'staff_id', 'reject_reason', 'assist_slots'],
 };
 
 function pad(n) { return String(n).padStart(2, '0'); }

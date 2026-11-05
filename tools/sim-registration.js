@@ -39,8 +39,8 @@ const asStudent = () => h.setUser({ staff_id: 'S101', name: '既存 学生', rol
 const reg = () => h.db.registrations[0];
 
 const APPLY = {
-  name: '新人 太郎', phone: '090-3333-3333', webhook_url: OK_HOOK,
-  skills: 'テイク', slots: ['月1', '火2'], note: 'よろしくお願いします',
+  family_name: '新人', given_name: '太郎', phone: '090-3333-3333', webhook_url: OK_HOOK,
+  skills: 'テイク', slotsByType: { 'テイク': ['月1', '火2'], '介助': ['水3'] }, note: 'よろしくお願いします',
 };
 
 console.log('===== 利用登録の申請と承認（D28）ロジック検証 =====');
@@ -70,7 +70,9 @@ h.check(h.db.staffs.length === staffsBefore, '★staffs は増えない');
 h.check(h.db.contacts.length === contactsBefore, '★contacts は増えない');
 h.check(reg().status === '申請中', 'status は「申請中」');
 h.check(reg().email === NEW_MAIL, '★メールは Session の値（画面の入力ではない）');
-h.check(reg().slots === '月1,火2', '空きコマは正規化して保存する');
+h.check(reg().name === '新人 太郎', '姓と名を半角スペースでつないで保存する');
+h.check(reg().slots === '月1,火2', 'テイクの空きコマは正規化して保存する');
+h.check(reg().assist_slots === '水3', '介助の空きコマも別に保存する');
 h.check(!!reg().applied_at, '申請日時が入る');
 
 h.section('2b) 画面が email や status を送っても無視する');
@@ -85,14 +87,14 @@ h.check(!reg().staff_id, '★staff_id は空のまま（承認時にしか入ら
 h.section('2c) 入力の検証');
 setup(); asNewcomer();
 let threw = '';
-try { G.submitRegistration(Object.assign({}, APPLY, { name: '' })); } catch (e) { threw = e.message; }
-h.check(/氏名/.test(threw), '氏名が無ければ弾く');
+try { G.submitRegistration(Object.assign({}, APPLY, { family_name: '' })); } catch (e) { threw = e.message; }
+h.check(/姓/.test(threw), '姓が無ければ弾く');
 threw = '';
 try { G.submitRegistration(Object.assign({}, APPLY, { webhook_url: 'https://example.com/x' })); }
 catch (e) { threw = e.message; }
 h.check(/Webhook/.test(threw), 'Chat 以外のURLは弾く');
 threw = '';
-try { G.submitRegistration(Object.assign({}, APPLY, { slots: ['月9'] })); } catch (e) { threw = e.message; }
+try { G.submitRegistration(Object.assign({}, APPLY, { slotsByType: { 'テイク': ['月9'] } })); } catch (e) { threw = e.message; }
 h.check(/時限が不正/.test(threw), '実在しない時限は弾く（Profile.gs と同じ検証）');
 h.check(h.db.registrations.length === 0, '弾かれたときは何も積まれない');
 
@@ -106,7 +108,7 @@ h.section('2e) 出し直しは同じ行を上書きする');
 setup(); asNewcomer();
 G.submitRegistration(APPLY);
 const firstId = reg().registration_id;
-res = G.submitRegistration(Object.assign({}, APPLY, { name: '新人 次郎' }));
+res = G.submitRegistration(Object.assign({}, APPLY, { given_name: '次郎' }));
 h.check(h.db.registrations.length === 1, '★申請は1メール1件（重複して積まない）');
 h.check(reg().registration_id === firstId, '同じ行を更新する');
 h.check(reg().name === '新人 次郎', '内容が差し替わる');
@@ -126,7 +128,8 @@ const newContact = h.row('contacts', 'staff_id', res.staff_id);
 h.check(!!newStaff && !!newContact, 'staffs と contacts の両方に行ができる');
 h.check(newStaff.name === '新人 太郎' && newContact.email === NEW_MAIL, '氏名とメールが入る');
 h.check(newStaff.role === '学生', '★区分の既定は「学生」');
-h.check(newStaff.available_slots === '月1,火2', '空きコマが引き継がれる');
+h.check(newStaff.available_slots === '月1,火2', 'テイクの空きコマが引き継がれる');
+h.check(newStaff.assist_slots === '水3', '介助の空きコマも引き継がれる（テイクの値を写さない）');
 h.check(!!newStaff.slots_updated_at, '本人の申告なので更新日時も入る（D28）');
 h.check(newStaff.personal_code === '', '個人コードは空（職員が後から入れる）');
 h.check(newContact.phone === '090-3333-3333' && newContact.webhook_url === OK_HOOK, '連絡先が入る');
@@ -182,7 +185,7 @@ asNewcomer();
 c = G.getSignupContext();
 h.check(c.status === '却下' && c.rejectReason === '在籍が確認できません', '本人の画面に理由が出る');
 h.check(c.name === '新人 太郎', '前回の入力が残っていて直せる');
-G.submitRegistration(Object.assign({}, APPLY, { name: '新人 三郎' }));
+G.submitRegistration(Object.assign({}, APPLY, { given_name: '三郎' }));
 h.check(reg().status === '申請中', '★却下された人も出し直せる');
 h.check(reg().reject_reason === '', '前回の却下理由は消える');
 
@@ -215,16 +218,26 @@ function applyErr(over) {
   try { G.submitRegistration(Object.assign({}, APPLY, over)); return ''; } catch (e) { return e.message; }
 }
 h.check(applyErr({}) === '', 'ふつうの申請は通る');
-h.check(applyErr({ name: '' }).indexOf('氏名を入力') !== -1, '氏名が空なら弾く');
-h.check(applyErr({ name: '=1+1' }).indexOf('先頭に') !== -1, '先頭が = の氏名は弾く');
-h.check(applyErr({ name: '<users/all>' }).indexOf('使えない記号') !== -1, '< > を含む氏名は弾く（Chat の書式になる）');
-h.check(applyErr({ name: '新人" 太郎' }).indexOf('使えない記号') !== -1, '" を含む氏名は弾く');
-h.check(applyErr({ name: 'あ'.repeat(41) }).indexOf('40文字') !== -1, '41文字以上の氏名は弾く');
-h.check(applyErr({ name: "オブライエン O'Brien" }) === '', "' を含むだけの氏名は通す");
+h.check(applyErr({ family_name: '' }).indexOf('姓を入力') !== -1, '姓が空なら弾く');
+h.check(applyErr({ given_name: '' }).indexOf('名を入力') !== -1, '名が空なら弾く');
+h.check(applyErr({ family_name: '新 人' }).indexOf('空白') !== -1, '姓の中に空白があれば弾く（書き方を揃える）');
+h.check(applyErr({ family_name: '=1+1' }).indexOf('先頭に') !== -1, '先頭が = の姓は弾く');
+h.check(applyErr({ given_name: '<users/all>' }).indexOf('使えない記号') !== -1, '< > を含む名は弾く（Chat の書式になる）');
+h.check(applyErr({ family_name: '新人"' }).indexOf('使えない記号') !== -1, '" を含む姓は弾く');
+h.check(applyErr({ family_name: 'あ'.repeat(25), given_name: 'い'.repeat(25) }).indexOf('40文字') !== -1, 'つないで41文字以上は弾く');
+h.check(applyErr({ family_name: "O'Brien" }) === '', "' を含むだけの姓は通す");
 h.check(applyErr({ phone: '090-1234-abcd' }).indexOf('電話番号') !== -1, '数字以外の電話番号は弾く');
-h.check(applyErr({ phone: '＋８１ ９０－１２３４－５６７８' }) === '', '全角や + の電話番号は通す');
+h.check(applyErr({ phone: '＋８１ ９０－１２３４－５６７８' }).indexOf('電話番号') !== -1, '+81 の形は弾く（国内の形に揃える）');
+h.check(applyErr({ phone: '090-12-34' }).indexOf('電話番号') !== -1, '桁の足りない番号は弾く');
 h.check(applyErr({ phone: '' }) === '', '電話番号は空でもよい（あとでマイページで入れる）');
 h.check(applyErr({ note: '@SUM(A1)' }).indexOf('備考の先頭に') !== -1, '先頭が @ の備考は弾く');
+applyErr({ phone: '０９０－１２３４－５６７８' });
+h.check(reg().phone === '090-1234-5678', '全角の番号は半角に揃える');
+applyErr({ phone: '09012345678' });
+h.check(reg().phone === '090-1234-5678', 'ハイフンの無い11桁は 3-4-4 に分ける');
+applyErr({ phone: '075-123-4567' });
+h.check(reg().phone === '075-123-4567', '固定電話の形も通す');
+setup();
 h.check(h.db.registrations.length === 0, '弾いた申請はシートに書いていない');
 
 h.section('承認のときにも氏名を確かめる（シートを直接直された申請）');

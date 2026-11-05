@@ -89,7 +89,8 @@
           kv('電話番号', r.phone, '職員から連絡できません') +
           kv('通知先URL', r.webhook_url ? '登録あり' : '', '代行依頼が届きません') +
           kv('申告スキル', r.skills, '空欄は全対応扱い') +
-          kv('空きコマ', r.slots, '代行候補に出ません') +
+          kv('テイクの空き', r.slots, 'テイクの代行候補に出ません') +
+          kv('介助の空き', r.assist_slots, '介助の代行候補に出ません') +
           kv('連絡事項', r.note) +
           kv('申請日時', r.applied_at) +
         '</dl>';
@@ -97,7 +98,7 @@
       if (r.status === '申請中') {
         var warn = [];
         if (!r.webhook_url) warn.push('通知先URLが未入力です（承認後もマイページで登録できます）');
-        if (!r.slots) warn.push('空きコマが未選択です（このままだと代行候補に出ません）');
+        if (!r.slots && !r.assist_slots) warn.push('空きコマが未選択です（このままだと代行候補に出ません）');
         return '<div class="rg pending"><span class="badge b-pending">承認待ち</span>' +
           '<h2>' + escapeHtml(r.name) + '</h2>' +
           '<div class="mail">' + escapeHtml(r.email) + '</div>' + body +

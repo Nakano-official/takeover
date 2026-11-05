@@ -289,7 +289,7 @@ const REGISTRATION_HEADERS = [
   'phone',
   'webhook_url',
   'skills',         // 本人の申告。承認時に職員が確定させる
-  'slots',          // 空きコマ（'月1,火3'）
+  'slots',          // テイクの空きコマ（'月1,火3'）
   'note',           // 申請者からの連絡事項
   'status',         // 申請中 / 承認済 / 却下
   'applied_at',
@@ -297,6 +297,7 @@ const REGISTRATION_HEADERS = [
   'decided_by',     // 承認・却下した職員の staff_id
   'staff_id',       // 承認で採番された staff_id（却下なら空）
   'reject_reason',
+  'assist_slots',   // 介助の空きコマ（移動介助の枠も入る・D54）
 ];
 
 /**
@@ -335,6 +336,29 @@ function migrateAddRegistrationsSheet() {
  *
  * 追加した列はテキスト書式にして日時値への自動変換を防ぐ（10-6b と同じ理由）。冪等。
  */
+function migrateAddRegistrationAssistSlots() {
+  requireEditorRun_();
+  const ss = openContactsDb_();
+  const sheet = ss.getSheetByName('registrations');
+  if (!sheet) { Logger.log('❌ registrations シートが見つかりません。'); return; }
+
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
+    return String(h).trim();
+  });
+  if (headers.indexOf('assist_slots') !== -1) {
+    Logger.log('✅ registrations には既に assist_slots 列があります（追加なし）。');
+    return;
+  }
+
+  const col = lastCol + 1;
+  sheet.getRange(1, col, 1, 1).setValues([['assist_slots']]);
+  sheet.getRange(2, col, Math.max(sheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+  invalidateSheetCache_('registrations'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
+  Logger.log('✅ registrations に assist_slots 列を追加しました（D54）。');
+  Logger.log('   この列が無いと、申請の介助の空きコマが保存されません。');
+}
+
 function migrateAddStaffSlotsUpdatedAt() {
   requireEditorRun_();
   const ss = openMainDb_();

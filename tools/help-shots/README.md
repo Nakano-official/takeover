@@ -32,6 +32,7 @@ node tools/help-shots/render.js
 | `staff-input.html` | 職員 | シフト入力 |
 | `staff-vacancies.html` | 職員 | 欠員一覧 |
 | `student-mypage.html` | 学生 | マイページ |
+| `newcomer-signup.html` | 名簿に無い人 | 利用登録の申請（ヘルプの画像には使っていない） |
 | `staff-roster.html` | 職員 | スタッフ名簿 |
 | `staff-approvals.html` | 職員 | 利用登録の承認（承認待ち1件） |
 | `staff-terms.html` | 職員 | 学期設定 |

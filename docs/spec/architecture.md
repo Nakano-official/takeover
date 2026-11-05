@@ -34,7 +34,7 @@
 - ナビに出るのは `home` / `absence` / `vacancies` / `input` / `manage` / `roster` / `approvals` / `terms`。
   `respond` / `mypage` / `signup` / `deviceRelay` は出さない（`code.js` の `NAV_PAGES`）。
 - マイページへは**右上のユーザー名**から入る。ナビの項目を増やさないため。
-- その隣の「**？ ヘルプ**」はどの画面からも同じ話題の一覧を開ける（職員向けは職員にだけ・D51）。未登録の人の申請画面と USB 中継の画面には出さない。
+- その隣の「**？ ヘルプ**」はどの画面からも同じ話題の一覧を開ける（職員向けは職員にだけ・D51）。未登録の人の申請画面と USB 中継の画面には出さない（申請画面は「詳細はこちら」から通知先URLの作り方だけ開ける・D54）。
   中身（`src/help-*.html`）は押したときに `getHelp` で取り寄せ、画面の HTML には入れない。
 
 ---
@@ -355,7 +355,8 @@ erDiagram
 |---|---|
 | `registration_id` | **PK** |
 | `email` | `Session` から取る（申請者が詐称できない） |
-| `name` / `phone` / `webhook_url` / `skills` / `slots` | 申請の内容 |
+| `name` / `phone` / `webhook_url` / `skills` | 申請の内容。`name` は「姓 名」（半角スペース）、`phone` は `090-1234-5678` の形（D54） |
+| `slots` / `assist_slots` | テイク／介助の空きコマ。承認で `staffs.available_slots` / `assist_slots` になる（D54） |
 | `note` | 申請者からの補足 |
 | `status` | `申請中` / `承認済` / `却下` |
 | `applied_at` / `decided_at` / `decided_by` | 申請・決裁の記録 |
@@ -420,7 +421,7 @@ Chat API（Bot構築・GCP設定）は不要。
 2. 本人が Incoming Webhook を発行する
 3. 本人が**マイページ**（または利用登録の申請）にURLを貼る → `contacts.webhook_url` に入る
 
-作り方は**画面の中に入っている**（`help-webhook.html`・マイページと申請画面から `include`・D46）。
+作り方は**画面の中で読める**（`help-webhook.html`・マイページと申請画面の「詳細はこちら」から開く・D46/D54）。
 スクリーンショット付きで、職員が案内を配る必要はない。**PCのブラウザでしかできない**
 （スマホの Chat アプリには「アプリと統合」が無い）が、できたあとの通知はスマホにも届く。
 

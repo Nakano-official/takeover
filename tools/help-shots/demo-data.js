@@ -94,6 +94,7 @@ function seed(h) {
   h.add('registrations', {
     registration_id: 'R001', email: 'taro.shinjin@example.jp', name: '新人 太郎', phone: '090-0000-1100',
     webhook_url: 'https://chat.googleapis.com/v1/spaces/DEMO/messages', skills: 'テイク', slots: '月1,水2,木3',
+    assist_slots: '',
     note: '', status: '申請中', applied_at: '2026-11-09 18:00',
   });
   // クォーター（先端理工）。シフト入力のカードに学期を付けて撮るため（D52）
@@ -137,6 +138,8 @@ const VIEWERS = {
   student: 'S01',     // 山田 太郎（学生）
   candidate: 'S06',   // 小林 健太（水曜2限の代行候補。代行依頼への回答画面を撮る）
   staff: 'T01',       // 支援室 職員
+  newcomer: null,     // 名簿に無いアカウント（利用登録の申請画面）
 };
+const NEWCOMER_EMAIL = 'newcomer@example.jp';
 
-module.exports = { NOW, WEEK, seed, VIEWERS, STAFFS };
+module.exports = { NOW, WEEK, seed, VIEWERS, STAFFS, NEWCOMER_EMAIL };

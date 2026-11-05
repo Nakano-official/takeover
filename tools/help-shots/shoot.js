@@ -120,8 +120,8 @@ const SHOTS = [
     marks: [{ sel: '[id^="term-"] >> nth=0', n: 1 }] },
   // ── マイページ（スマホ・学生）──
   { id: 'mypage-1', page: 'student-mypage', device: 'phone',
-    clip: ['.card:has(#phone)'],
-    marks: [{ sel: '#phone', n: 1 }, { sel: '#webhook', n: 2 }, { sel: '.hw', n: 3 }] },
+    clip: ['.card:has(.phone3)'],
+    marks: [{ sel: '.phone3', n: 1 }, { sel: '#webhookHelp', n: 2 }, { sel: '#webhook', n: 3 }] },
   { id: 'mypage-2', page: 'student-mypage', device: 'phone',
     clip: ['.card:has(.skills)'], marks: [{ sel: '.skills' }] },
   { id: 'mypage-3', page: 'student-mypage', device: 'phone',

@@ -1,6 +1,6 @@
 # help-images — Webhook 案内の画像を作り直す（D46）
 
-`src/help-webhook.html`（マイページと利用登録から include している Webhook の作り方）に
+`src/help-webhook.html`（ヘルプの話題「通知先URLの作り方」）に
 埋め込む画像を組み立てるスクリプト。ほかの `tools/` と同じく **`clasp push` の対象外**。
 
 画像は HTML の中に base64 で埋め込む。GAS の HtmlService は `src/` のファイルしか配信できず、
