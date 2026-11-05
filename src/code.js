@@ -13,20 +13,18 @@
 //
 // hideInStaffNav: 職員のナビには出さない画面。アクセス自体は禁止しない
 //   （staffOnly とは別の概念。URLで開けば従来どおり動く）。
-// help: ヘッダーの「？ ヘルプ」で開く話題（HELP_TOPICS のキー・D51）。無い画面にはボタンを出さない。
+// noHelp: ヘッダーに「？ ヘルプ」を出さない（見せる話題が無い画面）。ヘルプの一覧はほかの全画面で同じ（D51）。
 const PAGES = {
-  home:    { file: 'home',    title: 'シフト確認',         staffOnly: false,
-             help: ['shift', 'absence', 'substitute', 'staff'] },
-  input:   { file: 'input',   title: 'シフト入力',         staffOnly: true, help: ['staff'] },
+  home:    { file: 'home',    title: 'シフト確認',         staffOnly: false },
+  input:   { file: 'input',   title: 'シフト入力',         staffOnly: true  },
   // 欠勤連絡は「学生スタッフが自分の担当コマの欠勤を出す」画面。職員には担当コマが
   // 無く常に空になるため、職員のナビには並べない。
-  absence: { file: 'absence', title: '欠勤連絡',           staffOnly: false, hideInStaffNav: true,
-             help: ['absence'] },
-  respond: { file: 'respond', title: '代行依頼への回答',   staffOnly: false, help: ['substitute'] },
+  absence: { file: 'absence', title: '欠勤連絡',           staffOnly: false, hideInStaffNav: true },
+  respond: { file: 'respond', title: '代行依頼への回答',   staffOnly: false },
   // まだ決まっていない欠員の一覧（D50）。学生はここから自分で代行に入れる（先着）。
   // 職員にも出す（学生から見えている状態の確認用。確定・決着は manage で行う）。
-  vacancies: { file: 'vacancies', title: '欠員一覧',     staffOnly: false, help: ['substitute', 'staff'] },
-  manage:  { file: 'manage',  title: '欠員補充管理',       staffOnly: true, help: ['staff'] },
+  vacancies: { file: 'vacancies', title: '欠員一覧',     staffOnly: false },
+  manage:  { file: 'manage',  title: '欠員補充管理',       staffOnly: true  },
   terms:   { file: 'terms',   title: '学期設定',           staffOnly: true  },
   // マイページ（D28）。本人が自分の連絡先と空きコマを直す画面なので、職員・学生とも入れる。
   // 編集できる項目はサーバー側（Profile.gs）で固定してあり、画面からは増やせない。
@@ -36,13 +34,13 @@ const PAGES = {
   roster:  { file: 'roster',  title: 'スタッフ名簿',       staffOnly: true  },
   // 利用登録の申請（D28）。**名簿（contacts）に無いアカウントでも開ける唯一の画面**。
   // doGet が未登録者をここへ回す。ナビには出さない（登録済みの人には用が無いため）。
-  signup:  { file: 'signup',  title: '利用登録の申請',     staffOnly: false },
+  signup:  { file: 'signup',  title: '利用登録の申請',     staffOnly: false, noHelp: true },
   // 申請の承認（D28）。ここが staffs / contacts に行を作る唯一の経路。
   approvals: { file: 'approvals', title: '利用登録の承認', staffOnly: true },
   // M5Stack への USB 中継用（別担当）。職員がログイン済みのPCでこの画面を開いたままにし、
   // PC側の中継プログラムが window.readShiftUsbSummary() を読んで USB で端末へ送る。
   // ナビには出さない（人が操作する画面ではなく、中継が開きっぱなしにする画面のため）。
-  deviceRelay: { file: 'device-relay', title: 'USB欠員通知', staffOnly: true },
+  deviceRelay: { file: 'device-relay', title: 'USB欠員通知', staffOnly: true, noHelp: true },
 };
 
 // ヘルプの話題（D51）。中身は src/help-*.html（書き方はそのファイルの冒頭）。
@@ -53,7 +51,11 @@ const HELP_TOPICS = {
   shift:      { file: 'help-shift',      title: 'シフトの見方' },
   absence:    { file: 'help-absence',    title: '欠勤を連絡する' },
   substitute: { file: 'help-substitute', title: '代行に入る' },
+  mypage:     { file: 'help-mypage',     title: 'マイページの使い方' },
   staff:      { file: 'help-staff',      title: '職員の操作', staffOnly: true },
+  roster:     { file: 'help-roster',     title: 'スタッフ名簿の見方', staffOnly: true },
+  approvals:  { file: 'help-approvals',  title: '申請を承認する', staffOnly: true },
+  terms:      { file: 'help-terms',      title: '学期を設定する', staffOnly: true },
 };
 
 // 未登録アカウントを受け止める画面。PAGES のキーと合わせること。
@@ -262,13 +264,11 @@ function renderChrome_(config, pageKey, user) {
  * @return {{button:string, body:string}} ヘルプの無い画面では両方とも空
  */
 function renderHelp_(config, isStaff) {
-  const topics = (config.help || [])
-    .filter(function (key) {
-      const t = HELP_TOPICS[key];
-      return t && !(t.staffOnly && !isStaff);
-    })
+  if (config.noHelp) return { button: '', body: '' };
+  // どの画面からでも同じ一覧を開ける（ほかの画面の使い方も見られるように）。職員向けは職員にだけ出す
+  const topics = Object.keys(HELP_TOPICS)
+    .filter(function (key) { return !(HELP_TOPICS[key].staffOnly && !isStaff); })
     .map(function (key) { return { key: key, title: HELP_TOPICS[key].title }; });
-  if (topics.length === 0) return { button: '', body: '' };
 
   // </script> を含む値で閉じられないよう < をエスケープして渡す
   const json = JSON.stringify(topics).replace(/</g, '\\u003c');

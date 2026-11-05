@@ -118,6 +118,35 @@ const SHOTS = [
   { id: 'staff-5', page: 'staff-input', device: 'pc',
     clip: ['[id^="termtag-"] >> nth=0', '[id^="period-"] >> nth=0'],
     marks: [{ sel: '[id^="term-"] >> nth=0', n: 1 }] },
+  // ── マイページ（スマホ・学生）──
+  { id: 'mypage-1', page: 'student-mypage', device: 'phone',
+    clip: ['.card:has(#phone)'],
+    marks: [{ sel: '#phone', n: 1 }, { sel: '#webhook', n: 2 }, { sel: '.hw', n: 3 }] },
+  { id: 'mypage-2', page: 'student-mypage', device: 'phone',
+    clip: ['.card:has(.skills)'], marks: [{ sel: '.skills' }] },
+  { id: 'mypage-3', page: 'student-mypage', device: 'phone',
+    clip: ['.card:has(.tabs)', '#save'],
+    marks: [{ sel: '.tabs', n: 1 }, { sel: '#save', n: 2 }] },
+
+  // ── スタッフ名簿・利用登録の承認・学期設定（PC・職員）──
+  { id: 'roster-1', page: 'staff-roster', device: 'pc',
+    clip: ['.card:has(#summary)', '.controls'],
+    marks: [{ sel: '#summary', n: 1 }, { sel: '.controls', n: 2 }] },
+  { id: 'roster-2', page: 'staff-roster', device: 'pc',
+    clip: ['.tablewrap'], marks: [] },
+  { id: 'approvals-1', page: 'staff-approvals', device: 'pc',
+    clip: ['.rg.pending'],
+    marks: [
+      { sel: '[id^="role-"]', n: 1 }, { sel: '.rg.pending .checks', n: 2 },
+      { sel: '.ops .btn.primary', n: 3 }, { sel: '.ops .btn.danger', n: 4 },
+    ] },
+  { id: 'terms-1', page: 'staff-terms', device: 'pc',
+    clip: ['.card:has(#addBtn)'],
+    marks: [{ sel: '#year', n: 1 }, { sel: '#addBtn', n: 2 }] },
+  { id: 'terms-2', page: 'staff-terms', device: 'pc',
+    clip: ['.yhead >> nth=0', '.trow >> nth=1'],
+    marks: [{ sel: '.trow >> nth=0 >> .dates', n: 1 }, { sel: '.trow >> nth=0 >> .btn.ok', n: 2 }] },
+
   // 時間割PDFから読み込んだ後（D52）。本物の PDF は使えないので、読み取り結果（架空）を画面に渡して
   // カードを並べる。カードを作る処理と結果欄は本物（buildPdfCards / renderPdfResult）
   { id: 'staff-6', page: 'staff-input', device: 'pc',

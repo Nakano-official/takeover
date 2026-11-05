@@ -64,7 +64,8 @@ h.stub({
     },
   },
 });
-h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Input.gs', 'Setup.js', 'code.js', 'Identity.gs']);
+h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Input.gs', 'Profile.gs', 'Registration.gs', 'Roster.gs',
+  'Setup.js', 'code.js', 'Identity.gs']);
 const G = h.G;
 
 /** 画面を見る人に切り替える（本物の getCurrentUser_ が contacts から引く） */
@@ -79,13 +80,17 @@ function viewAs(staffId) {
 function precompute(pages, params) {
   const out = {};
   const tryPut = function (key, fn) {
-    try { out[key] = JSON.parse(JSON.stringify(fn())); } catch (e) { /* その人には呼べない関数 */ }
+    try { out[key] = JSON.parse(JSON.stringify(fn())); } catch (e) { if (process.env.RENDER_DEBUG) console.log('  x', key, e.message); }
   };
   tryPut('getTimetable', function () { return G.getTimetable(null); });
   tryPut('getMyCourses', function () { return G.getMyCourses(); });
   tryPut('getOpenVacancies', function () { return G.getOpenVacancies(); });
   tryPut('getVacanciesForManage', function () { return G.getVacanciesForManage(); });
   tryPut('getInputData', function () { return G.getInputData(null); });
+  tryPut('getMyProfile', function () { return G.getMyProfile(); });
+  tryPut('getStaffRoster', function () { return G.getStaffRoster(); });
+  tryPut('getRegistrations', function () { return G.getRegistrations(); });
+  tryPut('getTermsAdmin', function () { return G.getTermsAdmin(); });
   if (params.vacancy) {
     tryPut('getVacancyForRespond|' + params.vacancy, function () { return G.getVacancyForRespond(params.vacancy); });
   }
@@ -169,6 +174,10 @@ const SHOTS = {
   'staff-manage': ['staff', 'manage', {}],
   'staff-input': ['staff', 'input', {}],
   'staff-vacancies': ['staff', 'vacancies', {}],
+  'student-mypage': ['student', 'mypage', {}],
+  'staff-roster': ['staff', 'roster', {}],
+  'staff-approvals': ['staff', 'approvals', {}],
+  'staff-terms': ['staff', 'terms', {}],
 };
 
 function main() {
