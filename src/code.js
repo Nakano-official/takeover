@@ -14,6 +14,7 @@
 // hideInStaffNav: 職員のナビには出さない画面。アクセス自体は禁止しない
 //   （staffOnly とは別の概念。URLで開けば従来どおり動く）。
 // noHelp: ヘッダーに「？ ヘルプ」を出さない（見せる話題が無い画面）。ヘルプの一覧はほかの全画面で同じ（D51）。
+// helpOnly: ヘッダーのボタンは出さず、画面の中のボタンから開く話題だけを持つ（申請画面の「詳細はこちら」・D54）。
 const PAGES = {
   home:    { file: 'home',    title: 'シフト確認',         staffOnly: false },
   input:   { file: 'input',   title: 'シフト入力',         staffOnly: true  },
@@ -34,7 +35,7 @@ const PAGES = {
   roster:  { file: 'roster',  title: 'スタッフ名簿',       staffOnly: true  },
   // 利用登録の申請（D28）。**名簿（contacts）に無いアカウントでも開ける唯一の画面**。
   // doGet が未登録者をここへ回す。ナビには出さない（登録済みの人には用が無いため）。
-  signup:  { file: 'signup',  title: '利用登録の申請',     staffOnly: false, noHelp: true },
+  signup:  { file: 'signup',  title: '利用登録の申請',     staffOnly: false, helpOnly: ['webhook'] },
   // 申請の承認（D28）。ここが staffs / contacts に行を作る唯一の経路。
   approvals: { file: 'approvals', title: '利用登録の承認', staffOnly: true },
   // M5Stack への USB 中継用（別担当）。職員がログイン済みのPCでこの画面を開いたままにし、
@@ -52,6 +53,7 @@ const HELP_TOPICS = {
   absence:    { file: 'help-absence',    title: '欠勤を連絡する' },
   substitute: { file: 'help-substitute', title: '代行に入る' },
   mypage:     { file: 'help-mypage',     title: 'マイページの使い方' },
+  webhook:    { file: 'help-webhook',    title: '通知先URLの作り方' },
   staff:      { file: 'help-staff',      title: '職員の操作', staffOnly: true },
   roster:     { file: 'help-roster',     title: 'スタッフ名簿の見方', staffOnly: true },
   approvals:  { file: 'help-approvals',  title: '申請を承認する', staffOnly: true },
@@ -266,14 +268,14 @@ function renderChrome_(config, pageKey, user) {
 function renderHelp_(config, isStaff) {
   if (config.noHelp) return { button: '', body: '' };
   // どの画面からでも同じ一覧を開ける（ほかの画面の使い方も見られるように）。職員向けは職員にだけ出す
-  const topics = Object.keys(HELP_TOPICS)
+  const topics = (config.helpOnly || Object.keys(HELP_TOPICS))
     .filter(function (key) { return !(HELP_TOPICS[key].staffOnly && !isStaff); })
     .map(function (key) { return { key: key, title: HELP_TOPICS[key].title }; });
 
   // </script> を含む値で閉じられないよう < をエスケープして渡す
   const json = JSON.stringify(topics).replace(/</g, '\\u003c');
   return {
-    button: '<button type="button" class="help-btn" onclick="openHelp()" aria-haspopup="dialog">' +
+    button: config.helpOnly ? '' : '<button type="button" class="help-btn" onclick="openHelp()" aria-haspopup="dialog">' +
       '<span class="help-q" aria-hidden="true">?</span>ヘルプ</button>',
     body: '<script>var HELP_TOPICS_HERE = ' + json + ';</script>' + include('shared-help'),
   };

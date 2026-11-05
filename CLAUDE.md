@@ -195,7 +195,8 @@ GAS は src/ 一式（.gs と .html を同居）を clasp で push する。html
 - 共通パーツは `.card` / `.btn`（`primary`/`ok`/`danger`/`block`/`sm`）/ `.notice`（`ok`/`warn`/`err`/`info`）/
   `.state` / `.hint`。画面固有の見た目だけを各HTMLの `<style>` に書く。
 - **ヘルプ**（D51）は全画面のヘッダーに「？ ヘルプ」が出て、**どの画面からも同じ一覧**を開ける（職員向けは職員にだけ）。
-  話題を足すときは `HELP_TOPICS` に足すだけ。見せる話題が無い画面（申請・USB中継）だけ `PAGES` に `noHelp: true` を付ける。
+  話題を足すときは `HELP_TOPICS` に足すだけ。見せる話題が無い画面（USB中継）は `PAGES` に `noHelp: true` を付ける。
+  申請画面はヘッダーのボタンを出さず、`helpOnly` の話題だけを画面の中のボタン（`openHelpTopic`）から開く（D54）。
   中身は `src/help-*.html`（書き方は `help-shift.html` の冒頭）。**画面の HTML に埋め込まない**
   （押したときに `getHelp` で取り寄せる。埋め込むと画面遷移が重くなる）。画像は `tools/help-shots/` の
   架空データの画面から撮り、**実際の画面のスクショは使わない**（Public のため）。

@@ -116,21 +116,21 @@ h.check(staffRow('S101').available_slots === '月1,水3', '曜日→時限の順
 h.check(staffRow('S101').assist_slots === '火2', '★介助ぶんは別の列に保存する（D32）');
 
 setup(); asStudent();
-G.updateMyProfile({ phone: '1', webhook_url: OK_HOOK, slots: ['火2', '火2', '月1'] });
+G.updateMyProfile({ phone: '090-1111-1111', webhook_url: OK_HOOK, slots: ['火2', '火2', '月1'] });
 h.check(staffRow('S101').available_slots === '月1,火2', '重複は1つにまとめる');
 
 setup(); asStudent();
 threw = '';
-try { G.updateMyProfile({ phone: '1', webhook_url: OK_HOOK, slots: ['月9'] }); } catch (e) { threw = e.message; }
+try { G.updateMyProfile({ phone: '090-1111-1111', webhook_url: OK_HOOK, slots: ['月9'] }); } catch (e) { threw = e.message; }
 h.check(/時限が不正/.test(threw), '★時限マスタに無い時限は弾く（通すとその人は永久に候補へ出ない）');
 h.check(staffRow('S101').available_slots === '月1,火2', '弾かれたときは元の値が残る');
 
 threw = '';
-try { G.updateMyProfile({ phone: '1', webhook_url: OK_HOOK, slots: ['日1'] }); } catch (e) { threw = e.message; }
+try { G.updateMyProfile({ phone: '090-1111-1111', webhook_url: OK_HOOK, slots: ['日1'] }); } catch (e) { threw = e.message; }
 h.check(/曜日が不正/.test(threw), 'WORK_DAYS に無い曜日は弾く');
 
 setup(); asStudent();
-res = G.updateMyProfile({ phone: '1', webhook_url: OK_HOOK, slots: [] });
+res = G.updateMyProfile({ phone: '090-1111-1111', webhook_url: OK_HOOK, slots: [] });
 h.check(staffRow('S101').available_slots === '', '空選択は「今期は空き無し」として受け付ける');
 h.check(res.warnings.some(function (w) { return /候補に出ません/.test(w); }), '空なら注意を返す');
 
@@ -138,7 +138,7 @@ h.check(res.warnings.some(function (w) { return /候補に出ません/.test(w);
 h.section('4) Webhook は形式が合うときだけ受け付ける');
 setup(); asStudent();
 threw = '';
-try { G.updateMyProfile({ phone: '1', webhook_url: 'https://example.com/hook', slots: [] }); }
+try { G.updateMyProfile({ phone: '090-1111-1111', webhook_url: 'https://example.com/hook', slots: [] }); }
 catch (e) { threw = e.message; }
 h.check(/Webhook/.test(threw), '★Chat 以外のURLは弾く（他人のスペースへ飛ぶ事故を防ぐ）');
 h.check(contactRow('S101').webhook_url === OK_HOOK, '弾かれたときは元の値が残る');
@@ -152,14 +152,14 @@ h.check(res.warnings.some(function (w) { return /通知が届きません/.test(
 h.section('5) slots_updated_at は保存のたびに入る');
 setup(); asStudent();
 h.check(staffRow('S101').slots_updated_at === '', '最初は空');
-res = G.updateMyProfile({ phone: '1', webhook_url: OK_HOOK, slots: ['月1', '火2'] });
+res = G.updateMyProfile({ phone: '090-1111-1111', webhook_url: OK_HOOK, slots: ['月1', '火2'] });
 h.check(!!staffRow('S101').slots_updated_at, '保存すると日時が入る');
 h.check(res.slots_updated_at === staffRow('S101').slots_updated_at, '画面へ返す値とシートの値が一致する');
 h.check(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(staffRow('S101').slots_updated_at),
   '文字列で入る（Date だと google.script.run が null にする）');
 
 const before = staffRow('S101').slots_updated_at;
-G.updateMyProfile({ phone: '1', webhook_url: OK_HOOK, slots: ['月1', '火2'] });
+G.updateMyProfile({ phone: '090-1111-1111', webhook_url: OK_HOOK, slots: ['月1', '火2'] });
 h.check(!!staffRow('S101').slots_updated_at,
   '内容が同じでも日時は入る（「今学期これで出し直した」という確認だから）');
 h.check(typeof before === 'string', '（前回値は文字列）');
@@ -176,7 +176,7 @@ h.section('6) 行が見つからないときは理由を返す');
 setup();
 h.setUser({ staff_id: 'S999', name: '幽霊', role: '学生', email: 'ghost@example.ac.jp' });
 threw = '';
-try { G.updateMyProfile({ phone: '1', webhook_url: OK_HOOK, slots: [] }); } catch (e) { threw = e.message; }
+try { G.updateMyProfile({ phone: '090-1111-1111', webhook_url: OK_HOOK, slots: [] }); } catch (e) { threw = e.message; }
 h.check(/連絡先の行が見つかりません/.test(threw), '職員に問い合わせるよう促す');
 
 // ── 7) 対応できる業務（D31）────────────────────────────────

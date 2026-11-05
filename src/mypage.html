@@ -71,14 +71,11 @@
 <body>
   <?!= chrome ?>
 
-  <!-- 通知先URLの作り方（D46）。フォームの組み立て時にここから差し込む。
-       画像を含むので、描画のたびに作り直さず1か所に置いて使い回す。 -->
-  <div id="helpWebhook" hidden><?!= include('help-webhook') ?></div>
-
   <main>
     <div id="body" class="state">読み込み中…</div>
   </main>
 
+  <?!= include('shared-contact') ?>
   <script>
     var P = null;   // getMyProfile の戻り
 
@@ -118,16 +115,12 @@
         '<div class="card">' +
         '<h2>連絡先</h2>' +
         '<p class="lead">この2つは自分で変更できます。</p>' +
-        '<div class="field"><label for="phone">電話番号</label>' +
-          '<input id="phone" type="tel" placeholder="090-1234-5678" value="' + escapeAttr(p.phone) + '">' +
-          '<p class="hint">返信が無いときに職員から連絡することがあります。</p></div>' +
+        phoneFieldHtml(p.phone, '返信が無いときに職員から連絡することがあります。') +
         '<div class="field"><label for="webhook">Google Chat の通知先URL</label>' +
+          webhookHelpButton() +
           '<input id="webhook" type="url" placeholder="https://chat.googleapis.com/..." value="'
             + escapeAttr(p.webhook_url) + '">' +
-          '<p class="hint">代行依頼はここへ届きます。空にすると通知が届きません。</p>' +
-          // 作り方の案内（D46）。help-webhook.html を申請画面と共有している。
-          // 職員から紙の案内を配る前提だと、そこで止まる人が必ず出る。
-          document.getElementById('helpWebhook').innerHTML + '</div>' +
+          '<p class="hint">代行依頼はここへ届きます。空にすると通知が届きません。</p></div>' +
         '</div>';
 
       // ── 対応できる業務・空きコマ（学生のみ）──
@@ -298,6 +291,8 @@
         showToast('対応できる業務を1つ以上選んでください（すべて外すと、逆にすべての依頼が届きます）。', false);
         return;
       }
+      var phoneErr = phoneError();
+      if (phoneErr) { showToast(phoneErr, false); return; }
       var btn = document.getElementById('save');
       btn.disabled = true;
       btn.textContent = '保存中…';
@@ -309,7 +304,7 @@
           showToast(err.message, false);
         })
         .updateMyProfile({
-          phone: val('phone'),
+          phone: phoneValue(),
           webhook_url: val('webhook'),
           skills: pickedSkills(),
           slotsByType: pickedSlotsByType(P),

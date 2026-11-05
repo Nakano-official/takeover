@@ -45,18 +45,15 @@ function getSignupContext() {
   const contact = findRowCI_(SHEET.CONTACTS, 'email', email);
   const existing = findRegistrationByEmail_(email);
 
-  // 申請では空きコマを1つしか聞かない（承認時に両業務へ同じ値が入る・D32）ので、
-  // 全業務で使える時限だけを出す。移動介助のような業務限定の枠は、承認後に
-  // 本人がマイページの業務タブで入れる。
+  // 空きコマはマイページと同じく業務ごとに聞く（D32・D54）。移動介助の枠は介助のタブにだけ出る。
   const periods = readRows_(SHEET.PERIODS).filter(function (p) {
-    return String(p.period).trim() && SUPPORT_TYPES.every(function (t) {
-      return periodAllowsSupportType_(p, t);
-    });
+    return String(p.period).trim();
   }).map(function (p) {
     return {
       period: String(p.period).trim(),
       label: periodLabelOf_(p.period, p),
       time: p.start_time ? p.start_time + '〜' + p.end_time : '',
+      supportTypes: SUPPORT_TYPES.filter(function (t) { return periodAllowsSupportType_(p, t); }),
     };
   });
 
@@ -71,7 +68,11 @@ function getSignupContext() {
     phone: existing ? String(existing.phone || '').trim() : '',
     webhook_url: existing ? String(existing.webhook_url || '').trim() : '',
     skills: existing ? String(existing.skills || '').trim() : '',
-    slots: existing ? splitSlots_(existing.slots) : [],
+    slotsByType: {
+      'テイク': existing ? splitSlots_(existing.slots) : [],
+      '介助': existing ? splitSlots_(existing.assist_slots) : [],
+    },
+    supportTypes: SUPPORT_TYPES.slice(),
     note: existing ? String(existing.note || '').trim() : '',
     days: WORK_DAYS.slice(),
     periods: periods,
@@ -82,7 +83,7 @@ function getSignupContext() {
  * 利用登録を申請する（未登録者が実行）。registrations に「申請中」で積むだけで、
  * staffs / contacts には**一切書かない**。
  *
- * @param {{name, phone, webhook_url, skills, slots, note}} payload
+ * @param {{family_name, given_name, phone, webhook_url, skills, slotsByType, note}} payload
  */
 function submitRegistration(payload) {
   const email = String(Session.getActiveUser().getEmail() || '').trim();
@@ -93,7 +94,11 @@ function submitRegistration(payload) {
   }
 
   const p = payload || {};
-  const name = validatePersonName_('氏名', p.name);
+  // 姓と名を分けて受け取り、半角スペースでつないで保存する（書き方を揃えるため・D54）
+  const family = validatePersonName_('姓', p.family_name);
+  const given = validatePersonName_('名', p.given_name);
+  if (/[\s　]/.test(family + given)) throw new Error('姓と名の中に空白は入れないでください。');
+  const name = validatePersonName_('氏名', family + ' ' + given);
   const phone = validatePhone_(p.phone);
   const webhook = String(p.webhook_url || '').trim();
   const note = String(p.note || '').trim();
@@ -105,7 +110,9 @@ function submitRegistration(payload) {
   }
 
   // 空きコマは Profile.gs と同じ検証を通す（実在しないスロットを入れない）
-  const slots = normalizeSlots_(p.slots);
+  const byType = p.slotsByType || {};
+  const slots = normalizeSlots_(byType['テイク'], 'テイク');
+  const assistSlots = normalizeSlots_(byType['介助'], '介助');
   // skills は本人の申告。承認時に職員が確定させるので、ここでは値の見張りだけする。
   // 申請の時点では「まだ決まっていない」があり得るので、空のままを許す（マイページとは別扱い）。
   const skills = splitSkills_(p.skills).join(',');
@@ -113,7 +120,7 @@ function submitRegistration(payload) {
   const existing = findRegistrationByEmail_(email);
   const row = {
     email: email, name: name, phone: phone, webhook_url: webhook,
-    skills: skills, slots: slots, note: note,
+    skills: skills, slots: slots, assist_slots: assistSlots, note: note,
     status: REGISTRATION_STATUS.PENDING,
     applied_at: nowString_(),
     // 出し直しなので、前回の却下の痕跡は消す
@@ -147,6 +154,7 @@ function getRegistrations() {
       webhook_url: String(r.webhook_url || '').trim(),
       skills: String(r.skills || '').trim(),
       slots: String(r.slots || '').trim(),
+      assist_slots: String(r.assist_slots || '').trim(),
       note: String(r.note || '').trim(),
       status: String(r.status || '').trim(),
       applied_at: String(r.applied_at || '').trim(),
@@ -202,11 +210,8 @@ function approveRegistration(registrationId, opts) {
     name: name,
     role: role,
     skills: skills,
-    // 申請では空きコマを1つしか聞いていないので、テイク・介助の両方に同じ値を入れる。
-    // 本人がマイページで業務ごとに直せる（D32）。片方を空で作ると、その業務の候補に
-    // **一度も出てこない**状態から始まってしまう。
     available_slots: String(reg.slots || '').trim(),
-    assist_slots: String(reg.slots || '').trim(),
+    assist_slots: String(reg.assist_slots || '').trim(),   // 業務ごとに申請してもらう（D54）
     personal_code: '',              // 列は残っているが使わない（機能Bを実装しないため・2026-09-13）
     slots_updated_at: nowString_(), // 本人の申告なので「本人が出した」扱いにする（D28）
   });

@@ -202,7 +202,7 @@ GAS のコードではないので `Harness` は使わず、画面の `<script>`
 
 ## help-images/（Webhook 案内の画像・D46）
 
-ここだけ Node ではなく Python（Pillow）。`src/help-webhook.html` に埋め込む画像を作り直す。
+ここだけ Node ではなく Python（Pillow）。`src/help-webhook.html`（ヘルプの話題）の画像を作り直す。
 検証ではないので `run-all.js` からは呼ばない。使い方は `tools/help-images/README.md`。
 
 ## 新しい検証を足すとき

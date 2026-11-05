@@ -36,6 +36,21 @@
     table.slots td label:hover { background: var(--brand-soft); }
     table.slots input { width: auto; }
 
+    .name2 { display: flex; gap: 10px; max-width: 420px; }
+    .name2 > div { flex: 1 1 0; min-width: 0; }
+    .name2 label { font-weight: 400; font-size: .8rem; color: var(--text-muted); margin-bottom: 3px; }
+
+    /* 業務の切り替えタブ（マイページと同じ形） */
+    .tabs { display: flex; gap: 6px; margin: 0 0 12px; border-bottom: 2px solid var(--border); }
+    .tab { appearance: none; border: none; background: none; font-family: inherit;
+           font-size: .92rem; font-weight: 700; color: var(--text-muted); cursor: pointer;
+           padding: 9px 16px; border-bottom: 3px solid transparent; margin-bottom: -2px; }
+    .tab:hover { color: var(--brand-ink); background: var(--brand-soft); }
+    .tab.on { color: var(--brand-ink); border-bottom-color: var(--brand); }
+    .tab .n { font-weight: normal; font-size: .82rem; color: var(--text-faint); margin-left: 5px; }
+    .tab.on .n { color: var(--brand-ink); }
+    .pane[hidden] { display: none; }
+
     .toast { margin-top: 14px; display: none; }
     .toast.show { display: block; }
   </style>
@@ -43,13 +58,11 @@
 <body>
   <?!= chrome ?>
 
-  <!-- 通知先URLの作り方（D46）。マイページと同じものを共有している。 -->
-  <div id="helpWebhook" hidden><?!= include('help-webhook') ?></div>
-
   <main>
     <div id="body" class="state">読み込み中…</div>
   </main>
 
+  <?!= include('shared-contact') ?>
   <script>
     var C = null;
 
@@ -90,6 +103,9 @@
           '<br>内容を確認して、もう一度申請できます。</div>';
       }
 
+      // 前回の申請を出し直すときは、保存済みの氏名を姓と名へ分けて戻す
+      var nameParts = String(c.name || '').trim().split(/[\s　]+/);
+
       host.className = '';
       host.innerHTML = statusCard +
         '<div class="card">' +
@@ -98,21 +114,23 @@
         'まだ名簿に登録されていません。下の内容で申請すると、<b>職員が確認して承認します</b>。' +
         '承認されるまでは他の画面は使えません。</p>' +
 
-        '<div class="field"><label for="name">氏名<span style="color:var(--danger)">*</span></label>' +
-          '<input id="name" placeholder="龍谷 太郎" value="' + escapeAttr(c.name) + '">' +
+        '<div class="field"><label>氏名<span style="color:var(--danger)">*</span></label>' +
+          '<div class="name2">' +
+            '<div><label for="family">姓</label><input id="family" placeholder="龍谷" value="'
+              + escapeAttr(nameParts[0] || '') + '"></div>' +
+            '<div><label for="given">名</label><input id="given" placeholder="太郎" value="'
+              + escapeAttr(nameParts.slice(1).join('')) + '"></div>' +
+          '</div>' +
           '<p class="hint">勤務実績の照合に使うので、大学に届け出ている氏名で入れてください。</p></div>' +
 
-        '<div class="field"><label for="phone">電話番号</label>' +
-          '<input id="phone" type="tel" placeholder="090-1234-5678" value="' + escapeAttr(c.phone) + '">' +
-          '<p class="hint">代行の返事が無いときに職員から連絡することがあります。</p></div>' +
+        phoneFieldHtml(c.phone, '代行の返事が無いときに職員から連絡することがあります。') +
 
         '<div class="field"><label for="webhook">Google Chat の通知先URL</label>' +
+          webhookHelpButton() +
           '<input id="webhook" type="url" placeholder="https://chat.googleapis.com/..." value="'
             + escapeAttr(c.webhook_url) + '">' +
           '<p class="hint">承認されると、代行のお願いがここへ届きます。' +
-          '空のままでも申請はできますが、通知は届きません（あとからマイページで登録できます）。</p>' +
-          // 作り方の案内（D46）。マイページと同じ help-webhook.html を共有している。
-          document.getElementById('helpWebhook').innerHTML + '</div>' +
+          '空のままでも申請はできますが、通知は届きません（あとからマイページで登録できます）。</p></div>' +
 
         '<div class="field"><label>対応できる業務</label>' +
           '<div class="checks">' +
@@ -137,39 +155,87 @@
         + (on ? ' checked' : '') + '>' + escapeHtml(name) + '</label>';
     }
 
+    // 空きコマは業務ごとに聞く（テイクと介助で空いている時間が違う・D32・D54）。形はマイページと同じ。
     function renderSlots(c) {
-      var chosen = {};
-      (c.slots || []).forEach(function (s) { chosen[s] = true; });
-      var h = '<div class="field"><label>空きコマ</label>' +
+      var types = c.supportTypes || [];
+      var count = function (t) { return ((c.slotsByType || {})[t] || []).length; };
+      var tabs = types.map(function (t, i) {
+        return '<button type="button" class="tab' + (i === 0 ? ' on' : '') + '" data-tab="' + escapeAttr(t) + '">'
+          + escapeHtml(t) + '<span class="n" data-count="' + escapeAttr(t) + '">' + count(t) + '</span></button>';
+      }).join('');
+      var panes = types.map(function (t, i) {
+        return '<div class="pane" data-pane="' + escapeAttr(t) + '"' + (i === 0 ? '' : ' hidden') + '>'
+          + slotGrid(c, t) + '</div>';
+      }).join('');
+      return '<div class="field"><label>空きコマ</label>' +
         '<p class="hint" style="margin:0 0 8px">授業が入っていない＝<b>代行に入れる可能性がある</b>コマに' +
-        'チェックしてください。後からマイページで変更できます。</p>' +
-        '<div class="grid-wrap"><table class="slots"><thead><tr><th class="ph"></th>';
+        'チェックしてください。<b>テイクと介助は別々に登録します。</b>タブで切り替えてください。' +
+        '後からマイページで変更できます。</p>' +
+        '<div class="tabs">' + tabs + '</div>' + panes + '</div>';
+    }
+
+    function slotGrid(c, type) {
+      var chosen = {};
+      ((c.slotsByType || {})[type] || []).forEach(function (s) { chosen[s] = true; });
+      var periods = (c.periods || []).filter(function (per) {
+        return (per.supportTypes || []).indexOf(type) !== -1;
+      });
+      var h = '<div class="grid-wrap"><table class="slots"><thead><tr><th class="ph"></th>';
       c.days.forEach(function (d) { h += '<th>' + escapeHtml(d) + '</th>'; });
       h += '</tr></thead><tbody>';
-      c.periods.forEach(function (per) {
+      periods.forEach(function (per) {
         h += '<tr><th class="ph">' + escapeHtml(per.label || (per.period + '限'))
           + (per.time ? '<small>' + escapeHtml(per.time) + '</small>' : '') + '</th>';
         c.days.forEach(function (d) {
           var key = d + per.period;
-          h += '<td><label><input type="checkbox" data-slot="' + escapeAttr(key) + '"'
-            + (chosen[key] ? ' checked' : '') + '></label></td>';
+          h += '<td><label><input type="checkbox" data-type="' + escapeAttr(type) + '"'
+            + ' data-slot="' + escapeAttr(key) + '"' + (chosen[key] ? ' checked' : '') + '></label></td>';
         });
         h += '</tr>';
       });
-      h += '</tbody></table></div></div>';
-      return h;
+      return h + '</tbody></table></div>';
     }
 
-    function picked(attr) {
+    // タブの切り替え。再描画しないので入力途中の内容は消えない
+    document.addEventListener('click', function (ev) {
+      var tab = ev.target && ev.target.closest ? ev.target.closest('.tab[data-tab]') : null;
+      if (!tab) return;
+      var name = tab.getAttribute('data-tab');
+      document.querySelectorAll('.tab[data-tab]').forEach(function (b) { b.classList.toggle('on', b === tab); });
+      document.querySelectorAll('.pane[data-pane]').forEach(function (el) {
+        el.hidden = el.getAttribute('data-pane') !== name;
+      });
+    });
+    document.addEventListener('change', function (ev) {
+      if (!ev.target || !ev.target.hasAttribute || !ev.target.hasAttribute('data-slot')) return;
+      document.querySelectorAll('.n[data-count]').forEach(function (el) {
+        el.textContent = pickedSlots(el.getAttribute('data-count')).length;
+      });
+    });
+
+    function pickedSlots(type) {
       var out = [];
-      document.querySelectorAll('input[' + attr + ']').forEach(function (b) {
-        if (b.checked) out.push(b.getAttribute(attr));
+      document.querySelectorAll('input[data-type="' + type + '"]').forEach(function (b) {
+        if (b.checked) out.push(b.getAttribute('data-slot'));
+      });
+      return out;
+    }
+
+    function pickedSkills() {
+      var out = [];
+      document.querySelectorAll('input[data-skill]').forEach(function (b) {
+        if (b.checked) out.push(b.getAttribute('data-skill'));
       });
       return out;
     }
 
     function submitForm() {
-      if (!val('name').trim()) { showToast('氏名を入力してください。', false); return; }
+      if (!val('family').trim() || !val('given').trim()) {
+        showToast('姓と名を入力してください。', false);
+        return;
+      }
+      var phoneErr = phoneError();
+      if (phoneErr) { showToast(phoneErr, false); return; }
       var btn = document.getElementById('submit');
       btn.disabled = true;
       btn.textContent = '送信中…';
@@ -185,11 +251,12 @@
           showToast(err.message, false);
         })
         .submitRegistration({
-          name: val('name').trim(),
-          phone: val('phone').trim(),
+          family_name: val('family').trim(),
+          given_name: val('given').trim(),
+          phone: phoneValue(),
           webhook_url: val('webhook').trim(),
-          skills: picked('data-skill').join(','),
-          slots: picked('data-slot'),
+          skills: pickedSkills().join(','),
+          slotsByType: { 'テイク': pickedSlots('テイク'), '介助': pickedSlots('介助') },
           note: val('note').trim(),
         });
     }

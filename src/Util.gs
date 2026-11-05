@@ -47,13 +47,19 @@ function validatePersonName_(label, value) {
 }
 
 /**
- * 電話番号として受け付けられるか。数字と + - ( ) 空白だけ（全角も可）。空は許す（必須かどうかは呼び出し側）。
- * @return {string} 前後の空白を除いた値
+ * 電話番号の形を揃える（090-1234-5678）。全角は半角に直す。空は許す（必須かどうかは呼び出し側）。
+ * ハイフンの無い11桁（古い書き方）は 3-4-4 に分ける。
+ * @return {string} 揃えた番号
  */
 function validatePhone_(value) {
-  const s = String(value == null ? '' : value).trim();
-  if (s.length > 20 || !/^[0-9０-９+＋\-－ー‐()（）\s　]*$/.test(s)) {
-    throw new Error('電話番号は数字と - だけで入力してください（例：090-1234-5678）。');
+  const s = String(value == null ? '' : value).trim()
+    .replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+    .replace(/[－ー‐−]/g, '-');
+  if (!s) return '';
+  if (/^\d{11}$/.test(s)) return s.slice(0, 3) + '-' + s.slice(3, 7) + '-' + s.slice(7);
+  const digits = s.replace(/-/g, '').length;
+  if (!/^0\d{1,4}-\d{1,4}-\d{4}$/.test(s) || digits < 10 || digits > 11) {
+    throw new Error('電話番号は 090-1234-5678 の形で入れてください。');
   }
   return s;
 }

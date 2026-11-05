@@ -1,0 +1,64 @@
+<!--
+  連絡先の入力部品（利用登録の申請とマイページで共有・D54）
+
+  電話番号は3つの欄に分けて入れてもらい、「-」でつないで保存する（書き方を揃えるため）。
+  画面のスクリプトより前に include('shared-contact') を置く。
+-->
+<script>
+  function contactEsc_(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // 保存済みの番号を3つの欄へ分ける。分けられない形（古い書き方）なら3欄とも空にする
+  function phoneParts(value) {
+    var s = String(value || '').trim();
+    var m = /^(\d{2,5})-(\d{1,4})-(\d{4})$/.exec(s);
+    if (m) return [m[1], m[2], m[3]];
+    if (/^\d{11}$/.test(s)) return [s.slice(0, 3), s.slice(3, 7), s.slice(7)];
+    return ['', '', ''];
+  }
+
+  function phoneFieldHtml(value, hint) {
+    var parts = phoneParts(value);
+    var box = function (i, max, ph) {
+      return '<input id="phone' + i + '" type="tel" inputmode="numeric" maxlength="' + max + '"' +
+        ' aria-label="電話番号 ' + (i + 1) + '番目" placeholder="' + ph + '" value="' + contactEsc_(parts[i]) + '">';
+    };
+    var old = value && !parts[0]
+      ? '<p class="hint" style="color:var(--warn)">登録済みの番号（' + contactEsc_(value) + '）は形が違うので、入れ直してください。</p>'
+      : '';
+    return '<div class="field"><label for="phone0">電話番号</label>' +
+      '<div class="phone3">' + box(0, 5, '090') + '<span aria-hidden="true">-</span>' +
+        box(1, 4, '1234') + '<span aria-hidden="true">-</span>' + box(2, 4, '5678') + '</div>' +
+      old + '<p class="hint">' + hint + '</p></div>';
+  }
+
+  function phoneBox_(i) {
+    var el = document.getElementById('phone' + i);
+    // 全角の数字でも受け付ける。数字以外は捨てる
+    return (el ? el.value : '').replace(/[０-９]/g, function (c) {
+      return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
+    }).replace(/\D/g, '');
+  }
+
+  // 3つの欄をつないだ番号（全部空なら ''）
+  function phoneValue() {
+    var p = [phoneBox_(0), phoneBox_(1), phoneBox_(2)];
+    return p.join('') ? p.join('-') : '';
+  }
+
+  // 一部の欄だけ入っているときの案内（問題が無ければ ''）
+  function phoneError() {
+    var p = [phoneBox_(0), phoneBox_(1), phoneBox_(2)];
+    if (!p.join('')) return '';
+    return p.every(function (x) { return x; }) ? '' : '電話番号は3つの欄すべてに入れてください。';
+  }
+
+  // 通知先URLの作り方を、ヘルプと同じ形で開くボタン
+  function webhookHelpButton() {
+    return '<button type="button" class="btn sm webhook-help" id="webhookHelp"' +
+      ' onclick="openHelpTopic(\'webhook\')">通知先URLの作り方（詳細はこちら）</button>';
+  }
+</script>

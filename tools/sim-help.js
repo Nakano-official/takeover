@@ -26,7 +26,7 @@ h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Identity.gs', 'cod
 const PAGES = h.value('PAGES');
 const TOPICS = h.value('HELP_TOPICS');
 // 見せる話題が無い画面（USB 中継プログラムが開く画面／未登録の人の申請画面）
-const NO_HELP = ['deviceRelay', 'signup'];
+const NO_HELP = ['deviceRelay', 'signup'];   // signup は画面の中のボタンから開く話題だけを持つ
 const topicsOf = function (key, user) {
   const m = /HELP_TOPICS_HERE = (\[.*?\]);/.exec(h.G.renderChrome_(PAGES[key], key, user));
   return m ? JSON.parse(m[1]).map((t) => t.key) : [];
@@ -47,8 +47,10 @@ h.section('2) 学生は、職員向けを除いた同じ一覧を開ける');
 Object.keys(PAGES).filter((k) => !PAGES[k].staffOnly && NO_HELP.indexOf(k) === -1).forEach(function (k) {
   h.check(hasBtn(k, STUDENT) && topicsOf(k, STUDENT).join() === FOR_STUDENT.join(), PAGES[k].title);
 });
+h.check(!hasBtn('signup', null) && topicsOf('signup', null).join() === 'webhook',
+  '申請画面：ヘッダーのボタンは出さず、「詳細はこちら」で通知先URLの作り方だけを開ける（D54）');
 NO_HELP.forEach(function (k) {
-  h.check(!hasBtn(k, STAFF) && !hasBtn(k, null), PAGES[k].title + '：見せる話題が無いので出さない');
+  h.check(!hasBtn(k, STAFF) && !hasBtn(k, null), PAGES[k].title + '：ヘッダーのボタンは出さない');
 });
 
 h.section('3) 話題の中身');
