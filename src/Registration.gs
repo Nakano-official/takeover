@@ -246,6 +246,8 @@ function approveRegistration(registrationId, opts) {
       postToWebhook_(webhook,
         String(reg.name || '').trim() + ' さん\n' +
         '支援室シフト管理システムの利用登録が承認されました。\n' +
+        // URL を探さずに済むよう、ここから開けるようにする（D54）
+        'こちらから開けます：\n' + getAppUrl_() + '\n' +
         'このメッセージが届いていれば、代行依頼の通知も同じ場所に届きます。\n' +
         'マイページから空きコマや連絡先をいつでも更新できます。');
       notify = { sent: true, reason: '' };

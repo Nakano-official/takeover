@@ -135,6 +135,7 @@ h.check(newStaff.personal_code === '', '個人コードは空（職員が後か�
 h.check(newContact.phone === '090-3333-3333' && newContact.webhook_url === OK_HOOK, '連絡先が入る');
 h.check(reg().status === '承認済' && reg().staff_id === res.staff_id, '申請に結果が記録される');
 h.check(reg().decided_by === 'S001', '誰が承認したかが残る');
+h.check(h.notifiesOf('post')[0].text.indexOf(h.G.getAppUrl_()) !== -1, '★承認の通知にシステムの URL を付ける');
 h.check(h.notifiesOf('post').length === 1, '★本人へ通知を出す（Webhookが実際に届くかの確認を兼ねる）');
 
 h.section('3b) 区分とスキルは職員が決める');
