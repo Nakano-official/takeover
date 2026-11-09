@@ -33,6 +33,22 @@
     .rtoast { font-size: .78rem; margin-left: 4px; }
     .rtoast.ok { color: var(--ok); }
     .rtoast.err { color: var(--danger); }
+
+    /* クォーターは曜日ごとに計算した範囲を出す（D53） */
+    .auto { font-size: .82rem; color: var(--text-muted); }
+    .auto b { color: var(--text); font-weight: 600; }
+    table.byday { border-collapse: collapse; margin-top: 8px; font-size: .8rem; }
+    table.byday th, table.byday td { border: 1px solid var(--border); padding: 4px 10px; text-align: center; }
+    table.byday th { background: var(--surface-alt); font-weight: 600; }
+
+    /* 授業の無い日（D53） */
+    .ncform { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    .ncform select, .ncform input[type="text"] { padding: 8px 10px; }
+    .ncrow { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border);
+             font-size: .88rem; }
+    .ncrow:first-child { border-top: none; }
+    .ncrow .when { font-weight: 600; min-width: 13em; }
+    .ncrow .what { flex: 1; color: var(--text-muted); }
   </style>
 </head>
 <body>
@@ -43,7 +59,8 @@
       <div id="status" class="status">読み込み中…</div>
       <p class="hint">
         学期の開始日・終了日は「今どの学期のシフトを表示するか」の判定に使われます。
-        年度ごとに実際の学事暦（履修登録の区分）に合わせて設定してください。
+        年度ごとに実際の学年暦に合わせて、<b>セメスター（前期・後期）の授業開始日・授業終了日</b>を設定してください。
+        クォーターの日付は、セメスターの日付と下の「授業の無い日」から自動で計算します。
         表はスプレッドシートを直接触らず、この画面から編集できます。
       </p>
     </div>
@@ -52,7 +69,7 @@
       <h2>年度を追加</h2>
       <p class="hint">
         新しい年度の学期（前期・後期＋1Q〜4Q の6件）を雛形の日付で追加します。
-        追加後、各行の開始日・終了日を実際の学事暦に合わせて調整してください。
+        追加後、前期・後期の開始日・終了日を実際の学年暦に合わせて直してください。
         既にある学期は重複追加されません。
       </p>
       <div class="addbar" style="margin-top:12px">
@@ -63,6 +80,32 @@
         <button class="btn primary" id="addBtn" onclick="addYear()">この年度を追加</button>
       </div>
       <div id="addToast" class="toast"></div>
+    </div>
+
+    <div class="card">
+      <h2>授業の無い日</h2>
+      <p class="hint">
+        祝日（学年暦で「授業実施日」と書かれていない日）・全学休講・休業期間を登録します。
+        この日はシフト確認にコマが出ず、欠勤連絡でも選べなくなります。
+        <b>クォーターの境目は、この日を飛ばして曜日ごとに8回数えて自動で決まります。</b>
+        「5講時以降休講」のような日は「休みになる講時」を選んでください。
+      </p>
+      <div id="ncList" class="state">読み込み中…</div>
+      <div class="ncform" id="ncForm">
+        <div><label for="ncStart">日付（始まり）</label><input id="ncStart" type="date"></div>
+        <div><label for="ncEnd">終わり（期間のときだけ）</label><input id="ncEnd" type="date"></div>
+        <div><label for="ncFrom">休みになる講時</label>
+          <select id="ncFrom">
+            <option value="">終日</option>
+            <option value="1">1講時以降</option><option value="2">2講時以降</option>
+            <option value="3">3講時以降</option><option value="4">4講時以降</option>
+            <option value="5">5講時以降</option>
+          </select></div>
+        <div style="flex:1;min-width:12em"><label for="ncReason">理由</label>
+          <input id="ncReason" type="text" maxlength="40" placeholder="例：勤労感謝の日" style="width:100%"></div>
+        <button class="btn primary" id="ncAdd" onclick="addNoClass()">追加</button>
+      </div>
+      <div id="ncToast" class="toast"></div>
     </div>
 
     <div class="card">
@@ -92,6 +135,7 @@
     function onData(data) {
       DATA = data;
       renderStatus();
+      renderNoClass();
       renderList();
       if (!document.getElementById('year').value) {
         document.getElementById('year').value = data.suggestYear || '';
@@ -132,12 +176,23 @@
           lastYear = yr;
         }
         var idAttr = escapeHtml(t.term_id);
-        html +=
-          '<div class="trow" data-tid="' + idAttr + '">' +
-            '<div class="tid"><b>' + escapeHtml(t.term_id) + '</b>' +
+        var head = '<div class="tid"><b>' + escapeHtml(t.term_id) + '</b>' +
               (t.systemLabel ? '<span class="sys">' + escapeHtml(t.systemLabel) + '</span>' : '') +
               (t.isCurrent ? '<span class="cur">現在</span>' : '') +
-            '</div>' +
+            '</div>';
+        // クォーターは手で直さない（D53）。計算した曜日ごとの範囲を出して、学年暦と見比べられるようにする
+        if (t.computed) {
+          html += '<div class="trow" data-tid="' + idAttr + '">' + head +
+            '<div class="auto">セメスターの日付と授業の無い日から<b>自動で計算</b>しています（曜日ごとに8回）。' +
+              byDayTable(t.byDay) + '</div>' +
+            '<div class="dates" style="margin-top:8px">' +
+              '<button class="btn sm del" onclick="delRow(this)"' + (t.used ? ' disabled title="授業が登録されているため削除できません"' : '') + '>削除</button>' +
+              '<span class="rtoast"></span></div>' +
+          '</div>';
+          return;
+        }
+        html +=
+          '<div class="trow" data-tid="' + idAttr + '">' + head +
             '<div class="dates">' +
               '<div><label>開始日</label>' +
                 '<input type="date" class="st" value="' + escapeHtml(t.start_date) + '"></div>' +
@@ -150,6 +205,86 @@
           '</div>';
       });
       host.innerHTML = html;
+    }
+
+    // 曜日ごとの範囲（例：月 9/21〜11/9）
+    function byDayTable(byDay) {
+      var days = (DATA.days || []).filter(function (d) { return byDay && byDay[d]; });
+      if (!days.length) return '';
+      var md = function (iso) { var p = String(iso).split('-'); return (+p[1]) + '/' + (+p[2]); };
+      return '<table class="byday"><tr>' + days.map(function (d) { return '<th>' + escapeHtml(d) + '</th>'; }).join('') +
+        '</tr><tr>' + days.map(function (d) {
+          return '<td>' + escapeHtml(md(byDay[d].start)) + '〜' + escapeHtml(md(byDay[d].end)) + '</td>';
+        }).join('') + '</tr></table>';
+    }
+
+    // ── 授業の無い日（D53）──
+    function renderNoClass() {
+      var host = document.getElementById('ncList');
+      var form = document.getElementById('ncForm');
+      if (!DATA.hasNoClassSheet) {
+        host.className = 'notice warn';
+        host.textContent = '授業の無い日のシートがまだありません。GASエディタで migrateAddNoClassDaysSheet を1回実行してください。';
+        form.style.display = 'none';
+        return;
+      }
+      form.style.display = '';
+      var list = DATA.noClassDays || [];
+      if (!list.length) {
+        host.className = 'state';
+        host.textContent = 'まだ登録されていません。';
+        return;
+      }
+      var W = ['日', '月', '火', '水', '木', '金', '土'];
+      var label = function (iso) {
+        var p = String(iso).split('-');
+        var dt = new Date(+p[0], +p[1] - 1, +p[2]);
+        return (+p[1]) + '/' + (+p[2]) + '（' + W[dt.getDay()] + '）';
+      };
+      host.className = '';
+      host.innerHTML = list.map(function (n) {
+        var when = label(n.start_date) + (n.end_date && n.end_date !== n.start_date ? '〜' + label(n.end_date) : '');
+        return '<div class="ncrow"><span class="when">' + escapeHtml(n.start_date.slice(0, 4)) + '年 ' + escapeHtml(when) + '</span>' +
+          '<span class="what">' + (n.from_period ? escapeHtml(n.from_period + '講時以降') : '終日') + '・' + escapeHtml(n.reason) + '</span>' +
+          '<button class="btn sm del" data-id="' + escapeHtml(n.no_class_id) + '" onclick="delNoClass(this)">削除</button></div>';
+      }).join('');
+    }
+
+    function addNoClass() {
+      var t = document.getElementById('ncToast');
+      var p = {
+        start_date: document.getElementById('ncStart').value,
+        end_date: document.getElementById('ncEnd').value,
+        from_period: document.getElementById('ncFrom').value,
+        reason: document.getElementById('ncReason').value.trim(),
+      };
+      if (!p.start_date) { showToast(t, '日付を入力してください。', false); return; }
+      if (!p.reason) { showToast(t, '理由を入力してください。', false); return; }
+      var btn = document.getElementById('ncAdd');
+      btn.disabled = true; btn.textContent = '追加中…';
+      google.script.run
+        .withSuccessHandler(function () {
+          btn.disabled = false; btn.textContent = '追加';
+          showToast(t, '追加しました。クォーターの境目も計算し直しました。', true);
+          ['ncStart', 'ncEnd', 'ncReason'].forEach(function (id) { document.getElementById(id).value = ''; });
+          document.getElementById('ncFrom').value = '';
+          load();
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false; btn.textContent = '追加';
+          showToast(t, err.message, false);
+        })
+        .addNoClassDay(p);
+    }
+
+    function delNoClass(btn) {
+      if (!confirm('この「授業の無い日」を削除しますか？')) return;
+      var t = document.getElementById('ncToast');
+      btn.disabled = true;
+      google.script.run
+        .withSuccessHandler(function () { showToast(t, '削除しました。クォーターの境目も計算し直しました。', true); load(); })
+        .withFailureHandler(function (err) { btn.disabled = false; showToast(t, err.message, false); })
+        .deleteNoClassDay(btn.getAttribute('data-id'));
     }
 
     function saveRow(btn) {

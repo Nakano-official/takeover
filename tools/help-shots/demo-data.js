@@ -90,6 +90,10 @@ function seed(h) {
     h.add('periods', { period: r[0], start_time: r[1], end_time: r[2], support_types: r[3], label: r[4] });
   });
   h.add('terms', { term_id: TERM, system: 'semester', start_date: '2026-09-21', end_date: '2027-01-30' });
+  // 授業の無い日（D53・学期設定の画面を撮るため）。ヘルプを撮る週（11/9〜13）には当てない
+  h.add('no_class_days', { no_class_id: 'N1', start_date: '2026-11-23', end_date: '', from_period: '', reason: '勤労感謝の日' });
+  h.add('no_class_days', { no_class_id: 'N2', start_date: '2026-12-29', end_date: '2027-01-06', from_period: '', reason: '冬期休業' });
+
   // 承認待ちの申請（利用登録の承認画面を撮るため）
   h.add('registrations', {
     registration_id: 'R001', email: 'taro.shinjin@example.jp', name: '新人 太郎', phone: '090-0000-1100',

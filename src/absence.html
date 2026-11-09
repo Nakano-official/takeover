@@ -65,7 +65,10 @@
     }
 
     // コマの曜日に一致し、学期期間内で今日以降の授業日をすべて列挙する
-    function classDates(dayJa, startStr, endStr) {
+    // skip … 授業の無い日（祝日・全学休講など・D53）。選択肢から外す
+    function classDates(dayJa, startStr, endStr, skip) {
+      var skipSet = {};
+      (skip || []).forEach(function (d) { skipSet[d] = true; });
       if (!endStr) return [];
       var W = ['日', '月', '火', '水', '木', '金', '土'];
       var today = new Date(); today.setHours(0, 0, 0, 0);
@@ -74,7 +77,7 @@
       var end = parseISO(endStr);
       var out = [], d = new Date(start), guard = 0;
       while (d <= end && guard < 400) {
-        if (W[d.getDay()] === dayJa) out.push(fmtISO(d));
+        if (W[d.getDay()] === dayJa && !skipSet[fmtISO(d)]) out.push(fmtISO(d));
         d.setDate(d.getDate() + 1); guard++;
       }
       return out;
@@ -114,7 +117,7 @@
         hint.textContent = 'この授業は学期日程が未設定のため日付を直接選べます（' + c.day + '曜のみ有効）。学期設定への登録を推奨します。';
         return;
       }
-      var dates = classDates(c.day, c.termStart, c.termEnd);
+      var dates = classDates(c.day, c.termStart, c.termEnd, c.skipDates);
       if (dates.length === 0) {
         wrap.innerHTML = '<select id="date"><option value="">（選べる日がありません）</option></select>';
         applyPreDate();   // この経路でも初期選択は消費する（後でコマを変えたときに誤って当たらないように）

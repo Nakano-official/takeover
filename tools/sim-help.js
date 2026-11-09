@@ -21,7 +21,7 @@ h.stub({
     },
   },
 });
-h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Identity.gs', 'code.js']);
+h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'ClassCalendar.gs', 'Identity.gs', 'code.js']);
 
 const PAGES = h.value('PAGES');
 const TOPICS = h.value('HELP_TOPICS');

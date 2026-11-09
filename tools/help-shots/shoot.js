@@ -144,8 +144,11 @@ const SHOTS = [
     clip: ['.card:has(#addBtn)'],
     marks: [{ sel: '#year', n: 1 }, { sel: '#addBtn', n: 2 }] },
   { id: 'terms-2', page: 'staff-terms', device: 'pc',
-    clip: ['.yhead >> nth=0', '.trow >> nth=1'],
-    marks: [{ sel: '.trow >> nth=0 >> .dates', n: 1 }, { sel: '.trow >> nth=0 >> .btn.ok', n: 2 }] },
+    clip: ['.trow:has(.st) >> nth=0'],
+    marks: [{ sel: '.trow:has(.st) >> nth=0 >> .dates', n: 1 }, { sel: '.trow:has(.st) >> nth=0 >> .btn.ok', n: 2 }] },
+  { id: 'terms-3', page: 'staff-terms', device: 'pc',
+    clip: ['.card:has(#ncList)'],
+    marks: [{ sel: '#ncForm', n: 1 }, { sel: '#ncAdd', n: 2 }] },
 
   // 時間割PDFから読み込んだ後（D52）。本物の PDF は使えないので、読み取り結果（架空）を画面に渡して
   // カードを並べる。カードを作る処理と結果欄は本物（buildPdfCards / renderPdfResult）

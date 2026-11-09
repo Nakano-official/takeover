@@ -13,7 +13,7 @@
 const { Harness } = require('./gas-harness');
 
 const h = new Harness();
-h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Input.gs']);
+h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'ClassCalendar.gs', 'Input.gs']);
 const G = h.G;
 const T = h.time;
 
@@ -135,7 +135,7 @@ asAbsentee();
 threw = '';
 // 曜日は合わせたうえで学期の外へ出す（+1 と同じ曜日で、学期終了 +60 より後）
 try { G.submitAbsence(weekly, T.dateIn(64)); } catch (e) { threw = e.message; }
-h.check(/開講期間/.test(threw),
+h.check(/授業期間外/.test(threw),
   '毎週コマは学期の期間外を拒否する（従来の挙動を壊していない）：' + threw);
 
 // ── 5) 過ぎた単発は出さない ─────────────────────────────────

@@ -230,7 +230,7 @@ check(p.studentName === '' && p.rows.length === 1, '氏名が読めなくても�
 console.log('\n10. 先頭が = + - @ の値はシートに書かない（Input.gs）');
 const { Harness } = require('./gas-harness');
 const h = new Harness();
-h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Input.gs']);
+h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'ClassCalendar.gs', 'Input.gs']);
 h.add('terms', { term_id: '2026-後期', system: 'semester', start_date: '2026-09-21', end_date: '2027-01-30' });
 h.add('periods', { period: '3', start_time: '13:30', end_time: '15:00' });
 h.add('staffs', { staff_id: 'T1', name: '職員', role: '職員' });
@@ -255,7 +255,7 @@ check(h.G.readRows_('courses').length === 1, '弾いた値は1件もシートに
 
 console.log('\n11. 学期をカードごとに選ぶようになったので（Input.gs）');
 const h2 = new Harness();
-h2.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Input.gs']);
+h2.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'ClassCalendar.gs', 'Input.gs']);
 [
   ['2026-前期', 'semester', '2026-04-07', '2026-08-04'],
   ['2026-1Q', 'quarter', '2026-04-07', '2026-06-08'],
@@ -280,7 +280,7 @@ check(add2({ quarter: '2026-後期', user_student: '三人目' }) === '', '後�
 
 console.log('\n12. 一覧に出す学期（上部の学期の選択は無い・Input.gs の getInputData）');
 const h3 = new Harness();
-h3.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Input.gs']);
+h3.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'ClassCalendar.gs', 'Input.gs']);
 const D = h3.time.dateIn;
 [
   ['T-過去', 'semester', D(-200), D(-10)],

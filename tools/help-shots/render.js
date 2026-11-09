@@ -64,7 +64,7 @@ h.stub({
     },
   },
 });
-h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Input.gs', 'Profile.gs', 'Registration.gs', 'Roster.gs',
+h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'ClassCalendar.gs', 'Input.gs', 'Profile.gs', 'Registration.gs', 'Roster.gs',
   'Setup.js', 'code.js', 'Identity.gs']);
 const G = h.G;
 

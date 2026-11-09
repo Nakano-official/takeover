@@ -239,6 +239,7 @@ erDiagram
     staffs   ||--o{ courses    : "担当A/B（未定も可・D38）"
     periods  ||--o{ courses    : "時限（移動介助の枠も含む・D33）"
     terms    ||--o{ courses    : "学期（quarter が参照・D16）"
+    no_class_days }o--o{ terms : "授業の無い日（クォーターの境目を計算・D53）"
     courses  ||--o{ vacancies  : "欠員対象"
     staffs   ||--o{ vacancies  : "欠勤者/代行者"
     vacancies ||--o{ responses : "回答"
@@ -255,7 +256,7 @@ erDiagram
 | | メインDB（シフト管理） | 連絡先DB（個人情報） |
 |---|---|---|
 | アクセス権限 | 職員 + GASスクリプト | **職員のみ**（本部確認済み・D3） |
-| シート | `staffs` `courses` `vacancies` `responses` `periods` `terms` | `contacts` `registrations` |
+| シート | `staffs` `courses` `vacancies` `responses` `periods` `terms` `no_class_days` | `contacts` `registrations` |
 
 - Webhook URL は「知っていれば誰でも投稿できる」秘密情報なので連絡先DBに置き、
   **画面にも返さない**（届くかどうかだけを返す・D30）。
@@ -337,7 +338,25 @@ erDiagram
 |---|---|
 | `term_id` | **PK**。`2026-前期` / `2026-3Q` |
 | `system` | `semester` / `quarter` |
-| `start_date` / `end_date` | 開始日・終了日。**ここから「今日を含む学期」を解く**（D16） |
+| `start_date` / `end_date` | 開始日・終了日。**ここから「今日を含む学期」を解く**（D16）。セメスターは授業開始日・授業終了日を入れる。**クォーターは計算した値を書き戻す**（一番早い曜日の始まり〜一番遅い曜日の終わり・D53） |
+
+**クォーターの境目は曜日ごとに計算する**（D53・`ClassCalendar.gs`）。セメスターの授業開始日から、
+曜日ごとに授業の無い日（終日）を飛ばして8回数え、9回目から次のクォーター。
+「このコマがこの日にあるか」は `courseHeldOn_` に集めてあり、時間割・欠勤連絡はこれを使う。
+
+#### `no_class_days`（メインDB）
+
+授業の無い日（D53）。学期設定の画面から登録する。
+
+| 列 | 意味・決まり |
+|---|---|
+| `no_class_id` | **PK**（`N001`） |
+| `start_date` / `end_date` | その日（期間なら終わりも。空＝1日だけ） |
+| `from_period` | 空＝**終日**。数字ならその講時以降が休み（「5講時以降休講」）。移動介助の枠は名前の数字で判定（`移動前5` は5講時） |
+| `reason` | 理由（例：勤労感謝の日）。画面に出す |
+
+- 祝日は、学年暦で「授業実施日」と書かれていない日だけを入れる（授業実施日の祝日は入れない）
+- 「この日だけ」のコマ（補講・曜日の振替など）は授業の無い日でも出す
 
 #### `contacts`（連絡先DB・職員のみ）
 

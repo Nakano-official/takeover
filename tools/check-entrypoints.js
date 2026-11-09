@@ -64,7 +64,7 @@ Object.keys(ALLOW).forEach(function (name) {
 // requireEditorRun_ の振る舞い
 const { Harness } = require('./gas-harness');
 const h = new Harness();
-h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'code.js', 'Identity.gs']);
+h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'ClassCalendar.gs', 'code.js', 'Identity.gs']);
 function editorRunPasses() {
   try { h.G.requireEditorRun_(); return true; } catch (e) { return false; }
 }

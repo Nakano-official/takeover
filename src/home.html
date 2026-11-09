@@ -179,6 +179,11 @@
       .toolbar select { width: 100%; font-size: .95rem; padding: 9px 11px; }
       .toolbar .btn { width: 100%; }
     }
+    /* 授業の無い日（D53）。列の見出しと、スマホの曜日タブ・その日の上に出す */
+    .nocls { display: inline-block; font-size: .66rem; font-weight: 700; line-height: 1.35; margin-top: 3px;
+             padding: 1px 6px; border-radius: var(--radius-pill); background: var(--warn-bg); color: var(--warn);
+             border: 1px solid var(--warn-border); }
+    .nocls-note { margin: 0 0 10px; font-size: .85rem; }
   </style>
 </head>
 <body>
@@ -572,6 +577,21 @@
       return VIEW.courses.filter(function (c) { return c.day === day && c.period === period; });
     }
 
+    // 時限のキーから講時の番号（'3' → 3、'移動前5' → 5）。サーバーの periodNumberOf_ と同じ
+    function periodNumber(key) {
+      var m = /(\d+)/.exec(String(key == null ? '' : key));
+      return m ? Number(m[1]) : 0;
+    }
+
+    // 表示中の週のその曜日が、授業の無い日か（D53）。{from, reason} か null
+    function noClassOf(day) {
+      var d = WEEK && WEEK.dateByDay[day];
+      return (d && DATA && DATA.noClass && DATA.noClass[d]) || null;
+    }
+    function noClassText(nc) {
+      return (nc.from ? nc.from + '限から授業なし' : '授業なし') + (nc.reason ? '（' + nc.reason + '）' : '');
+    }
+
     // その曜日が「表示中の週で何月何日か」／今日かどうか
     function dayLabel(day) {
       return (WEEK && WEEK.labelByDay[day]) || '';
@@ -586,8 +606,10 @@
       var d = VIEW;
       var h = '<div class="pc"><table><thead><tr><th class="ph">時限</th>';
       d.days.forEach(function (day) {
+        var nc = noClassOf(day);
         h += '<th' + (isToday(day) ? ' class="today"' : '') + '>' + escapeHtml(day) +
-             '<small>' + escapeHtml(dayLabel(day)) + '</small></th>';
+             '<small>' + escapeHtml(dayLabel(day)) + '</small>' +
+             (nc ? '<span class="nocls">' + escapeHtml(noClassText(nc)) + '</span>' : '') + '</th>';
       });
       h += '</tr></thead><tbody>';
       d.periods.filter(function (p) { return periodVisible(p); }).forEach(function (p) {
@@ -613,7 +635,8 @@
         var cls = (day === curDay ? 'on' : '') + (isToday(day) ? ' today' : '');
         h += '<button class="' + cls + '" data-day="' + escapeAttr(day) + '" onclick="selDay(\'' +
              day + '\')">' + escapeHtml(day) +
-             '<small>' + escapeHtml(dayLabel(day)) + '</small></button>';
+             '<small>' + escapeHtml(dayLabel(day)) + '</small>' +
+             (noClassOf(day) ? '<span class="nocls">休</span>' : '') + '</button>';
       });
       h += '</div><div id="dayView"></div></div>';
       return h;
@@ -622,8 +645,10 @@
     function renderDayView() {
       var host = document.getElementById('dayView');
       if (!host) return;
+      var nc = noClassOf(curDay);
+      var ncNote = nc ? '<div class="notice warn nocls-note">' + escapeHtml(noClassText(nc)) + '</div>' : '';
       // 授業時限はコマが無くても枠として残す。授業のあいだの枠だけは予定がある日にしか出さない（D33）
-      host.innerHTML = VIEW.periods
+      host.innerHTML = ncNote + VIEW.periods
         .filter(function (p) { return periodVisible(p, curDay); })
         .map(function (p) {
           var list = cellCourses(curDay, p.period);
@@ -943,15 +968,20 @@
     //            （毎週コマ＝学期の開講期間内か。期間未設定の学期は判定せず true＝従来どおり表示）
     //            （単発コマ＝その週のその曜日が実施日そのものか・D27）
     //   status/substitute/absent … その日の欠員の状態
-    function weekStateOf(course, week, termRange, vacancy) {
+    function weekStateOf(course, week, termRange, vacancy, noClass) {
       var date = week.dateByDay[course.day] || '';
       var r = termRange && termRange[course.term];
+      // クォーターは曜日ごとに範囲が違う（D53）。その曜日の範囲が無ければ、その曜日には授業が無い
+      if (r && r.byDay) r = r.byDay[course.day] || { start: '9999-99-99', end: '0000-00-00' };
       var o = (date && vacancy && vacancy[course.course_id + '|' + date]) || null;
       // 単発コマ（D27）は学期の期間を見ない。その日1回しか無いので、
       // 表示中の週のその曜日が実施日と一致する週にだけ出す。
       var inTerm = course.oneOffDate
         ? (!!date && date === course.oneOffDate)
         : (!r || (!!date && date >= r.start && date <= r.end));
+      // 授業の無い日（祝日・全学休講・〇講時以降休講・D53）。単発コマ（補講など）はその日に行うので外さない
+      var nc = (!course.oneOffDate && date && noClass && noClass[date]) || null;
+      if (inTerm && nc && (!nc.from || periodNumber(course.period) >= nc.from)) inTerm = false;
       return {
         date: date,
         inTerm: inTerm,
@@ -966,7 +996,7 @@
     function applyWeek(startISO) {
       WEEK = buildWeek(startISO);
       DATA.courses.forEach(function (c) {
-        var s = weekStateOf(c, WEEK, DATA.termRange, DATA.vacancy);
+        var s = weekStateOf(c, WEEK, DATA.termRange, DATA.vacancy, DATA.noClass);
         c.date = s.date;
         c.inTerm = s.inTerm;
         c.status = s.status;

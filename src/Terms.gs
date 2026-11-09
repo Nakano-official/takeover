@@ -274,9 +274,12 @@ function getTermsAdmin() {
     if (q) usedSet[q] = true;
   });
 
+  // クォーターの日付は計算する（D53）。曜日ごとの範囲も画面へ渡して、学年暦と見比べられるようにする
+  const ranges = computeTermRanges_(terms, noClassIndex_(readNoClassDays_()));
   const rows = terms.slice()
     .sort(function (a, b) { return String(b.start_date).localeCompare(String(a.start_date)); })
     .map(function (t) {
+      const r = ranges[t.term_id];
       return {
         term_id: t.term_id,
         system: t.system,
@@ -285,6 +288,8 @@ function getTermsAdmin() {
         end_date: t.end_date,
         isCurrent: !!curSet[t.term_id],
         used: !!usedSet[t.term_id],
+        computed: !!(r && r.computed),
+        byDay: r && r.byDay ? r.byDay : null,
       };
     });
 
@@ -303,6 +308,9 @@ function getTermsAdmin() {
   return {
     today: today,
     terms: rows,
+    noClassDays: readNoClassDays_().sort(function (a, b) { return a.start_date < b.start_date ? -1 : 1; }),
+    hasNoClassSheet: hasNoClassSheet_(),
+    days: WORK_DAYS.slice(),
     hasCurrent: Object.keys(curSet).length > 0,
     existingYears: existingYears,
     suggestYear: suggestYear,
@@ -323,7 +331,7 @@ function addTermsYear(year) {
 
   const template = yearTermsTemplate_(y); // Setup.js（関数内参照＝連結順に非依存）
 
-  return withLock_(function () {
+  const res = withLock_(function () {
     var sheet;
     try {
       sheet = getSheet_(SHEET.TERMS);
@@ -359,6 +367,8 @@ function addTermsYear(year) {
     });
     return { added: added, skipped: skipped, year: y };
   });
+  syncQuarterDates_();   // クォーターの日付は計算する（D53）
+  return res;
 }
 
 /**
@@ -377,8 +387,17 @@ function updateTermDates(termId, startDate, endDate) {
   }
   if (s > e) throw new Error('開始日が終了日より後になっています。');
 
+  // クォーターの日付は、セメスターの日付と授業の無い日から計算する（D53）。手で直させない
+  const terms = readTerms_();
+  const ranges = computeTermRanges_(terms, noClassIndex_(readNoClassDays_()));
+  if (ranges[id] && ranges[id].computed) {
+    throw new Error(id + ' の日付は、セメスターの日付と授業の無い日から自動で計算します。' +
+      '直すときはセメスターの日付か、授業の無い日を直してください。');
+  }
+
   const ok = updateRow_(SHEET.TERMS, 'term_id', id, { start_date: s, end_date: e });
   if (!ok) throw new Error('対象の学期が見つかりません（' + id + '）。画面を更新してください。');
+  syncQuarterDates_();
   return { term_id: id, start_date: s, end_date: e };
 }
 
@@ -403,5 +422,6 @@ function deleteTerm(termId) {
 
   const n = deleteRowByKey_(SHEET.TERMS, 'term_id', id);
   if (!n) throw new Error('対象の学期が見つかりません（' + id + '）。画面を更新してください。');
+  clearClassCalendarCache_();
   return { ok: true, deleted: n, term_id: id };
 }
