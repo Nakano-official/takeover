@@ -339,6 +339,13 @@ function include(filename) {
 }
 
 // このWeb App自身のURL（画面間リンクの生成に使う）
+/** 授業の無い日のうち、指定日以降だけ（画面へ渡す量を抑える） */
+function noClassFrom_(index, fromDate) {
+  const out = {};
+  Object.keys(index || {}).forEach(function (d) { if (d >= fromDate) out[d] = index[d]; });
+  return out;
+}
+
 function getAppUrl_() {
   return ScriptApp.getService().getUrl();
 }
@@ -455,11 +462,12 @@ function getTimetable(quarter) {
   // 週表示では「その週のその日が学期の期間内か」をコマ単位で判定する。
   // これが無いと、後期の終了後の週へ送っても後期のコマが並び続ける
   // （授業が無い日に授業があるように見える）。
+  // クォーターは曜日ごとに範囲が違う（D53）。byDay があれば画面はそちらを使う。
+  const cal = classCalendar_();
   const termRange = {};
-  readTerms_().forEach(function (t) {
-    if (t.start_date && t.end_date) {
-      termRange[t.term_id] = { start: t.start_date, end: t.end_date };
-    }
+  Object.keys(cal.ranges).forEach(function (id) {
+    const r = cal.ranges[id];
+    termRange[id] = { start: r.start, end: r.end, byDay: r.byDay || null };
   });
 
   // **学期では絞らない（D37）。** 表示する範囲を決めるのは「見ている週」だけ。
@@ -607,7 +615,8 @@ function getTimetable(quarter) {
   return {
     days: days, periods: periods, courses: courses, me: me,
     vacancy: vacancy,   // 'course_id|yyyy-MM-dd' → {status, substitute, absent[], open[{id, claimable, reason}]}
-    termRange: termRange,     // term_id → {start, end}（週が開講期間内かの判定用）
+    termRange: termRange,     // term_id → {start, end, byDay}（週が開講期間内かの判定用・byDay は曜日ごと）
+    noClass: noClassFrom_(cal.noClass, cutoff),   // 授業の無い日（日付 → {from, reason}・D53）
     undatedTerms: undatedTerms, // 日付未設定のまま使われている学期（警告用）
     today: todayJst_(), // 「今週」の基準（端末の時計ではなくサーバーのJSTで判定する）
   };

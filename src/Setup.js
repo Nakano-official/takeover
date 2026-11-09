@@ -1185,6 +1185,29 @@ function currentYearTermsTemplate_() {
  * GASエディタから1回実行。日付列はテキスト固定。実際の開始/終了日は学事暦に合わせて職員が調整する。
  * ※ terms が空/未作成でも画面は従来どおり courses 由来の学期で動く（後方互換）。
  */
+// 授業の無い日（D53）の列
+const NO_CLASS_HEADERS = ['no_class_id', 'start_date', 'end_date', 'from_period', 'reason'];
+
+/**
+ * 既存のメインDBに no_class_days（授業の無い日）シートを足す（D53）。GASエディタから1回実行。
+ * 無ければ学期設定の画面から授業の無い日を登録できない。
+ */
+function migrateAddNoClassDaysSheet() {
+  requireEditorRun_();
+  const ss = openMainDb_();
+  if (ss.getSheetByName('no_class_days')) {
+    Logger.log('✅ no_class_days シートは既に存在します（作成なし）。');
+    return;
+  }
+  const sheet = ss.insertSheet('no_class_days');
+  sheet.getRange(1, 1, 1, NO_CLASS_HEADERS.length).setValues([NO_CLASS_HEADERS]);
+  sheet.getRange(2, 1, Math.max(sheet.getMaxRows() - 1, 1), NO_CLASS_HEADERS.length).setNumberFormat('@');
+  applyHeaderStyle_([sheet], '#4a86e8');
+  invalidateSheetCache_('no_class_days'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
+  clearClassCalendarCache_();
+  Logger.log('✅ no_class_days シートを作成しました（D53）。学期設定の画面から授業の無い日を登録してください。');
+}
+
 function migrateAddTermsSheet() {
   requireEditorRun_();
   const ss = openMainDb_();
@@ -1316,6 +1339,11 @@ function setupMainDb_(ss, data) {
   // 初期データの行数ぶんではなく**列全体**に掛ける（10-6 / 10-6b と同じ理由）。
   termsSheet.getRange(2, 3, Math.max(termsSheet.getMaxRows() - 1, 1), 2).setNumberFormat('@');
   writeTable_(termsSheet, TERM_HEADERS, data.terms || []);
+
+  // 授業の無い日（D53）。祝日・全学休講・〇講時以降休講・休業期間。日付と講時はテキスト固定
+  const noClassSheet = ss.insertSheet('no_class_days');
+  noClassSheet.getRange(1, 1, 1, NO_CLASS_HEADERS.length).setValues([NO_CLASS_HEADERS]);
+  noClassSheet.getRange(2, 1, Math.max(noClassSheet.getMaxRows() - 1, 1), NO_CLASS_HEADERS.length).setNumberFormat('@');
 
   const periodsSheet = ss.insertSheet('periods');
   // support_types は「その時限を選べる業務」。空＝全業務（通常の授業時限）。

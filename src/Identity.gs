@@ -78,6 +78,7 @@ function cachedIdentity_(email, load) {
  */
 function onDbSheetChange(e) {
   advanceIdentityGen_();
+  clearClassCalendarCache_();   // 学期や授業の無い日が手で直されたかもしれない（D53）
 }
 
 /**

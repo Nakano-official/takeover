@@ -153,7 +153,7 @@
 - 列を足したら **`architecture.md` の ER図** と **`tools/gas-harness.js` の `DEFAULT_HEADERS`** の
   両方を直す。
 - スプレッドシートは2つ。**メインDB**（`staffs` / `courses` / `vacancies` / `responses` /
-  `periods` / `terms`）と、**連絡先DB**（`contacts` / `registrations`・**職員のみアクセス可**）。
+  `periods` / `terms` / `no_class_days`）と、**連絡先DB**（`contacts` / `registrations`・**職員のみアクセス可**）。
   どちらを開くかは `Sheets.gs` の `CONTACTS_DB_SHEETS` が決める。
 
 ### 特に壊れやすい決まりごと（詳細は architecture.md）
@@ -167,6 +167,7 @@
 | `skills` 空欄＝**全対応**（D9） | 空にすると全依頼が飛ぶ（「できません」の逆） |
 | `available_slots` は**テイク用** | 介助は `assist_slots`（D32）。混同すると片方で候補0人 |
 | 空の `staff_a_id` は**担当未定**（D38） | 各経路は空を除外済み。欠勤連絡には出ない（正しい） |
+| クォーターの日付は**計算する**（D53・`ClassCalendar.gs`） | `terms` のクォーターの行を手で直しても、学期設定や授業の無い日の変更で上書きされる。曜日ごとに8回数えて切り替わる |
 | `vacancies.group_id` が同じ行は**1つの募集**（D45） | 空＝単独の欠員。1件だけ確定させると同じ欠勤の残りが取り残される |
 | 本人確認（`staff_id`/`name`/`role`）は**実行をまたいでキャッシュ**（D48・`Identity.gs`） | シートを直したら変更トリガーが捨てる。画面から変えられる項目をこの3つに足すなら、書き込み後に `advanceIdentityGen_()` を呼ぶ。`getUserCache` に替えると全員で共有される |
 

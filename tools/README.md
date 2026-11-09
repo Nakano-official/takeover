@@ -26,6 +26,7 @@ node tools/sim-identity.js    # 本人確認キャッシュ（古い権限が残
 node tools/sim-selfclaim.js   # 自分から代行に入る（入れない人を弾く・先着・かたまり・D50）
 node tools/sim-timetable-pdf.js # 時間割PDFの読み取り（架空の座標データ・集中/通年/学期の振り分け・D52）
 node tools/sim-help.js        # 全画面で同じヘルプの一覧を開けるか・職員向けの話題が学生に出ないか（D51）
+node tools/sim-calendar.js    # 授業の無い日とクォーターの境目（2026年度の学年暦と一致するか・欠勤連絡・学期設定・D53）
 node tools/help-shots/render.js # ヘルプ撮影用に、架空データで画面を書き出す（D51・検証ではない）
 node tools/help-shots/shoot.js  # ヘルプの画像を撮り直して埋め込む（初回は tools/help-shots で npm install）
 ```

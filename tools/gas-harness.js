@@ -49,6 +49,7 @@ const DEFAULT_HEADERS = {
   responses: ['vacancy_id', 'staff_id', 'answer', 'answered_at'],
   periods: ['period', 'start_time', 'end_time', 'support_types', 'label'],
   terms: ['term_id', 'system', 'start_date', 'end_date'],
+  no_class_days: ['no_class_id', 'start_date', 'end_date', 'from_period', 'reason'],
   contacts: ['staff_id', 'name', 'email', 'phone', 'webhook_url'],
   registrations: ['registration_id', 'email', 'name', 'phone', 'webhook_url', 'skills', 'slots',
     'note', 'status', 'applied_at', 'decided_at', 'decided_by', 'staff_id', 'reject_reason', 'assist_slots'],
@@ -284,6 +285,7 @@ class Harness {
       SHEET: {
         STAFFS: 'staffs', COURSES: 'courses', VACANCIES: 'vacancies', RESPONSES: 'responses',
         PERIODS: 'periods', TERMS: 'terms', CONTACTS: 'contacts', REGISTRATIONS: 'registrations',
+        NO_CLASS_DAYS: 'no_class_days',
       },
       readRows_: function (s) { return copy(DB()[s]); },
       getHeaders_: function (s) { return H()[s].slice(); },
