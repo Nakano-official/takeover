@@ -275,8 +275,8 @@ function renderHelp_(config, isStaff) {
   // </script> を含む値で閉じられないよう < をエスケープして渡す
   const json = JSON.stringify(topics).replace(/</g, '\\u003c');
   return {
-    button: config.helpOnly ? '' : '<button type="button" class="help-btn" onclick="openHelp()" aria-haspopup="dialog">' +
-      '<span class="help-q" aria-hidden="true">?</span>ヘルプ</button>',
+    button: config.helpOnly ? '' : '<button type="button" class="help-btn" onclick="openHelp()" aria-haspopup="dialog" aria-label="ヘルプ">' +
+      '<span class="help-q" aria-hidden="true">?</span><span class="help-label">ヘルプ</span></button>',
     body: '<script>var HELP_TOPICS_HERE = ' + json + ';</script>' + include('shared-help'),
   };
 }
