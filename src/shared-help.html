@@ -17,11 +17,17 @@
     sessionStorage に持つので、同じタブで2回目以降はすぐ開く（D49 と同じ考え方）。
     タブを閉じれば消える。中身は説明文と画像だけで、個人の情報は入っていない。
 
+  ■ スマホでの大きさ
+    シートの高さは一定（画面の85%）。中身の量でシートの高さが跳ねると読みにくいという声があったため。
+    上辺のつまみか見出しを上下に引くと高さを変えられ、変えた高さは同じタブの間は覚えておく。
+    下まで引き下ろすと閉じる。PC では中央に出すので、この操作は無い。
+
   ■ 話題の中身の書き方は src/help-shift.html の冒頭を参照。
 -->
 <div id="helpModal" class="help-modal" hidden>
-  <div class="help-sheet" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
-    <div class="help-head">
+  <div class="help-sheet" id="helpSheet" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <div class="help-grab" id="helpGrab" aria-hidden="true"></div>
+    <div class="help-head" id="helpHead">
       <button type="button" class="help-back" id="helpBack" hidden onclick="helpShowMenu()">‹ 一覧</button>
       <h2 id="helpTitle">ヘルプ</h2>
       <button type="button" class="help-x" onclick="closeHelp()" aria-label="閉じる">×</button>
@@ -42,6 +48,7 @@
   function openHelp() {
     var modal = document.getElementById('helpModal');
     modal.hidden = false;
+    helpApplyHeight_();
     document.body.classList.add('help-open');
     var topics = window.HELP_TOPICS_HERE || [];
     if (topics.length === 1) helpOpenTopic(topics[0].key);
@@ -51,6 +58,7 @@
   // 画面の中のボタンから、話題を直接開く（「詳細はこちら」・D54）
   function openHelpTopic(key) {
     document.getElementById('helpModal').hidden = false;
+    helpApplyHeight_();
     document.body.classList.add('help-open');
     helpOpenTopic(key);
   }
@@ -182,6 +190,70 @@
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
+
+  // ===== スマホ：上辺を引いて高さを変える =====
+  var HELP_HEIGHT_KEY = 'help:height';
+  var HELP_MIN_RATIO = 0.35;     // これより低くはしない（見出しとナビで埋まってしまう）
+  var HELP_MAX_RATIO = 0.95;     // 上に少し背景を残す（押せば閉じられることが分かるように）
+  var HELP_CLOSE_RATIO = 0.25;   // ここより下まで引き下ろしたら閉じる
+
+  function helpIsSheet_() { return window.matchMedia('(max-width: 760px)').matches; }
+
+  // 覚えている高さを当てる（画面の高さに対する割合で持つ。向きを変えても収まるように）
+  function helpApplyHeight_() {
+    var sheet = document.getElementById('helpSheet');
+    if (!helpIsSheet_()) { sheet.style.height = ''; return; }
+    var r = null;
+    try { r = parseFloat(window.sessionStorage.getItem(HELP_HEIGHT_KEY)); } catch (e) { r = null; }
+    sheet.style.height = (r && r >= HELP_MIN_RATIO && r <= HELP_MAX_RATIO)
+      ? Math.round(window.innerHeight * r) + 'px' : '';
+  }
+
+  (function helpDrag_() {
+    var sheet = document.getElementById('helpSheet');
+    var drag = null;
+    function start(e) {
+      if (!helpIsSheet_()) return;
+      if (e.button !== undefined && e.button !== 0) return;
+      if (e.target.closest && e.target.closest('button')) return;   // ×・一覧のボタンは普通に押せるように
+      drag = { y: e.clientY, h: sheet.getBoundingClientRect().height, moved: false, id: e.pointerId };
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { /* 取れなくても動く */ }
+    }
+    function move(e) {
+      if (!drag || e.pointerId !== drag.id) return;
+      var dy = e.clientY - drag.y;
+      if (!drag.moved && Math.abs(dy) < 6) return;   // 少し触れただけでは動かさない
+      drag.moved = true;
+      sheet.classList.add('dragging');
+      var vh = window.innerHeight;
+      var h = Math.min(vh * HELP_MAX_RATIO, Math.max(vh * 0.1, drag.h - dy));
+      sheet.style.height = Math.round(h) + 'px';
+      e.preventDefault();
+    }
+    function end(e) {
+      if (!drag || e.pointerId !== drag.id) return;
+      var moved = drag.moved;
+      drag = null;
+      sheet.classList.remove('dragging');
+      if (!moved) return;
+      var vh = window.innerHeight;
+      var ratio = sheet.getBoundingClientRect().height / vh;
+      if (ratio < HELP_CLOSE_RATIO) { closeHelp(); helpApplyHeight_(); return; }
+      ratio = Math.min(HELP_MAX_RATIO, Math.max(HELP_MIN_RATIO, ratio));
+      sheet.style.height = Math.round(vh * ratio) + 'px';
+      try { window.sessionStorage.setItem(HELP_HEIGHT_KEY, String(ratio)); } catch (err) { /* 覚えないだけ */ }
+    }
+    ['helpGrab', 'helpHead'].forEach(function (id) {
+      var el = document.getElementById(id);
+      el.addEventListener('pointerdown', start);
+      el.addEventListener('pointermove', move);
+      el.addEventListener('pointerup', end);
+      el.addEventListener('pointercancel', end);
+    });
+    window.addEventListener('resize', function () {
+      if (!document.getElementById('helpModal').hidden) helpApplyHeight_();
+    });
+  })();
 
   // 背景を押す・Esc で閉じる。左右キーでめくる
   document.getElementById('helpModal').addEventListener('click', function (e) {

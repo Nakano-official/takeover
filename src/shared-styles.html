@@ -95,8 +95,22 @@
     max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .appbar .user .uname small { opacity: .82; font-size: .68rem; }
-  /* 狭い画面では名前を隠してアイコンだけにする（画面名を優先） */
-  @media (max-width: 430px) { .appbar .user .uname { display: none; } }
+  /* 狭い画面では役割（学生・職員）を隠し、名前を1行にする。アイコンだけだとマイページへの
+     入口だと分からないため、名前は消さない。入りきらないときは画面名ではなく名前の後ろを「…」にする */
+  @media (max-width: 430px) {
+    .appbar h1 { flex: 0 0 auto; white-space: nowrap; }
+    .appbar .appbar-right { flex: 0 1 auto; min-width: 0; }   /* 後ろの .appbar-right（ヘルプの節）に負けないよう詳しく書く */
+    .appbar .user { min-width: 0; flex: 0 1 auto; }
+    .appbar .user .uname { display: block; min-width: 0; max-width: 7em; }
+    .appbar .user .uname small { display: none; }
+    .appbar h1 { font-size: 1rem; }
+    .appbar .help-btn { flex: 0 0 auto; white-space: nowrap; }
+  }
+  /* さらに狭い画面（iPhone SE 初代など）では「ヘルプ」の文字を隠して「?」だけにし、名前の幅を空ける */
+  @media (max-width: 370px) {
+    .appbar .help-btn { padding: 4px; }
+    .appbar .help-label { display: none; }
+  }
 
   /* ヘッダーとナビは1つにまとめて上に張り付ける。下へスクロールすると隠れ（.hide）、
      上へスクロールすると出てくる（shared-chrome.html）。どこからでもヘルプ・マイページ・ほかの画面へ戻れる */
@@ -274,6 +288,24 @@
   @media (min-width: 761px) {
     .help-modal { align-items: center; }
     .help-sheet { border-radius: var(--radius); max-height: 86vh; }
+  }
+  /* スマホでは高さを一定にする（話題やページで中身の量が違っても、シートの高さが跳ねない）。
+     上辺のつまみ（と見出し）を上下に引くと高さを変えられる（shared-help.html の helpDrag_）。
+     dvh はアドレスバーの出入りで変わらない高さ。読めない古いブラウザは前の行の vh を使う */
+  .help-grab { display: none; }
+  @media (max-width: 760px) {
+    .help-sheet { height: 85vh; height: 85dvh; max-height: none; }
+    .help-sheet.dragging { transition: none; user-select: none; }
+    .help-body { flex: 1 1 auto; min-height: 0; }
+    .help-grab, .help-head, .help-nav, .help-foot { flex: 0 0 auto; }   /* 縮めるのは本文だけ */
+    .help-grab {
+      display: flex; justify-content: center; padding: 8px 0 4px;
+      cursor: ns-resize; touch-action: none;
+    }
+    .help-grab::before {
+      content: ''; width: 40px; height: 5px; border-radius: var(--radius-pill); background: var(--border-strong);
+    }
+    .help-head { touch-action: none; }
   }
   .help-head {
     display: flex; align-items: center; gap: 8px;
