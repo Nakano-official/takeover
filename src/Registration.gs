@@ -249,7 +249,11 @@ function approveRegistration(registrationId, opts) {
         // URL を探さずに済むよう、ここから開けるようにする（D54）
         'こちらから開けます：\n' + getAppUrl_() + '\n' +
         'このメッセージが届いていれば、代行依頼の通知も同じ場所に届きます。\n' +
-        'マイページから空きコマや連絡先をいつでも更新できます。');
+        'マイページから空きコマや連絡先をいつでも更新できます。' +
+        // 準備中は開いてもマイページしか使えないので、先に伝えておく（D56）
+        (role !== ROLE_STAFF && isClosedForStudents_()
+          ? '\n\nいまは準備中のため、使えるのはマイページだけです。準備が整ったら、シフトの確認や欠勤の連絡もできるようになります。'
+          : ''));
       notify = { sent: true, reason: '' };
     } catch (e) {
       notify = { sent: false, reason: e.message };

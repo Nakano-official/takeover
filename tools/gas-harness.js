@@ -85,6 +85,8 @@ class Harness {
     // CacheService.getScriptCache() の中身（キー → {value, ttl}）。期限切れは起きない。
     // 追い出し・期限切れを試すときはテスト側で cache.delete(key) する。
     this.cache = new Map();
+    // スクリプトのプロパティ（PropertiesService）。書いていないキーは Webhook の URL を返す
+    this.props = {};
     this.user = null;         // getCurrentUser_ が返す人
     this.time = time;
     this._pass = 0;
@@ -101,6 +103,7 @@ class Harness {
     Object.keys(this.headers).forEach((k) => { this.db[k] = []; });
     this.notifyLog.length = 0;
     this.cache.clear();
+    Object.keys(this.props).forEach((k) => { delete this.props[k]; });
   }
 
   blank(sheet) {
@@ -249,10 +252,15 @@ class Harness {
 
       PropertiesService: {
         getScriptProperties: function () {
+          // 書いた値は覚える。書いていないキーは今まで通り Webhook の URL を返す
+          // （CHAT_WEBHOOK_URL などを1つずつ用意しなくて済むように）
+          const props = self.props;
           return {
-            getProperty: function () { return 'https://example.invalid/hook'; },
-            setProperty: function () {},
-            deleteProperty: function () {},
+            getProperty: function (k) {
+              return Object.prototype.hasOwnProperty.call(props, k) ? props[k] : 'https://example.invalid/hook';
+            },
+            setProperty: function (k, v) { props[k] = String(v); },
+            deleteProperty: function (k) { props[k] = null; },
           };
         },
       },

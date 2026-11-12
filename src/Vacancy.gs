@@ -17,7 +17,7 @@ const NOTIFY_STATUS_PENDING = '未通知';
  * ログイン中スタッフが担当しているコマ一覧を返す（欠勤報告の選択肢用）。
  */
 function getMyCourses() {
-  const user = getCurrentUser_();
+  const user = getOpenUser_();
   if (!user) throw new Error('利用登録がありません。');
 
   const nameById = buildNameMap_();
@@ -85,7 +85,7 @@ function getMyCourses() {
  * @return {{vacancy_id:string, course:Object, candidates:Array}}
  */
 function submitAbsence(courseId, date, includeAttached) {
-  const user = getCurrentUser_();
+  const user = getOpenUser_();
   if (!user) throw new Error('利用登録がありません。');
 
   const course = findRow_(SHEET.COURSES, 'course_id', courseId);
@@ -261,7 +261,7 @@ function labelOfCourse_(course) {
  * @param {string} vacancyId
  */
 function getVacancyForRespond(vacancyId) {
-  const user = getCurrentUser_();
+  const user = getOpenUser_();
   if (!user) throw new Error('利用登録がありません。');
 
   const vacancy = findRow_(SHEET.VACANCIES, 'vacancy_id', vacancyId);
@@ -307,7 +307,7 @@ function getVacancyForRespond(vacancyId) {
  *   {ok:false, filled:true,   closed:true}            … 既に他の人で埋まった（受付終了）
  */
 function respondToVacancy(vacancyId, answer) {
-  const user = getCurrentUser_();
+  const user = getOpenUser_();
   if (!user) throw new Error('利用登録がありません。');
   if (answer !== ANSWER.ACCEPT && answer !== ANSWER.DECLINE) throw new Error('回答内容が不正です。');
 
@@ -467,7 +467,7 @@ function selfClaimBlocker_(vacancy, staff, ctx) {
  *   {ok:false, message}                                … 入れない（理由つき）
  */
 function claimVacancy(vacancyId) {
-  const user = getCurrentUser_();
+  const user = getOpenUser_();
   if (!user) throw new Error('利用登録がありません。');
 
   const vacancy = findRow_(SHEET.VACANCIES, 'vacancy_id', vacancyId);
@@ -496,7 +496,7 @@ function claimVacancy(vacancyId) {
  * 職員にも見せる（学生から見えている状態の確認用）。操作は従来どおり欠員補充管理で行う。
  */
 function getOpenVacancies() {
-  const user = getCurrentUser_();
+  const user = getOpenUser_();
   if (!user) throw new Error('利用登録がありません。');
 
   const staffs = readRows_(SHEET.STAFFS);

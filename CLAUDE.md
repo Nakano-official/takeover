@@ -225,6 +225,7 @@ GASエディタの「スクリプトのプロパティ」から設定し、コ�
 | CALENDAR_ID | 連携するGoogleカレンダーのID |
 | CHAT_WEBHOOK_URL | 職員向け Chat スペースの Incoming Webhook URL（スタッフ個別の Webhook は連絡先DBで管理） |
 | DEVICE_TOKEN | 物理アラート端末（M5Stack）用の認証トークン（D6）。端末スケッチと完全一致させる |
+| STUDENT_ACCESS | 学生への公開（D56）。`closed` のときだけ「準備中」で、学生はマイページしか使えない。**無い＝公開中**。職員が承認画面のスイッチで切り替えるので、手で入れなくてよい |
 
 **.clasp.json はGitにコミットしない（スクリプトIDが含まれるため）。**
 
@@ -298,7 +299,8 @@ GASエディタの「スクリプトのプロパティ」から設定し、コ�
    - 直接 `SpreadsheetApp` で書き換えたら、その後に `invalidateSheetCache_()` を呼ぶ（`Setup.js` の各 migrate が例）
    - `withLock_` の中で「書き込み対象と**別**のシート」を読んで書き込みを判断しない
 10. **サーバー関数の名前の決まり**。名前が `_` で終わらない関数は画面から呼べる入口になる。
-   - 画面から呼ぶ関数は、先頭で呼び出した人を確かめる（`requireStaff_()` / `getCurrentUser_()`）
+   - 画面から呼ぶ関数は、先頭で呼び出した人を確かめる（`requireStaff_()` / `getCurrentUser_()`）。
+     **学生が使う画面の関数は `getOpenUser_()`**（準備中の学生を止める・D56）。学生向けの関数を足すときはこちらを使う
    - 内部でしか使わない関数は、名前を `_` で終わらせる（`Sheets.gs` や通知の関数がこの形）
    - GASエディタから実行する保守・診断・テスト用の関数は、先頭で `requireEditorRun_()` を呼ぶ
    - `node tools/check-entrypoints.js`（`run-all.js` に含まれる）がこの決まりを確かめる

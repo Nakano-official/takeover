@@ -40,12 +40,21 @@
     .checks label { font-weight: normal; display: inline-flex; align-items: center; gap: 5px; margin: 0; }
     .ops { display: flex; gap: 8px; flex-wrap: wrap; }
     .warnline { font-size: .82rem; color: var(--warn); margin-top: 8px; }
+
+    /* 学生への公開の切り替え（D56）。準備中のあいだは目立たせる */
+    .access { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+    .access .now { flex: 1 1 260px; }
+    .access .now b { font-size: 1rem; }
+    .access .now .hint { margin: 4px 0 0; }
+    .access.closed { border-left: 6px solid var(--warn); background: var(--warn-bg); }
+    .access.open { border-left: 6px solid var(--ok); }
   </style>
 </head>
 <body>
   <?!= chrome ?>
 
   <main>
+    <div id="access" class="card access" hidden></div>
     <div id="count" class="count"></div>
     <div id="list" class="state">読み込み中…</div>
   </main>
@@ -182,8 +191,42 @@
         .rejectRegistration(id, reason);
     }
 
+    // ===== 学生への公開（D56）=====
+    function renderAccess(res) {
+      var box = document.getElementById('access');
+      var open = !!(res && res.open);
+      box.hidden = false;
+      box.className = 'card access ' + (open ? 'open' : 'closed');
+      box.innerHTML = open
+        ? '<div class="now"><b>学生への公開：公開中</b><p class="hint">学生は全部の画面を使えます。</p></div>' +
+          '<button class="btn sm" onclick="setAccess(false,this)">準備中にする</button>'
+        : '<div class="now"><b>学生への公開：準備中</b><p class="hint">学生はマイページだけ使えます。ほかの画面は「準備中です」と出ます。' +
+          '職員と申請画面はいつも通りです。シフトを入れ終えたら公開してください。</p></div>' +
+          '<button class="btn primary sm" onclick="setAccess(true,this)">公開する</button>';
+    }
+
+    function setAccess(open, btn) {
+      var msg = open
+        ? '学生に公開します。\n\n学生がシフト確認・欠勤連絡・欠員一覧・代行への回答を使えるようになります。\n（学生への通知は送りません）\n\nよろしいですか？'
+        : '学生への公開を止めて「準備中」にします。\n\n学生はマイページしか使えなくなります（欠勤連絡や代行への回答もできなくなります）。\n\nよろしいですか？';
+      if (!confirm(msg)) return;
+      btn.disabled = true;
+      btn.textContent = '処理中…';
+      google.script.run
+        .withSuccessHandler(renderAccess)
+        .withFailureHandler(function (err) { alert('エラー: ' + err.message); loadAccess(); })
+        .setStudentAccess(open);
+    }
+
+    function loadAccess() {
+      google.script.run
+        .withSuccessHandler(renderAccess)
+        .withFailureHandler(function () { /* 読めなくても承認はできる */ })
+        .getStudentAccess();
+    }
+
     function disableAll(btn) {
-      document.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+      document.querySelectorAll('#list button').forEach(function (b) { b.disabled = true; });
       if (btn) btn.textContent = '処理中…';
     }
 
@@ -199,6 +242,7 @@
     }
 
     reload();
+    loadAccess();
   </script>
 </body>
 </html>

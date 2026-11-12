@@ -64,7 +64,7 @@ h.stub({
     },
   },
 });
-h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'ClassCalendar.gs', 'Input.gs', 'Profile.gs', 'Registration.gs', 'Roster.gs',
+h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Access.gs', 'ClassCalendar.gs', 'Input.gs', 'Profile.gs', 'Registration.gs', 'Roster.gs',
   'Setup.js', 'code.js', 'Identity.gs']);
 const G = h.G;
 
@@ -94,6 +94,10 @@ function precompute(pages, params) {
   tryPut('getMyProfile', function () { return G.getMyProfile(); });
   tryPut('getStaffRoster', function () { return G.getStaffRoster(); });
   tryPut('getRegistrations', function () { return G.getRegistrations(); });
+  tryPut('getStudentAccess', function () { return G.getStudentAccess(); });
+  // スイッチを押した後の返事（書き込みはしない。押せば表示が切り替わるのを見るため）
+  out['setStudentAccess|true'] = { open: true };
+  out['setStudentAccess|false'] = { open: false };
   tryPut('getTermsAdmin', function () { return G.getTermsAdmin(); });
   tryPut('getSignupContext', function () { return G.getSignupContext(); });
   if (params.vacancy) {
@@ -154,8 +158,11 @@ function evaluate(template, scope) {
 
 function renderPage(viewerKey, pageKey, params) {
   DEMO.seed(h);   // 画面ごとに入れ直す（前の画面で書き込んだもの＝欠勤の登録などを持ち越さない）
+  // 学生への公開を「準備中」にした状態（D56）。seed のあとに入れる
+  h.props.STUDENT_ACCESS = (params && params.closed) ? 'closed' : null;
   const user = viewAs(DEMO.VIEWERS[viewerKey]);
-  const config = h.value('PAGES')[pageKey];
+  // 準備中の画面（closed）は PAGES に無い（?page= では開けない）ので別に引く
+  const config = pageKey === 'closed' ? h.value('CLOSED_PAGE') : h.value('PAGES')[pageKey];
   const html = evaluate(fs.readFileSync(path.join(SRC, config.file + '.html'), 'utf8'), {
     user: user,
     params: params || {},
@@ -182,7 +189,8 @@ const SHOTS = {
   'student-mypage': ['student', 'mypage', {}],
   'newcomer-signup': ['newcomer', 'signup', {}],
   'staff-roster': ['staff', 'roster', {}],
-  'staff-approvals': ['staff', 'approvals', {}],
+  'staff-approvals': ['staff', 'approvals', { closed: true }],   // 準備中のスイッチも写す（D56）
+  'student-closed': ['student', 'closed', { closed: true }],       // 準備中に学生が開いたとき
   'staff-terms': ['staff', 'terms', {}],
 };
 
