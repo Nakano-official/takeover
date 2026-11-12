@@ -64,6 +64,8 @@ const HELP_TOPICS = {
 const SIGNUP_PAGE = 'signup';
 // ヘッダー右上のユーザーアイコンから開く画面。ナビには並べない。
 const MYPAGE_PAGE = 'mypage';
+// 学生への公開が「準備中」のときに学生へ出す画面（D56）。PAGES には入れない（?page= では開けない）
+const CLOSED_PAGE = { file: 'closed', title: '準備中', staffOnly: false };
 
 // ナビに並べる画面（この順で表示する）。
 // respond は通知リンクから ?vacancy= 付きで開く画面なので、ナビには出さない。
@@ -105,6 +107,12 @@ function doGet(e) {
   // 登録済みの人に申請画面は用が無いので既定画面へ送る
   if (pageKey === SIGNUP_PAGE) {
     return renderPage_(PAGES[DEFAULT_PAGE], DEFAULT_PAGE, user, params);
+  }
+
+  // 学生への公開が「準備中」なら、学生にはマイページだけを開かせる（D56・Access.gs）。
+  // 職員はいつも通り使える。サーバー関数の側でも getOpenUser_ で止めている
+  if (isClosedFor_(user) && PAGES_OPEN_WHILE_CLOSED.indexOf(pageKey) === -1) {
+    return renderPage_(CLOSED_PAGE, 'closed', user, params);
   }
 
   // 職員限定画面のアクセス制御
@@ -224,7 +232,8 @@ function renderChrome_(config, pageKey, user) {
 
   // 未登録者（申請画面）にはナビを出さない。行ける画面がまだ無いので、
   // リンクを並べても押した先で弾かれるだけになる。
-  const visible = !user ? [] : NAV_PAGES.filter(function (key) {
+  // 準備中の学生にも出さない。行ける画面がマイページだけで、それは右上から入れる（D56）
+  const visible = (!user || isClosedFor_(user)) ? [] : NAV_PAGES.filter(function (key) {
     const p = PAGES[key];
     if (!p) return false;
     if (p.staffOnly && !isStaff) return false;       // 職員限定画面は学生に出さない
@@ -254,7 +263,8 @@ function renderChrome_(config, pageKey, user) {
         '<h1>' + escapeHtml_(config.title) + '</h1>' +
         '<div class="appbar-right">' + help.button + renderUserChip_(appUrl, pageKey, user) + '</div>' +
       '</header>' +
-      '<nav class="appnav' + few + '">' + links + '</nav>' +
+      // 行ける画面が無い人（申請画面・準備中の学生）には、空の帯を出さない
+      (links ? '<nav class="appnav' + few + '">' + links + '</nav>' : '') +
     '</div>' +
     include('shared-chrome') +
     help.body;
@@ -358,7 +368,7 @@ function getAppUrl_() {
  */
 function getDashboardData() {
   // 読み取り専用画面だが、未登録ユーザーには返さない
-  if (!getCurrentUser_()) throw new Error('利用登録がありません。');
+  if (!getOpenUser_()) throw new Error('利用登録がありません。');   // 準備中の学生も止める（D56）
 
   const nameById = {};
   readRows_(SHEET.STAFFS).forEach(function (s) {
@@ -419,7 +429,7 @@ function getDashboardData() {
  * @param {string} [quarter] 表示する学期（省略可）
  */
 function getTimetable(quarter) {
-  const user = getCurrentUser_();
+  const user = getOpenUser_();
   if (!user) throw new Error('利用登録がありません。');
 
   const nameById = {};

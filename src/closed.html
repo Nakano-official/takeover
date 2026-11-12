@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('shared-styles') ?>
+  <style>
+    :root { --main-max: 560px; }
+    .closed h2 { font-size: 1.1rem; margin: 0 0 8px; }
+    .closed p { margin: 0 0 12px; }
+    .closed a.btn { text-decoration: none; }
+  </style>
+</head>
+<body>
+  <!-- 学生への公開が「準備中」のあいだ、学生がマイページ以外を開いたときに出す（D56・Access.gs） -->
+  <?!= chrome ?>
+
+  <main>
+    <div class="card closed">
+      <h2>ただいま準備中です</h2>
+      <p>支援室でシフトの登録を進めています。準備が整ったら、シフトの確認や欠勤の連絡がここからできるようになります。</p>
+      <p>連絡先や空きコマは、いまでもマイページから確かめて直せます。</p>
+      <a class="btn primary" href="<?= appUrl ?>?page=mypage">マイページを開く</a>
+    </div>
+  </main>
+</body>
+</html>

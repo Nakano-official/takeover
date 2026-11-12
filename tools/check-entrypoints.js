@@ -32,7 +32,7 @@ const ALLOW = {
 
 // 関数の先頭（この行数まで）に、呼び出した人を確かめる処理があること
 const HEAD_LINES = 6;
-const GUARD_RE = /requireStaff_\(|requireEditorRun_\(|getCurrentUser_\(\)|Session\.getActiveUser\(\)/;
+const GUARD_RE = /requireStaff_\(|getOpenUser_\(\)|requireEditorRun_\(|getCurrentUser_\(\)|Session\.getActiveUser\(\)/;
 
 const problems = [];
 let publicCount = 0;
@@ -64,7 +64,7 @@ Object.keys(ALLOW).forEach(function (name) {
 // requireEditorRun_ の振る舞い
 const { Harness } = require('./gas-harness');
 const h = new Harness();
-h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'ClassCalendar.gs', 'code.js', 'Identity.gs']);
+h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Access.gs', 'ClassCalendar.gs', 'code.js', 'Identity.gs']);
 function editorRunPasses() {
   try { h.G.requireEditorRun_(); return true; } catch (e) { return false; }
 }

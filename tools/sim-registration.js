@@ -15,7 +15,7 @@
 const { Harness } = require('./gas-harness');
 
 const h = new Harness();
-h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'ClassCalendar.gs', 'Profile.gs',
+h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Access.gs', 'ClassCalendar.gs', 'Profile.gs',
   'Registration.gs']);
 const G = h.G;
 
@@ -137,6 +137,21 @@ h.check(reg().status === '承認済' && reg().staff_id === res.staff_id, '申請
 h.check(reg().decided_by === 'S001', '誰が承認したかが残る');
 h.check(h.notifiesOf('post')[0].text.indexOf(h.G.getAppUrl_()) !== -1, '★承認の通知にシステムの URL を付ける');
 h.check(h.notifiesOf('post').length === 1, '★本人へ通知を出す（Webhookが実際に届くかの確認を兼ねる）');
+h.check(h.notifiesOf('post')[0].text.indexOf('準備中') === -1, '公開中なら「準備中」の案内は付けない');
+
+h.section('3a) 準備中に承認したら、使えるのはマイページだけと伝える（D56）');
+setup(); asNewcomer();
+G.submitRegistration(APPLY);
+asStaff();
+h.props.STUDENT_ACCESS = 'closed';
+G.approveRegistration(reg().registration_id);
+h.check(h.notifiesOf('post')[0].text.indexOf('準備中のため、使えるのはマイページだけ') !== -1, '学生には準備中の案内を付ける');
+setup(); asNewcomer();
+G.submitRegistration(APPLY);
+asStaff();
+h.props.STUDENT_ACCESS = 'closed';
+G.approveRegistration(reg().registration_id, { role: '職員' });
+h.check(h.notifiesOf('post')[0].text.indexOf('準備中') === -1, '職員として承認したら付けない（職員は止めない）');
 
 h.section('3b) 区分とスキルは職員が決める');
 setup(); asNewcomer();

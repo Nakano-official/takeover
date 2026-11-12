@@ -58,6 +58,7 @@ Web App は `executeAs: USER_DEPLOYING`＝**最後にデプロイした人とし
 | `CALENDAR_ID` | 実際の共有カレンダーのID |
 | `CHAT_WEBHOOK_URL` | 職員スペースの Incoming Webhook URL（→ 3章） |
 | `DEVICE_TOKEN` | M5Stack 端末を使う場合のみ（任意） |
+| `STUDENT_ACCESS` | 入れない。職員が「利用登録の承認」画面のスイッチで切り替える（`closed`＝準備中・D56） |
 
 ### 1.3 連絡先DBを「職員のみ」に共有
 連絡先DB（メール・電話・Webhook）は**スプレッドシートの共有設定で職員のみ**に制限。学生には共有しない。
