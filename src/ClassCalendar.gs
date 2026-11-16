@@ -22,7 +22,7 @@
  *   学期設定から学期や授業の無い日を直したとき、シートが手で直されたとき（変更トリガー）に捨てる。
  */
 
-const CLASS_CAL_CACHE_KEY = 'classcal:v1';
+const CLASS_CAL_CACHE_KEY = 'classcal:v2';   // v2：休講（cancelled）を足した（D60）
 const CLASS_CAL_TTL_SEC = 21600;   // 6時間（キャッシュの上限）
 const NO_CLASS_MAX_DAYS = 120;     // 1行で持てる期間の上限（冬期休業などを1行で書ける長さ）
 
@@ -170,7 +170,10 @@ function classCalendar_() {
     try { return JSON.parse(hit); } catch (e) { /* 壊れていたら作り直す */ }
   }
   const index = noClassIndex_(readNoClassDays_());
-  const cal = { noClass: index, ranges: computeTermRanges_(readTerms_(), index) };
+  const cal = {
+    noClass: index, ranges: computeTermRanges_(readTerms_(), index),
+    cancelled: cancellationIndex_(readCancellations_()),   // 個別の休講（D60）'course_id|日付' → {id, reason}
+  };
   try { cache.put(CLASS_CAL_CACHE_KEY, JSON.stringify(cal), CLASS_CAL_TTL_SEC); } catch (e) { /* 持たないだけ */ }
   return cal;
 }
@@ -193,6 +196,16 @@ function termRangeOn_(cal, termId, day) {
  * @return {{held:boolean, reason:string}} reason は無いときの理由（画面に出す）
  */
 function courseHeldOn_(course, dateStr, cal) {
+  const base = courseScheduledOn_(course, dateStr, cal);
+  if (!base.held) return base;
+  // 個別の休講（D60）。単発コマ（補講など）も休講にできる
+  const cx = cal && cal.cancelled && cal.cancelled[String(course.course_id || '').trim() + '|' + dateStr];
+  if (cx) return { held: false, reason: '休講です（' + (cx.reason || '休講') + '）', cancelled: true };
+  return base;
+}
+
+/** 休講を見ない「そのコマがその日の予定か」（学期の範囲・授業の無い日・単発の日付） */
+function courseScheduledOn_(course, dateStr, cal) {
   const oneOff = courseDate_(course);
   if (oneOff) return { held: dateStr === oneOff, reason: dateStr === oneOff ? '' : 'この日の予定ではありません' };
   const day = String(course.day || '').trim();

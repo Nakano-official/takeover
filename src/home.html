@@ -77,6 +77,14 @@
     .st-vacant { background: var(--danger-bg); color: var(--danger); font-weight: 700; }
     .st-filled { background: var(--brand-soft); color: var(--brand-ink); }
     .st-other  { background: #f1f3f6; color: var(--text-muted); }
+    /* 個別の休講（D60）。その日だけ授業が無い。コマは消えていないので薄く残す */
+    .st-cancel { background: #eceff3; color: var(--text-muted); font-weight: 700; }
+    .cd.cancelled { background: var(--surface-alt); border-left-color: var(--text-faint); opacity: .7; }
+    .cd.cancelled .cd-staff { color: var(--text-muted); }
+    .cancelform label { display: block; font-size: .85rem; font-weight: 700; margin: 0 0 4px; }
+    .cancelform input[type=text] { width: 100%; margin-bottom: 8px; }
+    .cancelform .chk { font-weight: 600; font-size: .85rem; display: flex; gap: 6px; align-items: center; margin-bottom: 10px; }
+    .cancelform .chk input { width: auto; margin: 0; }
     .sub-name { color: var(--brand-ink); font-weight: 700; }
 
     /* ===== 週ナビ（欠員は日付に紐づくので、表示する週を必ず1つに決める・D23）===== */
@@ -321,7 +329,8 @@
       // マイビュー時は「自分の担当」「自分が入れる募集中」を強調表示
       var myOpen = MYVIEW && isMyOpen(c);
       var mine = MYVIEW && isMine(c);
-      if (myOpen) cls += ' mine-open';
+      if (c.cancelled) cls += ' cancelled';
+      else if (myOpen) cls += ' mine-open';
       else if (mine) cls += ' mine';
       else if (isOpen) cls += ' open';
       var staff = [c.staffA || '—', c.staffB].filter(Boolean).map(function (name) {
@@ -336,10 +345,14 @@
       if (c.room) html += '<span class="cd-room">教室: ' + escapeHtml(c.room) + '</span>';
       // 前後の移動があるときは、移動を含む勤務時間（D58）
       if (c.workTime) html += '<span class="cd-room">勤務: ' + escapeHtml(c.workTime) + '（移動を含む）</span>';
-      if (myOpen) html += '<span class="st st-myopen">✅ あなたが入れます</span>';
-      else if (mine) html += '<span class="st st-mine">自分の担当</span>';
-      else html += statusBadge(c);
-      if (claimableOf(c)) html += '<span class="st st-myopen">🙋 代行に入れます</span>';
+      if (c.cancelled) {
+        html += '<span class="st st-cancel">休講（' + escapeHtml(c.cancelled) + '）</span>';
+      } else {
+        if (myOpen) html += '<span class="st st-myopen">✅ あなたが入れます</span>';
+        else if (mine) html += '<span class="st st-mine">自分の担当</span>';
+        else html += statusBadge(c);
+        if (claimableOf(c)) html += '<span class="st st-myopen">🙋 代行に入れます</span>';
+      }
       html += '</button>';
       return html;
     }
@@ -469,6 +482,10 @@
     function absenceAction(c) {
       if (!isMine(c)) return '';            // 自分の担当コマ以外には出さない
       if (!c.date || !c.inTerm) return '';  // その週に授業が無い（学期の期間外）
+      if (c.cancelled) {
+        return '<div class="m-act"><div class="notice info">この日は休講です（' + escapeHtml(c.cancelled) +
+          '）。勤務はありません。欠勤の連絡もいりません。</div></div>';
+      }
 
       var note = function (cls, text) {
         return '<div class="m-act"><div class="notice ' + cls + '">' +
@@ -498,7 +515,7 @@
      * まだ決まっていない欠員があるときだけ出す。入れない人には理由を出す。
      */
     function claimAction(c) {
-      if (!c.open || !c.open.length || isMine(c)) return '';
+      if (c.cancelled || !c.open || !c.open.length || isMine(c)) return '';
       if (DATA.me && DATA.me.role === '職員') {
         return '<div class="m-act"><a class="btn block" href="' + escapeAttr(APP_URL + '?page=manage') +
           '">欠員補充管理で対応する</a></div>';
@@ -573,13 +590,80 @@
       body += '<dl class="m-dl">' + rows.map(function (r) {
         return '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>';
       }).join('') + '</dl>';
-      var sb = statusBadge(c);
+      var sb = c.cancelled ? '<span class="st st-cancel">休講（' + escapeHtml(c.cancelled) + '）</span>' : statusBadge(c);
       if (sb) body += '<div class="m-status">状態 ' + sb + '</div>';
       body += absenceAction(c);
       body += claimAction(c);
+      body += cancelAction(c);
 
       document.getElementById('modalBody').innerHTML = body;
       document.getElementById('modal').classList.add('show');
+    }
+
+    // ===== 個別の休講（D60・職員だけ）=====
+    //
+    // **休講と削除を取り違えない**：休講はその日だけで、授業そのものは消えない（学期のほかの週はいつも通り）。
+    // 学期のすべての週から消す「削除」はシフト入力にしか置かない。ボタンの言葉でも毎回それを示す。
+    function cancelAction(c) {
+      if (!DATA.me || DATA.me.role !== '職員') return '';
+      if (!c.date || !c.inTerm || c.date < DATA.today) return '';
+      var label = ((WEEK && WEEK.labelByDay[c.day]) || c.date) + '（' + c.day + '）';
+      var who = c.user_student ? escapeHtml(c.user_student) : 'この利用者';
+      if (c.cancelled) {
+        return '<div class="m-act cancelform">' +
+          '<label class="chk"><input type="checkbox" id="cxWhole"> ' + who + ' の' + escapeHtml(label) + 'の休講を全部取り消す</label>' +
+          '<button type="button" class="btn block" onclick="doUncancel(\'' + escapeAttr(c.course_id) + '\', \'' +
+            escapeAttr(c.date) + '\', this)">' + escapeHtml(label) + ' の休講を取り消す</button>' +
+          '<p class="hint">担当と職員スペースに Chat で知らせます。</p></div>';
+      }
+      return '<div class="m-act cancelform">' +
+        '<label for="cxReason">' + escapeHtml(label) + 'を休講にする</label>' +
+        '<input type="text" id="cxReason" maxlength="60" placeholder="理由（例：教員の都合・利用学生の欠席）">' +
+        '<label class="chk"><input type="checkbox" id="cxWhole"> ' + who + ' のこの日のコマを全部休講にする</label>' +
+        '<button type="button" class="btn block" onclick="doCancel(\'' + escapeAttr(c.course_id) + '\', \'' +
+          escapeAttr(c.date) + '\', this)">' + escapeHtml(label) + ' だけ休講にする</button>' +
+        '<p class="hint">授業そのものは消えません（学期のほかの週はいつも通り）。担当と職員スペースに Chat で知らせます。' +
+        'この日に募集中の欠員があれば「休講」で締め切ります。</p></div>';
+    }
+
+    function doCancel(courseId, date, btn) {
+      var reason = document.getElementById('cxReason').value.trim();
+      var whole = document.getElementById('cxWhole').checked;
+      if (!reason) { alert('休講の理由を入力してください（例：教員の都合・利用学生の欠席）。'); return; }
+      if (!confirm((whole ? 'この利用者の' + date + 'のコマを全部' : date + 'のこのコマを') + '休講にします。\n' +
+        '授業そのものは消えません（その日だけ休みになります）。\n担当と職員スペースに Chat で知らせます。\n\nよろしいですか？')) return;
+      runCancelOp(btn, 'cancelClass', { course_id: courseId, date: date, reason: reason, wholeDay: whole }, '休講にしました');
+    }
+
+    function doUncancel(courseId, date, btn) {
+      var whole = document.getElementById('cxWhole').checked;
+      if (!confirm((whole ? 'この利用者の' + date + 'の休講を全部' : date + 'のこのコマの休講を') + '取り消します。\n' +
+        'いつも通り授業がある扱いに戻ります。担当と職員スペースに Chat で知らせます。\n\nよろしいですか？')) return;
+      runCancelOp(btn, 'uncancelClass', { course_id: courseId, date: date, wholeDay: whole }, '休講を取り消しました');
+    }
+
+    function runCancelOp(btn, fn, payload, doneText) {
+      btn.disabled = true;
+      btn.textContent = '処理中…';
+      google.script.run
+        .withSuccessHandler(function (res) {
+          var msg = doneText + '：' + (res.courses || []).join('・');
+          if (res.closedVacancies) msg += '\n募集中だった欠員 ' + res.closedVacancies + ' 件を「休講」で締め切りました。';
+          if (res.hadClosedVacancy) msg += '\n休講で締め切った欠員は戻していません。必要なら欠員補充管理で再オープンしてください。';
+          var n = res.notify || {};
+          var failed = (n.people || []).filter(function (x) { return !x.sent; }).map(function (x) { return x.name; });
+          if (n.error) msg += '\n⚠️ Chat の知らせを送れませんでした：' + n.error;
+          else if (failed.length) msg += '\n⚠️ Chat が届かなかった人：' + failed.join('・') + '（電話などで伝えてください）';
+          alert(msg);
+          closeDetail();
+          viewCacheClear();   // 書く前の時間割を一瞬出さないように（D49）
+          load(null);
+        })
+        .withFailureHandler(function (err) {
+          alert('エラー: ' + err.message);
+          btn.disabled = false;
+          btn.textContent = 'もう一度試す';
+        })[fn](payload);
     }
 
     function closeDetail(e) {
@@ -980,7 +1064,7 @@
     //            （毎週コマ＝学期の開講期間内か。期間未設定の学期は判定せず true＝従来どおり表示）
     //            （単発コマ＝その週のその曜日が実施日そのものか・D27）
     //   status/substitute/absent … その日の欠員の状態
-    function weekStateOf(course, week, termRange, vacancy, noClass) {
+    function weekStateOf(course, week, termRange, vacancy, noClass, cancelled) {
       var date = week.dateByDay[course.day] || '';
       var r = termRange && termRange[course.term];
       // クォーターは曜日ごとに範囲が違う（D53）。その曜日の範囲が無ければ、その曜日には授業が無い
@@ -994,9 +1078,12 @@
       // 授業の無い日（祝日・全学休講・〇講時以降休講・D53）。単発コマ（補講など）はその日に行うので外さない
       var nc = (!course.oneOffDate && date && noClass && noClass[date]) || null;
       if (inTerm && nc && (!nc.from || periodNumber(course.period) >= nc.from)) inTerm = false;
+      // 個別の休講（D60）。コマは残したまま「休講（理由）」で出す
+      var cx = (inTerm && date && cancelled && cancelled[course.course_id + '|' + date]) || '';
       return {
         date: date,
         inTerm: inTerm,
+        cancelled: cx,
         status: o ? o.status : '通常',
         substitute: o ? o.substitute : '',
         absent: o ? o.absent : [],
@@ -1008,9 +1095,10 @@
     function applyWeek(startISO) {
       WEEK = buildWeek(startISO);
       DATA.courses.forEach(function (c) {
-        var s = weekStateOf(c, WEEK, DATA.termRange, DATA.vacancy, DATA.noClass);
+        var s = weekStateOf(c, WEEK, DATA.termRange, DATA.vacancy, DATA.noClass, DATA.cancelled);
         c.date = s.date;
         c.inTerm = s.inTerm;
+        c.cancelled = s.cancelled;
         c.status = s.status;
         c.substitute = s.substitute;
         c.absent = s.absent;

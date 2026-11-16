@@ -90,6 +90,8 @@
     .cc .nt { color: var(--text-muted); font-size: .72rem; white-space: pre-wrap; }
     .cc .wt { color: var(--help); font-size: .72rem; white-space: nowrap; }
     .movebox label { font-weight: 600; cursor: pointer; }
+    .namepair { display: flex; gap: 8px; margin-top: 6px; }
+    .namepair input { flex: 1; min-width: 0; }
     .movebox input { width: auto; }
     .cc .cops { display: flex; gap: 4px; margin-top: 4px; }
     .cc .cops .btn { padding: 1px 7px; font-size: .72rem; }
@@ -286,7 +288,8 @@
         el(to, 'user_sel').value = us.value;
         if (us.value === '__new__') {
           onUserSel(to);
-          el(to, 'user_new').value = el(from, 'user_new').value;
+          el(to, 'user_family').value = el(from, 'user_family').value;
+          el(to, 'user_given').value = el(from, 'user_given').value;
         }
       }
       el(to, 'eligOnly').checked = el(from, 'eligOnly').checked;
@@ -339,7 +342,10 @@
             '<option value="介助">介助（1名）</option></select></div>' +
           '<div><label>利用者（被支援者）<span class="req">*</span></label>' +
             '<select id="user_sel-' + n + '" onchange="onUserSel(' + n + ')"></select>' +
-            '<input id="user_new-' + n + '" style="display:none;margin-top:6px" placeholder="新しい利用者名"></div>' +
+            // 新しい利用者は姓と名に分けて入れ、半角スペースでつなぐ（利用登録の氏名と同じ形・D59）
+            '<div id="user_new-' + n + '" class="namepair" style="display:none">' +
+              '<input id="user_family-' + n + '" placeholder="姓（例：龍谷）">' +
+              '<input id="user_given-' + n + '" placeholder="名（例：花子）"></div></div>' +
           '<div><label>科目名</label><input id="subject-' + n + '" placeholder="例：基礎数学"></div>' +
           '<div><label>担当教員</label><input id="instructor-' + n + '" placeholder="例：（仮）教員A"></div>' +
           '<div><label>教室</label><input id="room-' + n + '" placeholder="例：1-101"></div>' +
@@ -400,13 +406,23 @@
 
     function onUserSel(n) {
       var box = el(n, 'user_new');
-      if (v(n, 'user_sel') === '__new__') { box.style.display = ''; box.focus(); }
+      if (v(n, 'user_sel') === '__new__') { box.style.display = ''; el(n, 'user_family').focus(); }
       else { box.style.display = 'none'; }
     }
 
     // 入力された利用者名（既存選択 or 新規入力）
     function userValue(n) {
-      return v(n, 'user_sel') === '__new__' ? el(n, 'user_new').value.trim() : v(n, 'user_sel');
+      if (v(n, 'user_sel') !== '__new__') return v(n, 'user_sel');
+      var family = v(n, 'user_family').trim();
+      var given = v(n, 'user_given').trim();
+      return (family && given) ? family + ' ' + given : (family || given);
+    }
+
+    // 新しい利用者の名前を姓と名の欄に入れる（「龍谷　花子」→ 龍谷／花子。空白が無ければ全部を姓へ）
+    function setNewUserName(n, name) {
+      var parts = String(name || '').trim().split(/[\s　]+/);
+      el(n, 'user_family').value = parts[0] || '';
+      el(n, 'user_given').value = parts.slice(1).join(' ');
     }
 
     // 介助のときはB欄を無効化（1名）。内容が変わると候補も時限も組み直す。
@@ -608,6 +624,9 @@
         }
       }
       if (!p.user_student) return '利用者を入力してください。';
+      if (v(n, 'user_sel') === '__new__' && (!v(n, 'user_family').trim() || !v(n, 'user_given').trim())) {
+        return '新しい利用者は、姓と名の両方を入れてください。';
+      }
       return '';
     }
 
@@ -802,7 +821,7 @@
         } else if (parsed.studentName) {
           el(n, 'user_sel').value = '__new__';
           el(n, 'user_new').style.display = '';
-          el(n, 'user_new').value = parsed.studentName;
+          setNewUserName(n, parsed.studentName);
         }
         el(n, 'subject').value = c.subject || '';
         el(n, 'instructor').value = c.instructor || '';
@@ -912,7 +931,7 @@
       } else {
         sel.value = '__new__';
         onUserSel(n);
-        el(n, 'user_new').value = c.user_student;
+        setNewUserName(n, c.user_student);
       }
 
       el(n, 'subject').value = c.subject || '';
@@ -966,7 +985,8 @@
       if (!c) { showToast('対象のコマが見つかりません。一覧を更新してください。', false); return; }
       var label = (c.date ? dateLabel(c.date) : c.day) + (c.periodLabel || (c.period + '限'))
         + ' ' + c.support_type + ' ' + (c.user_student || '');
-      if (!confirm(label + '\nこのコマを削除しますか？')) return;
+      if (!confirm(label + '\nこのコマを削除します。学期のすべての週から消えます。\n\n' +
+        '1日だけ授業が無いときは削除せず、シフト確認でそのコマを押して「この日だけ休講にする」を使ってください。\n\n削除しますか？')) return;
       google.script.run
         .withSuccessHandler(function () {
           showToast('削除しました。', true);

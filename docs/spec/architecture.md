@@ -246,6 +246,7 @@ erDiagram
     periods  ||--o{ courses    : "時限（移動介助の枠も含む・D33）"
     terms    ||--o{ courses    : "学期（quarter が参照・D16）"
     no_class_days }o--o{ terms : "授業の無い日（クォーターの境目を計算・D53）"
+    courses  ||--o{ cancellations : "個別の休講（その日だけ・D60）"
     courses  ||--o{ vacancies  : "欠員対象"
     staffs   ||--o{ vacancies  : "欠勤者/代行者"
     vacancies ||--o{ responses : "回答"
@@ -262,7 +263,7 @@ erDiagram
 | | メインDB（シフト管理） | 連絡先DB（個人情報） |
 |---|---|---|
 | アクセス権限 | 職員 + GASスクリプト | **職員のみ**（本部確認済み・D3） |
-| シート | `staffs` `courses` `vacancies` `responses` `periods` `terms` `no_class_days` | `contacts` `registrations` |
+| シート | `staffs` `courses` `vacancies` `responses` `periods` `terms` `no_class_days` `cancellations` | `contacts` `registrations` |
 
 - Webhook URL は「知っていれば誰でも投稿できる」秘密情報なので連絡先DBに置き、
   **画面にも返さない**（届くかどうかだけを返す・D30）。
@@ -297,7 +298,7 @@ erDiagram
 | `day` | 曜日（月〜土） |
 | `period` | **FK** → `periods.period`。移動介助の枠も入る |
 | `support_type` | `テイク` / `介助` |
-| `user_student` | 利用学生（被支援者） |
+| `user_student` | 利用学生（被支援者）。「姓 名」（半角スペース1つ）に揃える。空白の違いだけの名前は登録済みの書き方に寄せる（D59） |
 | `subject` / `instructor` / `room` | 科目・教員・教室 |
 | `staff_a_id` | **FK** → `staffs`。**空＝担当未定**（D38） |
 | `staff_b_id` | **FK** → `staffs`。介助は空（1人体制） |
@@ -350,6 +351,21 @@ erDiagram
 **クォーターの境目は曜日ごとに計算する**（D53・`ClassCalendar.gs`）。セメスターの授業開始日から、
 曜日ごとに授業の無い日（終日）を飛ばして8回数え、9回目から次のクォーター。
 「このコマがこの日にあるか」は `courseHeldOn_` に集めてあり、時間割・欠勤連絡はこれを使う。
+
+#### `cancellations`（メインDB）
+
+個別の休講（D60）。**その日のそのコマだけ**。授業そのもの（`courses`）は消さない。シフト確認の詳細から職員が登録する。
+
+| 列 | 意味・決まり |
+|---|---|
+| `cancellation_id` | **PK**（`X001`） |
+| `course_id` | **FK** → `courses`。授業を削除したらこの行も消す |
+| `date` | 休講の日（`yyyy-MM-dd`） |
+| `reason` | 理由（60文字まで）。時間割と Chat に出す |
+| `created_by` / `created_at` | 登録した職員・日時 |
+
+- 休講の日は「このコマがこの日にあるか」（`courseHeldOn_`）が「無い」を返す。時間割・欠勤連絡が同じ判断を使う
+- その日に決まっていない欠員は結果「休講」で決着させる（`VACANCY_RESULT.CANCELLED`）
 
 #### `no_class_days`（メインDB）
 

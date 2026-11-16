@@ -55,6 +55,7 @@ const HELP_TOPICS = {
   mypage:     { file: 'help-mypage',     title: 'マイページの使い方' },
   webhook:    { file: 'help-webhook',    title: '通知先URLの作り方' },
   staff:      { file: 'help-staff',      title: '職員の操作', staffOnly: true },
+  cancel:     { file: 'help-cancel',     title: '休講を登録する', staffOnly: true },
   roster:     { file: 'help-roster',     title: 'スタッフ名簿の見方', staffOnly: true },
   approvals:  { file: 'help-approvals',  title: '申請を承認する', staffOnly: true },
   terms:      { file: 'help-terms',      title: '学期を設定する', staffOnly: true },
@@ -635,9 +636,20 @@ function getTimetable(quarter) {
     vacancy: vacancy,   // 'course_id|yyyy-MM-dd' → {status, substitute, absent[], open[{id, claimable, reason}]}
     termRange: termRange,     // term_id → {start, end, byDay}（週が開講期間内かの判定用・byDay は曜日ごと）
     noClass: noClassFrom_(cal.noClass, cutoff),   // 授業の無い日（日付 → {from, reason}・D53）
+    cancelled: cancelledFrom_(cal.cancelled, courseIdSet, cutoff),   // 個別の休講 'course_id|日付' → 理由（D60）
     undatedTerms: undatedTerms, // 日付未設定のまま使われている学期（警告用）
     today: todayJst_(), // 「今週」の基準（端末の時計ではなくサーバーのJSTで判定する）
   };
+}
+
+/** 時間割へ渡す休講（表示するコマ・1年以内のもの）。'course_id|日付' → 理由 */
+function cancelledFrom_(cancelled, courseIdSet, cutoff) {
+  const out = {};
+  Object.keys(cancelled || {}).forEach(function (k) {
+    const parts = k.split('|');
+    if (courseIdSet[parts[0]] && parts[1] >= cutoff) out[k] = cancelled[k].reason || '休講';
+  });
+  return out;
 }
 
 // 文字列をHTMLエスケープする（メッセージ画面用）
