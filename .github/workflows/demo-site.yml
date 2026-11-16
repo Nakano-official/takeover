@@ -1,0 +1,53 @@
+# デモサイト（架空データで全画面を行き来できるモック・D62）を GitHub Pages に載せる。
+# 中身は tools/demo-site/build.js が本物の src/ を架空データで動かして書き出したもの。
+# 生成物はコミットしない（ここで毎回作る）。実データ・スクリプトプロパティは一切使わない。
+#
+# 初回だけ：リポジトリの Settings → Pages → Build and deployment → Source を「GitHub Actions」にする。
+name: demo-site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tools/gas-harness.js'
+      - 'tools/help-shots/demo-data.js'
+      - 'tools/help-shots/render.js'
+      - 'tools/demo-site/**'
+      - '.github/workflows/demo-site.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: demo-site
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Node の標準モジュールだけで動く（npm install は要らない）
+      - run: node tools/demo-site/build.js
+        env:
+          TZ: Asia/Tokyo
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: tools/demo-site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

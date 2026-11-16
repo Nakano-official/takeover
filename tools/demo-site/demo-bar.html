@@ -1,0 +1,105 @@
+<!--
+  デモサイトの帯（build.js が各画面の </body> の前に差し込む）。本番の画面には入らない。
+
+  - 画面下に「デモ（架空データ）」と、見る人の切り替え・画面一覧へのリンクを出す
+  - 本番のリンク（https://example.invalid/app?page=◯◯）を、同じフォルダの ◯◯.html へつなぎ替える
+  - 書き込み（先に計算していない呼び出し）があったら「保存されません」と知らせる
+-->
+<style>
+  body { padding-bottom: 64px; }
+  .demo-bar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 200;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
+    padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
+    background: #1b2430; color: #fff; font-size: 13px; line-height: 1.4;
+    box-shadow: 0 -2px 10px rgba(16, 24, 40, .18);
+  }
+  .demo-bar .tag {
+    background: #f3b73b; color: #1b2430; font-weight: 700;
+    padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  }
+  .demo-bar .note { color: #c9d1dc; }
+  .demo-bar .grow { flex: 1 1 auto; }
+  .demo-bar label { display: flex; align-items: center; gap: 6px; white-space: nowrap; min-width: 0; }
+  .demo-bar select {
+    font: inherit; min-width: 0; max-width: 62vw; padding: 4px 6px; border-radius: 7px;
+    border: 1px solid #4a5666; background: #2a3441; color: #fff;
+  }
+  .demo-bar a { color: #fff; white-space: nowrap; }
+  .demo-toast {
+    position: fixed; left: 50%; bottom: 76px; z-index: 201; transform: translateX(-50%);
+    max-width: calc(100% - 32px); padding: 10px 14px; border-radius: 10px;
+    background: #1b2430; color: #fff; font-size: 13px; box-shadow: 0 4px 14px rgba(16, 24, 40, .25);
+    opacity: 0; pointer-events: none; transition: opacity .2s;
+  }
+  .demo-toast.on { opacity: 1; }
+  @media (max-width: 520px) {
+    .demo-bar { flex-wrap: nowrap; gap: 8px; padding-left: 12px; padding-right: 12px; }
+    .demo-bar .note, .demo-bar .grow { display: none; }
+    .demo-bar label { flex: 1 1 auto; }
+    .demo-bar select { flex: 1 1 auto; max-width: none; width: 100%; }
+  }
+</style>
+<div class="demo-bar" role="region" aria-label="デモの案内">
+  <span class="tag">デモ</span>
+  <span class="note">架空のデータです。操作しても保存されません（日時は <span id="demoDate"></span> に固定）</span>
+  <span class="grow"></span>
+  <label>見る人
+    <select id="demoPersona" aria-label="見る人を切り替える"></select>
+  </label>
+  <a href="../index.html">画面の一覧</a>
+</div>
+<div class="demo-toast" id="demoToast" role="status" aria-live="polite"></div>
+<script>
+(function () {
+  var C = /*DEMO_CONF*/null;
+  var byKey = {};
+  C.personas.forEach(function (p) { byKey[p.key] = p; });
+
+  document.getElementById('demoDate').textContent = C.date;
+
+  var sel = document.getElementById('demoPersona');
+  C.personas.forEach(function (p) {
+    var o = document.createElement('option');
+    o.value = p.key; o.textContent = p.label;
+    if (p.key === C.persona) o.selected = true;
+    sel.appendChild(o);
+  });
+  // 見る人を替えたら、同じ画面があればそこへ、無ければその人の最初の画面へ
+  sel.addEventListener('change', function () {
+    var p = byKey[sel.value];
+    var same = p.pages.indexOf(C.page) !== -1;
+    location.href = '../' + p.key + '/' + (same ? C.page : p.pages[0]) + '.html' + (same ? location.search : '');
+  });
+
+  var toastTimer = null;
+  function toast(msg) {
+    var t = document.getElementById('demoToast');
+    t.textContent = msg;
+    t.classList.add('on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.classList.remove('on'); }, 3200);
+  }
+  window.addEventListener('demo-write', function () {
+    toast('デモのため保存されません（本番ではここで書き込みます）');
+  });
+
+  // 本番のリンク（?page=◯◯）を、このフォルダの ◯◯.html へ
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest && e.target.closest('a[href]');
+    if (!a) return;
+    var href = a.getAttribute('href');
+    if (href.indexOf(C.appUrl) !== 0) return;
+    e.preventDefault();
+    var q = new URLSearchParams(href.slice(C.appUrl.length).replace(/^\?/, ''));
+    var page = q.get('page') || 'home';
+    q.delete('page');
+    if (byKey[C.persona].pages.indexOf(page) === -1) {
+      toast('この画面は、いまの「見る人」では開けません。下の「見る人」を切り替えてください');
+      return;
+    }
+    var rest = q.toString();
+    location.href = page + '.html' + (rest ? '?' + rest : '');
+  }, true);
+})();
+</script>
