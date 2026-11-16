@@ -46,12 +46,32 @@
     .addcard { border-style: dashed; margin-bottom: 12px; }
 
     #submit { margin-top: 16px; }
-    #cancelEdit { margin-top: 8px; }
     /* 一覧の行内ボタン（編集＝青の枠線／削除＝赤の枠線） */
     .btn.ed  { color: var(--brand-ink); border-color: var(--brand-border); }
     .btn.ed:hover:not(:disabled)  { background: var(--brand-soft); }
     .btn.del { color: var(--danger); border-color: var(--danger-border); }
     .btn.del:hover:not(:disabled) { background: var(--danger-bg); }
+
+    /* ===== 編集の窓（登録済みのコマを直す）=====
+       上の入力カードとは別に開く。入力中のカードを消さず、その場で直してすぐ時間割へ戻れるように */
+    body.edit-open { overflow: hidden; }
+    .emodal { position: fixed; inset: 0; z-index: 90; background: rgba(16, 24, 40, .45);
+              display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .emodal[hidden] { display: none; }
+    .esheet { background: var(--surface); width: 100%; max-width: 760px; max-height: 92vh; border-radius: var(--radius);
+              display: flex; flex-direction: column; box-shadow: var(--shadow-2); }
+    .ehead { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+    .ehead h2 { flex: 1; margin: 0; font-size: 1.05rem; }
+    .ehead .x { border: 0; background: none; font-size: 1.5rem; line-height: 1; color: var(--text-faint); cursor: pointer; }
+    .ebody { padding: 14px 16px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+    .ebody .shiftcard { border: 0; padding: 0; margin: 0; }
+    .ebody .cardhead { display: none; }
+    .efoot { display: flex; gap: 8px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--border); }
+    .efoot .sp { flex: 1; }
+    @media (max-width: 760px) {
+      .emodal { align-items: flex-end; padding: 0; }
+      .esheet { max-width: none; max-height: 92vh; border-radius: var(--radius) var(--radius) 0 0; }
+    }
 
     .toast { margin-top: 12px; display: none; }
     .toast.ok, .toast.err { display: block; }
@@ -91,6 +111,7 @@
     .cc .wt { color: var(--help); font-size: .72rem; white-space: nowrap; }
     .movebox label { font-weight: 600; cursor: pointer; }
     .namepair { display: flex; gap: 8px; margin-top: 6px; }
+    .staffq { margin-bottom: 0; }
     .namepair input { flex: 1; min-width: 0; }
     .movebox input { width: auto; }
     .cc .cops { display: flex; gap: 4px; margin-top: 4px; }
@@ -150,7 +171,6 @@
       <button type="button" class="btn block addcard" id="addCard" onclick="onAddCard()"
               style="display:none">＋ カードを追加</button>
       <button class="btn primary block" id="submit" onclick="submitCourse()">このコマを追加</button>
-      <button class="btn block" id="cancelEdit" onclick="cancelEdit()" style="display:none">編集をやめる</button>
 
       <p class="hint">＊は必須。<b>担当は未定のままでも登録できます</b>
         （授業だけ先に入れて、あとから割り当てられます）。
@@ -159,7 +179,7 @@
         毎週のコマでは、担当欄に「選んだ曜日・時限に空きがあり内容に対応できる人」だけを表示します。
         「この日だけ」（特別授業・説明会など）では<b>全員から選べます</b>
         （空きコマは毎週の予定なので、その日の予定を表さないため）。
-        登録済みのコマは下の時間割の「編集」から修正できます（教室が後から決まった場合など）。
+        登録済みのコマは下の時間割の「編集」で、別の窓から直せます（教室が後から決まった場合など）。
         介助では、授業の前後の移動があれば<b>「前の移動あり／後の移動あり」</b>にチェックを入れます
         （移動の時間も勤務時間に入ります）。</p>
       <div id="toast" class="toast"></div>
@@ -168,15 +188,36 @@
     <div class="card">
       <h2>登録済みのコマ</h2>
       <div id="count" class="count"></div>
+      <div id="listToast" class="toast"></div>
       <div id="ttTabs" class="tttabs" role="tablist" aria-label="学期"></div>
       <div id="list" class="state">—</div>
     </div>
   </main>
 
+  <!-- 登録済みのコマを直す窓（上の入力カードとは別・入力中のカードは消さない） -->
+  <div id="editModal" class="emodal" hidden>
+    <div class="esheet" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+      <div class="ehead">
+        <h2 id="editTitle">コマを編集</h2>
+        <button type="button" class="x" onclick="closeEdit()" aria-label="閉じる">×</button>
+      </div>
+      <div class="ebody">
+        <div id="editCard" class="shiftcard"></div>
+        <div id="editMsg" class="toast"></div>
+      </div>
+      <div class="efoot">
+        <button type="button" class="btn sm del" onclick="delCourse(EDIT_ID)">このコマを削除</button>
+        <span class="sp"></span>
+        <button type="button" class="btn" onclick="closeEdit()">やめる</button>
+        <button type="button" class="btn primary" id="editSave" onclick="saveEdit()">更新する</button>
+      </div>
+    </div>
+  </div>
+
   <?!= include('shared-timetable-pdf') ?>
   <script>
     var DATA = null;
-    var EDIT_ID = null;  // 編集中のコマID（null＝新規追加モード）
+    var EDIT_ID = null;  // 編集の窓で直しているコマID（null＝窓は閉じている）
 
     function escapeHtml(s) {
       return String(s == null ? '' : s)
@@ -216,8 +257,8 @@
     // 二重起用チェックがそのまま効く（appendRowWithId_ が書き込み後に
     // invalidateSheetCache_ を呼ぶため、同一実行内でも読み直される）。
     //
-    // 編集モード（EDIT_ID あり）はカード1枚に固定する。既存の1コマを直す操作なので
-    // 増やす意味が無く、更新は addCourse ではなく updateCourse を通す。
+    // 登録済みのコマの編集は別の窓で行う（editCourse）。上のカードはいつも「追加」に使う。
+    // 編集の窓のカードは番号 0（上のカードは 1 から）。
 
     var CARDS = [];      // 表示中のカード番号（新しいものほど後ろ）
     var CARD_SEQ = 0;    // カード番号の採番（DOM の id に使う）
@@ -227,7 +268,6 @@
     function v(n, name) { var e = el(n, name); return e ? e.value : ''; }
 
     function buildForm() {
-      EDIT_ID = null;
       CARDS = [];
       CARD_SEQ = 0;
       var host = document.getElementById('form');
@@ -361,6 +401,11 @@
             '<input type="checkbox" id="eligOnly-' + n + '" checked onchange="rebuildStaff(' + n + ')" style="width:auto">' +
             ' このコマに空きがあり、スキルも合う人だけ表示</label>' +
             '<div class="hint" id="eligNote-' + n + '" style="margin:4px 0 0;display:none"></div></div>' +
+          // 名前で探す。人数が増えるとプルダウンから探すのが大変なので、打った文字で候補を絞る
+          '<div class="full"><label for="staffQ-' + n + '">担当を名前で探す</label>' +
+            '<input type="search" id="staffQ-' + n + '" class="staffq" ' +
+            'placeholder="名前の一部（例：山田）" oninput="rebuildStaff(' + n + ')" autocomplete="off">' +
+            '<div class="hint" id="staffQNote-' + n + '" style="margin:4px 0 0"></div></div>' +
           '<div><label>担当スタッフA</label>' +
             '<select id="staff_a_id-' + n + '"></select></div>' +
           '<div><label>担当スタッフB</label><select id="staff_b_id-' + n + '"></select></div>' +
@@ -378,14 +423,12 @@
         var tag = document.getElementById('termtag-' + n);
         if (tag) tag.textContent = v(n, 'term');
         var x = document.getElementById('cardx-' + n);
-        if (x) x.style.display = (multi && !EDIT_ID) ? '' : 'none';
+        if (x) x.style.display = multi ? '' : 'none';
       });
-      document.getElementById('addCard').style.display = EDIT_ID ? 'none' : '';
+      document.getElementById('addCard').style.display = '';
       var btn = document.getElementById('submit');
       btn.disabled = false;
-      btn.textContent = EDIT_ID ? 'このコマを更新'
-        : (multi ? CARDS.length + 'コマをまとめて登録' : 'このコマを追加');
-      document.getElementById('cancelEdit').style.display = EDIT_ID ? '' : 'none';
+      btn.textContent = multi ? CARDS.length + 'コマをまとめて登録' : 'このコマを追加';
     }
 
     function onAddCard() {
@@ -562,22 +605,51 @@
       return skillOk && slots.indexOf(slotKey) !== -1;
     }
 
+    // 名前の比べ方：空白を除き、カタカナはひらがなに、英字は小文字にそろえる（名前は漢字で入っているので、読みでは探せない）
+    function staffSearchKey(s) {
+      return String(s || '').replace(/[\s　]+/g, '').toLowerCase()
+        .replace(/[ァ-ヶ]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0x60); });
+    }
+
     function rebuildStaff(n) {
       // 単発コマは常に全員から選ぶ（絞り込みの条件そのものが成り立たない）
       var eligOnly = !isOnce(n) && el(n, 'eligOnly').checked;
       var list = eligOnly
         ? DATA.staff.filter(function (s) { return staffEligible(s, n); })
         : DATA.staff.slice();
+      // 名前で探す（空なら絞らない）
+      var q = staffSearchKey(v(n, 'staffQ'));
+      var note = el(n, 'staffQNote');
+      if (q) {
+        var before = list.length;
+        list = list.filter(function (s) { return staffSearchKey(s.name).indexOf(q) !== -1; });
+        if (note) {
+          note.textContent = list.length
+            ? '「' + v(n, 'staffQ').trim() + '」で ' + list.length + ' 人' + (before > list.length ? '（ほかは隠しています）' : '')
+            : '「' + v(n, 'staffQ').trim() + '」に合う人がいません' + (eligOnly ? '（上の「空きがあり…」を外すと全員から探せます）' : '');
+        }
+      } else if (note) {
+        note.textContent = '';
+      }
 
       var opt = function (s) {
         var label = s.name + (s.skills ? '（' + s.skills + '）' : '');
         return '<option value="' + escapeHtml(s.staff_id) + '">' + escapeHtml(label) + '</option>';
       };
-      var body = list.map(opt).join('');
+      var body = list.map(opt).join('');   // 下で選択中の人を足したら作り直す
 
       var a = el(n, 'staff_a_id');
       var b = el(n, 'staff_b_id');
       var prevA = a.value, prevB = b.value;
+      // 探している途中でも、もう選んでいる人は候補から消さない（選び直しにならないように）
+      if (q) {
+        [prevA, prevB].forEach(function (id) {
+          if (!id || list.some(function (s) { return s.staff_id === id; })) return;
+          var keep = DATA.staff.filter(function (s) { return s.staff_id === id; })[0];
+          if (keep) { list.push(keep); body = null; }
+        });
+      }
+      if (body === null) body = list.map(opt).join('');
       // 担当は未定のままでも登録できる（D38）。授業だけ先に入れて、
       // 学生の空きコマが集まってから割り当てる、という実務の順番に合わせる。
       var empty = (eligOnly && !v(n, 'support_type'))
@@ -631,14 +703,6 @@
     }
 
     function submitCourse() {
-      if (EDIT_ID) {
-        var one = payloadOf(CARDS[0]);
-        var err = clientError(CARDS[0], one);
-        if (err) { showToast(err, false); return; }
-        runUpdate(one);
-        return;
-      }
-
       // 先に全カードを見る。1枚でも入力漏れがあれば、1件も登録せずにそのカードを指す。
       for (var i = 0; i < CARDS.length; i++) {
         var e = clientError(CARDS[i], payloadOf(CARDS[i]));
@@ -718,22 +782,6 @@
       return per + 'を登録しました（' + done.map(function (d) { return d.id; }).join('・') + '）';
     }
 
-    function runUpdate(payload) {
-      payload.course_id = EDIT_ID;
-      var btn = document.getElementById('submit');
-      btn.disabled = true; btn.textContent = '更新中…';
-      google.script.run
-        .withSuccessHandler(function (res) {
-          showToast('更新しました（' + res.course_id + '）。', true);
-          load();               // フォームごと再構築 → 新規追加モードに戻る
-        })
-        .withFailureHandler(function (err) {
-          showToast(err.message, false);
-          renderFormChrome();
-        })
-        .updateCourse(payload);
-    }
-
     // ===== 時間割PDFから読み込む（D52）=====
     //
     // PDF を読むのはブラウザの中だけ（shared-timetable-pdf）。読み取った授業を**カードとして並べるだけ**で、
@@ -802,8 +850,6 @@
     }
 
     function buildPdfCards(plan, parsed) {
-      EDIT_ID = null;
-      document.getElementById('formTitle').textContent = 'コマを追加';
       if (!plan.cards.length) { buildForm(); renderList(); return; }
       CARDS = [];
       CARD_SEQ = 0;
@@ -878,7 +924,7 @@
         return userValue(n) || v(n, 'subject').trim() || v(n, 'instructor').trim()
           || v(n, 'room').trim() || v(n, 'note').trim();
       });
-      if (EDIT_ID || touched) {
+      if (touched) {
         return confirm('入力中のカードを、PDFの内容で置き換えます。よろしいですか？');
       }
       return true;
@@ -895,17 +941,23 @@
         '<div class="notice ' + kind + '">' + escapeHtml(msg) + '</div>';
     }
 
-    // ===== 編集（カードは1枚に固定）=====
+    // ===== 編集の窓 =====
+    //
+    // 以前は上の入力カードを編集用に作り直していた。押すたびに画面の上へ戻され、入力中のカードも消えた。
+    // 今は別の窓に、追加と同じ項目のカード（番号 0）を出して直す。更新したら窓を閉じて時間割を読み直す。
+    var EDIT_N = 0;
+
     function editCourse(id) {
       var c = null;
       for (var i = 0; i < DATA.courses.length; i++) {
         if (DATA.courses[i].course_id === id) { c = DATA.courses[i]; break; }
       }
-      if (!c) { showToast('対象のコマが見つかりません。一覧を更新してください。', false); return; }
+      if (!c) { showListToast('対象のコマが見つかりません。画面を読み込み直してください。', false); return; }
 
-      buildForm();               // カードを1枚に戻してから流し込む
       EDIT_ID = id;
-      var n = CARDS[0];
+      var n = EDIT_N;
+      document.getElementById('editCard').innerHTML = cardHtml(n, {});
+      fillUserOptions(n);
 
       // 担当に現在の人が必ず出るよう、まず絞り込みを外して全員表示にする
       el(n, 'eligOnly').checked = false;
@@ -944,18 +996,64 @@
       el(n, 'move_before').checked = !!c.move_before;
       el(n, 'move_after').checked = !!c.move_after;
 
-      document.getElementById('formTitle').textContent = 'コマを編集（' + id + '）';
-      renderFormChrome();
-      renderList();
-      document.getElementById('formTitle').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.getElementById('editTitle').textContent = 'コマを編集（' + id + '）';
+      editMsg('', true);
+      var save = document.getElementById('editSave');
+      save.disabled = false;
+      save.textContent = '更新する';
+      document.getElementById('editModal').hidden = false;
+      document.body.classList.add('edit-open');
+      renderList();   // 時間割の中の、いま直しているコマに色を付ける
     }
 
-    // 編集をやめて新規追加モードへ戻す
-    function cancelEdit() {
-      buildForm();
-      document.getElementById('formTitle').textContent = 'コマを追加';
+    function closeEdit() {
+      document.getElementById('editModal').hidden = true;
+      document.body.classList.remove('edit-open');
+      document.getElementById('editCard').innerHTML = '';
+      EDIT_ID = null;
       renderList();
     }
+
+    function saveEdit() {
+      var n = EDIT_N;
+      var p = payloadOf(n);
+      var err = clientError(n, p);
+      if (err) { editMsg(err, false); return; }
+      p.course_id = EDIT_ID;
+      var id = EDIT_ID;
+      var btn = document.getElementById('editSave');
+      btn.disabled = true;
+      btn.textContent = '更新中…';
+      google.script.run
+        .withSuccessHandler(function (res) {
+          closeEdit();
+          showListToast('更新しました（' + ((res && res.course_id) || id) + '）。', true);
+          refreshList();   // 上の入力カードはそのまま、時間割と候補だけ読み直す
+        })
+        .withFailureHandler(function (e) {
+          editMsg(e.message, false);
+          btn.disabled = false;
+          btn.textContent = '更新する';
+        })
+        .updateCourse(p);
+    }
+
+    function editMsg(msg, ok) {
+      var t = document.getElementById('editMsg');
+      t.className = msg ? 'notice toast ' + (ok ? 'ok' : 'err') : 'toast';
+      t.textContent = msg;
+    }
+
+    // 時間割のすぐ上に出す知らせ（更新・削除の結果。上のカードの知らせは遠くて見えないため）
+    function showListToast(msg, ok) {
+      var t = document.getElementById('listToast');
+      t.className = 'notice toast ' + (ok ? 'ok' : 'err');
+      t.textContent = msg;
+    }
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && !document.getElementById('editModal').hidden) closeEdit();
+    });
 
     // フォームを再構築せず、一覧と候補リストだけ更新する
     function refreshList() {
@@ -982,17 +1080,20 @@
       for (var i = 0; i < DATA.courses.length; i++) {
         if (DATA.courses[i].course_id === id) { c = DATA.courses[i]; break; }
       }
-      if (!c) { showToast('対象のコマが見つかりません。一覧を更新してください。', false); return; }
+      if (!c) { showListToast('対象のコマが見つかりません。画面を読み込み直してください。', false); return; }
       var label = (c.date ? dateLabel(c.date) : c.day) + (c.periodLabel || (c.period + '限'))
         + ' ' + c.support_type + ' ' + (c.user_student || '');
       if (!confirm(label + '\nこのコマを削除します。学期のすべての週から消えます。\n\n' +
         '1日だけ授業が無いときは削除せず、シフト確認でそのコマを押して「この日だけ休講にする」を使ってください。\n\n削除しますか？')) return;
       google.script.run
         .withSuccessHandler(function () {
-          showToast('削除しました。', true);
-          load();
+          if (EDIT_ID === id) closeEdit();
+          showListToast('削除しました（' + id + '）。', true);
+          refreshList();   // 上の入力カードはそのまま
         })
-        .withFailureHandler(function (err) { showToast(err.message, false); })
+        .withFailureHandler(function (err) {
+          if (EDIT_ID === id) editMsg(err.message, false); else showListToast(err.message, false);
+        })
         .deleteCourse(id);
     }
 
@@ -1035,7 +1136,10 @@
       }).join('');
 
       var mine = courses.filter(function (c) { return c.quarter === TT_TERM; });
-      var days = DATA.days || [];
+      // 土曜はその学期に毎週のコマがあるときだけ列を出す（シフト確認と同じ・空の列で表を狭くしない）
+      var days = (DATA.days || []).filter(function (d) {
+        return d !== '土' && d !== '日' || mine.some(function (c) { return !c.date && c.day === d; });
+      });
       var periods = DATA.periods || [];
       var cell = {};
       var outside = [];

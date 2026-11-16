@@ -29,19 +29,31 @@
     #q { min-width: 220px; }
     .count { font-size: .82rem; color: var(--text-muted); margin: 10px 0 0; }
 
-    .tablewrap { overflow-x: auto; }
-    table { width: 100%; border-collapse: collapse; font-size: .86rem; }
-    th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border);
-             vertical-align: middle; }
-    th { font-size: .76rem; color: var(--text-muted); background: var(--surface-alt);
-         font-weight: 700; white-space: nowrap; position: sticky; top: 0; }
-    td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-
-    /* 要対応の行は左端に色を付ける。並べ替えはしない（見るたびに行が動かないように） */
-    tr.person { cursor: pointer; }
-    tr.person:hover { background: var(--brand-soft); }
-    tr.attn td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
-    tr.blocked td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
+    /* ===== 入学年度ごとのまとまり（D61）===== */
+    .ghead { display: flex; align-items: baseline; gap: 8px; margin: 18px 0 8px; padding-bottom: 4px;
+             border-bottom: 2px solid var(--brand-border); }
+    .ghead:first-child { margin-top: 0; }
+    .ghead h3 { margin: 0; font-size: 1rem; color: var(--brand-ink); }
+    .ghead .n { font-size: .8rem; color: var(--text-muted); }
+    /* 1人1枚の箱を行列に並べる。幅に合わせて列の数が変わる */
+    .pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+    .pc { border: 1px solid var(--border); border-left: 4px solid var(--border-strong); border-radius: var(--radius);
+          background: var(--surface); padding: 10px 12px; cursor: pointer; font-size: .82rem; line-height: 1.55;
+          box-shadow: var(--shadow-1); }
+    .pc:hover { background: var(--brand-soft); }
+    /* 要対応は左端に色。並べ替えはしない（見るたびに箱が動かないように） */
+    .pc.attn { border-left-color: var(--warn); }
+    .pc.blocked { border-left-color: var(--danger); }
+    .pc.ok { border-left-color: var(--ok); }
+    /* 開いている人の箱は枠で示す。詳細はそのまとまりの下に出す（箱の並びは崩さない） */
+    .pc.open { box-shadow: 0 0 0 2px var(--brand); background: var(--brand-soft); }
+    .pc .top { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; }
+    .pc .nm { font-weight: 700; font-size: .95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pc .sid { font-size: .72rem; color: var(--text-faint); white-space: nowrap; }
+    .pc .role { margin-left: auto; }
+    .pc .kv { display: grid; grid-template-columns: 64px 1fr; gap: 1px 8px; }
+    .pc .kv span:nth-child(odd) { color: var(--text-muted); font-size: .74rem; }
+    .pc .closebtn { float: right; }
 
     .who { font-weight: 700; }
     .who .id { display: block; font-weight: normal; font-size: .74rem; color: var(--text-faint); }
@@ -55,13 +67,16 @@
     .na  { color: var(--text-faint); }
     .stale { color: var(--warn); font-weight: 700; }
 
-    /* 行を押したときに出る詳細 */
-    tr.detail > td { background: var(--surface-alt); padding: 14px 16px; }
+    /* 箱を押したときに出る詳細（そのまとまりの下） */
+    .detail { margin-top: 10px; padding: 12px 14px; border: 1px solid var(--brand-border); border-radius: var(--radius);
+              background: var(--surface-alt); }
+    .detail .dhead { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .detail .dhead b { font-size: 1rem; }
+    .detail .dhead .btn { margin-left: auto; }
     .dl { display: grid; grid-template-columns: 92px 1fr; gap: 6px 14px; margin: 0 0 10px;
           font-size: .88rem; }
     .dl dt { color: var(--text-muted); font-size: .8rem; }
     .dl dt small { display: block; color: var(--text-faint); font-size: .95em; font-weight: normal; }
-    th small { display: block; color: var(--text-faint); font-weight: normal; font-size: .9em; }
     .dl dd { margin: 0; word-break: break-all; }
     .dl dd.empty { color: var(--text-faint); }
     .slotlist { display: flex; flex-wrap: wrap; gap: 5px; }
@@ -87,8 +102,8 @@
       <div class="card">
         <div class="controls">
           <div class="field">
-            <label for="q">氏名・ID・メールで検索</label>
-            <input type="text" id="q" placeholder="例：山田 / S003">
+            <label for="q">氏名・ID・学籍番号・メールで検索</label>
+            <input type="text" id="q" placeholder="例：山田 / S003 / Y24">
           </div>
           <div class="field">
             <label for="kind">区分</label>
@@ -111,24 +126,9 @@
         <p class="count" id="count"></p>
       </div>
 
-      <div class="card" style="padding:0;overflow:hidden">
-        <div class="tablewrap">
-          <table>
-            <thead>
-              <tr>
-                <th>氏名</th>
-                <th>区分</th>
-                <th>対応業務</th>
-                <th class="num">空きコマ<small>テイク/介助</small></th>
-                <th>空きコマ更新</th>
-                <th class="num">担当コマ</th>
-                <th>電話</th>
-                <th>通知</th>
-              </tr>
-            </thead>
-            <tbody id="rows"></tbody>
-          </table>
-        </div>
+      <!-- 入学年度ごとに、1人1枚の箱を行列で並べる（D61） -->
+      <div class="card">
+        <div id="groups"></div>
       </div>
 
       <div id="orphans"></div>
@@ -139,7 +139,7 @@
   <?!= include('shared-cache') ?>
   <script>
     var DATA = null;
-    var OPEN = {};          // staff_id → 詳細を開いているか
+    var OPEN_ID = '';       // 詳細を開いている人（1人だけ）
     var ISSUE_FILTER = '';  // サマリーのチップで絞り込んでいる issue コード（'*' は「要対応すべて」）
 
     // issue コード → 画面の文言。「何が起きるか」まで書く（項目名だけだと重さが伝わらない）
@@ -208,7 +208,7 @@
         if (ISSUE_FILTER === '*' && r.issues.length === 0) return false;
         if (ISSUE_FILTER && ISSUE_FILTER !== '*' && r.issues.indexOf(ISSUE_FILTER) === -1) return false;
         if (q) {
-          var hay = (r.name + ' ' + r.staff_id + ' ' + r.email).toLowerCase();
+          var hay = (r.name + ' ' + r.staff_id + ' ' + r.studentNo + ' ' + r.email).toLowerCase();
           if (hay.indexOf(q) === -1) return false;
         }
         return true;
@@ -231,46 +231,64 @@
     function render() {
       renderSummary();
       var rows = visibleRows();
-      var host = document.getElementById('rows');
+      var host = document.getElementById('groups');
 
       document.getElementById('count').textContent =
         rows.length + ' 人を表示中（登録済み 全 ' + DATA.summary.total + ' 人：学生 ' +
         DATA.summary.students + ' 人・職員 ' + DATA.summary.staffMembers + ' 人）';
 
       if (rows.length === 0) {
-        host.innerHTML = '<tr><td colspan="8" class="state">該当する人がいません。</td></tr>';
+        host.innerHTML = '<p class="state">該当する人がいません。</p>';
       } else {
-        host.innerHTML = rows.map(function (r) {
-          return personRow(r) + (OPEN[r.staff_id] ? detailRow(r) : '');
+        host.innerHTML = groupsOf(rows).map(function (g) {
+          var open = g.rows.filter(function (r) { return r.staff_id === OPEN_ID; })[0];
+          return '<div class="ghead"><h3>' + escapeHtml(g.title) + '</h3><span class="n">' + g.rows.length + ' 人</span></div>' +
+            '<div class="pgrid">' + g.rows.map(personCard).join('') + '</div>' + (open ? detailHtml(open) : '');
         }).join('');
       }
       renderOrphans();
       document.getElementById('foot').textContent = '最終取得: ' + DATA.generatedAt;
     }
 
-    function personRow(r) {
-      // 「ログインできない」は他の欠けと重さが違うので赤、それ以外の欠けは黄色
-      var cls = 'person' +
-        (r.issues.indexOf('contact') !== -1 ? ' blocked' : (r.issues.length ? ' attn' : ''));
+    // 入学年度（メールの学籍番号の2桁）ごとにまとめる。古い年度から。読めない学生・職員は最後（D61）
+    function groupsOf(rows) {
+      var byKey = {};
+      var keys = [];
+      rows.forEach(function (r) {
+        var key = !r.isStudent ? '~staff' : (r.entryYear ? r.entryYear : '~unknown');
+        if (!byKey[key]) { byKey[key] = []; keys.push(key); }
+        byKey[key].push(r);
+      });
+      keys.sort();
+      return keys.map(function (k) {
+        var title = k === '~staff' ? '職員'
+          : k === '~unknown' ? '学籍番号が読めない学生'
+          : k + '（20' + k + '年度入学）';
+        return { title: title, rows: byKey[k] };
+      });
+    }
 
+    function personCard(r) {
+      // 「ログインできない」は他の欠けと重さが違うので赤、それ以外の欠けは黄色。学生で欠けが無ければ緑
+      var cls = 'pc' + (r.issues.indexOf('contact') !== -1 ? ' blocked'
+        : (r.issues.length ? ' attn' : (r.isStudent ? ' ok' : ''))) + (OPEN_ID === r.staff_id ? ' open' : '');
       var updated = r.slots_updated_at
         ? escapeHtml(r.slots_updated_at.slice(0, 10))
         : (r.isStudent ? '<span class="stale">未更新</span>' : '<span class="na">—</span>');
-
-      return '<tr class="' + cls + '" data-id="' + escapeAttr(r.staff_id) + '">' +
-        '<td><span class="who">' + escapeHtml(r.name || '（氏名なし）') +
-          '<span class="id">' + escapeHtml(r.staff_id) + '</span></span></td>' +
-        '<td><span class="role' + (r.isStudent ? '' : ' staff') + '">' +
-          escapeHtml(r.role || '—') + '</span></td>' +
-        '<td>' + escapeHtml(r.skills || '全対応') + '</td>' +
-        '<td class="num">' + (r.isStudent ? slotCells(r) : '<span class="na">—</span>') + '</td>' +
-        '<td>' + updated + '</td>' +
-        '<td class="num">' + r.courseCount + '</td>' +
-        '<td>' + ((r.isStudent || r.phone) ? mark(!!r.phone, escapeHtml(r.phone), '未登録')
-                                           : '<span class="na">—</span>') + '</td>' +
-        '<td>' + (r.isStudent ? mark(r.hasWebhook, '届く', '届かない')
-                              : '<span class="na">—</span>') + '</td>' +
-        '</tr>';
+      var kv = function (k, v) { return '<span>' + k + '</span><span>' + v + '</span>'; };
+      var body = '<div class="kv">' +
+        kv('業務', escapeHtml(r.skills || '全対応')) +
+        (r.isStudent ? kv('空きコマ', slotCells(r) + '<span class="na">（テイク/介助）</span>') : '') +
+        (r.isStudent ? kv('更新', updated) : '') +
+        kv('担当', r.courseCount + ' コマ') +
+        kv('電話', (r.isStudent || r.phone) ? mark(!!r.phone, escapeHtml(r.phone), '未登録') : '<span class="na">—</span>') +
+        (r.isStudent ? kv('通知', mark(r.hasWebhook, '届く', '届かない')) : '') +
+        '</div>';
+      return '<div class="' + cls + '" data-id="' + escapeAttr(r.staff_id) + '">' +
+        '<div class="top"><span class="nm">' + escapeHtml(r.name || '（氏名なし）') + '</span>' +
+          '<span class="sid">' + escapeHtml(r.studentNo || r.staff_id) + '</span>' +
+          (r.isStudent ? '' : '<span class="role staff">' + escapeHtml(r.role || '職員') + '</span>') + '</div>' +
+        body + '</div>';
     }
 
     // 業務ごとの空きコマ件数。対応しない業務は薄く、対応するのに0件なら赤で出す。
@@ -281,7 +299,7 @@
       }).join('<span class="na"> / </span>');
     }
 
-    function detailRow(r) {
+    function detailHtml(r) {
       var kv = function (k, v) {
         return '<dt>' + k + '</dt><dd' + (v ? '' : ' class="empty"') + '>' +
           (v ? escapeHtml(v) : '（未登録）') + '</dd>';
@@ -303,8 +321,11 @@
           }).join('') + '</ul>'
         : '<p class="hint">不足はありません。</p>';
 
-      return '<tr class="detail"><td colspan="8">' +
+      return '<div class="detail">' +
+        '<div class="dhead"><b>' + escapeHtml(r.name || '（氏名なし）') + '</b>' +
+          '<button type="button" class="btn sm" data-close="1">閉じる</button></div>' +
         '<dl class="dl">' +
+          kv('スタッフID', r.staff_id) +
           kv('メール', r.email) +
           kv('電話番号', r.phone) +
           '<dt>通知先URL</dt><dd' + (r.hasWebhook ? '' : ' class="empty"') + '>' +
@@ -315,7 +336,7 @@
         '</dl>' + todo +
         '<p class="hint">電話・通知先URL・空きコマ・対応業務は<b>本人がマイページから</b>直せます。' +
         '氏名と区分は<b>職員が名簿（staffs）で</b>直します。</p>' +
-        '</td></tr>';
+        '</div>';
     }
 
     function renderOrphans() {
@@ -333,12 +354,17 @@
     }
 
     // ── 操作 ────────────────────────────────────────────────
-    document.getElementById('rows').addEventListener('click', function (ev) {
-      var tr = ev.target.closest('tr.person');
-      if (!tr) return;
-      var id = tr.getAttribute('data-id');
-      OPEN[id] = !OPEN[id];
+    // 箱を押すと、そのまとまりの下に詳細を開く（もう一度押すか「閉じる」で閉じる。開くのは1人だけ）
+    document.getElementById('groups').addEventListener('click', function (ev) {
+      if (ev.target.closest('[data-close]')) { OPEN_ID = ''; render(); return; }
+      var box = ev.target.closest('.pc');
+      if (!box) return;
+      var id = box.getAttribute('data-id');
+      OPEN_ID = OPEN_ID === id ? '' : id;
       render();
+      // 詳細はまとまりの下に出るので、押した箱から離れていても見えるところまで送る（スマホは1列で長い）
+      var d = OPEN_ID && document.querySelector('#groups .detail');
+      if (d) d.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
 
     document.getElementById('summary').addEventListener('click', function (ev) {

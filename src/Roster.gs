@@ -87,11 +87,16 @@ function getStaffRoster() {
       if (contact && !phone) issues.push('phone');
     }
 
+    // 入学年度（メールの学籍番号から・D61）。名簿を「24」「25」…でまとめる
+    const sno = studentNoOfEmail_(contact ? contact.email : '');
+
     return {
       staff_id: staffId,
       name: String(s.name || '').trim(),
       role: role,
       isStudent: isStudent,
+      studentNo: sno.studentNo,
+      entryYear: sno.entryYear,
       skills: String(s.skills || '').trim(),   // 空欄は全対応扱い（D9）
       email: contact ? String(contact.email || '').trim() : '',
       phone: phone,

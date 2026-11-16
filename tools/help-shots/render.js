@@ -75,7 +75,7 @@ function viewAs(staffId) {
     return null;
   }
   const s = h.row('staffs', 'staff_id', staffId);
-  h.setUser({ staff_id: staffId, name: s.name, role: s.role, email: staffId.toLowerCase() + '@example.jp' });
+  h.setUser({ staff_id: staffId, name: s.name, role: s.role, email: h.row('contacts', 'staff_id', staffId).email });
   return G.getCurrentUser_();
 }
 

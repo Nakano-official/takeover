@@ -826,8 +826,15 @@
 
     // 時間割の枠は固定（サーバーが返した曜日・時限を常に全部使う）。
     // コマが無いセルも空欄の枠として残す。
-    function buildView(courses) {
-      return { courses: courses, days: DATA.days, periods: DATA.periods };
+    // 土日は、その週に授業があるときだけ列（スマホは曜日のボタン）を出す。ふだんは空の列で画面が狭くなるだけなので。
+    // 絞り込みでは消さない（絞り込みを変えるたびに列が出たり消えたりしないよう、その週のコマ全体で決める）
+    var WEEKEND = ['土', '日'];
+    function buildView(courses, weekCourses) {
+      var days = DATA.days.filter(function (d) {
+        if (WEEKEND.indexOf(d) === -1) return true;
+        return (weekCourses || courses).some(function (c) { return c.day === d; });
+      });
+      return { courses: courses, days: days, periods: DATA.periods };
     }
 
     // 絞り込みを適用して再描画
@@ -854,7 +861,7 @@
         });
       }
       updateFilterBadge();
-      VIEW = buildView(courses);
+      VIEW = buildView(courses, base);
       render();
     }
 
