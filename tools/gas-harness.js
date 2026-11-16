@@ -43,7 +43,7 @@ const DEFAULT_HEADERS = {
   staffs: ['staff_id', 'name', 'role', 'skills', 'available_slots', 'assist_slots',
     'personal_code', 'slots_updated_at'],
   courses: ['course_id', 'quarter', 'day', 'period', 'support_type', 'user_student',
-    'subject', 'instructor', 'room', 'staff_a_id', 'staff_b_id', 'note', 'date'],
+    'subject', 'instructor', 'room', 'staff_a_id', 'staff_b_id', 'note', 'date', 'move_before', 'move_after'],
   vacancies: ['vacancy_id', 'date', 'course_id', 'absent_staff_id', 'notify_status',
     'result', 'substitute_staff_id', 'close_notified_at', 'group_id'],
   responses: ['vacancy_id', 'staff_id', 'answer', 'answered_at'],
@@ -373,6 +373,12 @@ class Harness {
         if (!self.user) throw new Error('利用登録がありません。');
         if (self.user.role !== '職員') throw new Error('職員権限が必要です。');
         return self.user;   // 本番の requireStaff_ は user を返す（呼び出し側が staff_id を使う）
+      },
+      // code.js の requireEditorRun_ と同じ判定（code.js を読み込めば本物で上書きされる）
+      requireEditorRun_: function () {
+        const active = String(self.context.Session.getActiveUser().getEmail() || '').toLowerCase();
+        const effective = String(self.context.Session.getEffectiveUser().getEmail() || '').toLowerCase();
+        if (!active || active !== effective) throw new Error('この関数はスクリプトエディタから実行してください。');
       },
       getAppUrl_: function () { return 'https://example.invalid/app'; },
       readTerms_: function () { return copy(DB().terms); },

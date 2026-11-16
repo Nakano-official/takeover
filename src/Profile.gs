@@ -39,7 +39,8 @@ function getMyProfile() {
   // 空きコマの選択肢（曜日 × 時限）。曜日は WORK_DAYS（Constants.gs）、時限は時限マスタが唯一の出所。
   // 業務ごとに選べる時限が違いうるので（介助だけの移動枠など・D32）、どの業務で出せるかも返す。
   const periodRows = readRows_(SHEET.PERIODS).filter(function (p) {
-    return String(p.period).trim();
+    // 移動の枠は空きコマとして聞かない（D57・移動介助のコマを作らなくなったため）
+    return String(p.period).trim() && !isMovePeriod_(p);
   });
   const periods = periodRows.map(function (p) {
     return {

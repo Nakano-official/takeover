@@ -45,9 +45,10 @@ function getSignupContext() {
   const contact = findRowCI_(SHEET.CONTACTS, 'email', email);
   const existing = findRegistrationByEmail_(email);
 
-  // 空きコマはマイページと同じく業務ごとに聞く（D32・D54）。移動介助の枠は介助のタブにだけ出る。
+  // 空きコマはマイページと同じく業務ごとに聞く（D32・D54）。移動の枠は聞かない（D57）。
   const periods = readRows_(SHEET.PERIODS).filter(function (p) {
-    return String(p.period).trim();
+    // 移動の枠は空きコマとして聞かない（D57・移動介助のコマを作らなくなったため）
+    return String(p.period).trim() && !isMovePeriod_(p);
   }).map(function (p) {
     return {
       period: String(p.period).trim(),

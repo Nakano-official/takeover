@@ -175,7 +175,7 @@ function notifyNewVacancy_(vacancyId, reopened) {
   const nameById = buildNameMap_();
   const periodById = buildPeriodMap_();
   const p = periodById[String(course.period).trim()] || {};
-  const timeText = p.start_time ? p.start_time + '〜' + p.end_time : '';
+  const timeText = courseTimeText_(course, periodById);   // 移動を含む勤務時間（D58）
   const dateText = dateToStr_(vacancy.date);
   const slot = String(course.day).trim() + periodLabelOf_(course.period, p);
   const absentName = nameById[String(vacancy.absent_staff_id).trim()] || vacancy.absent_staff_id;
@@ -283,7 +283,7 @@ function notifyVacancyFilled_(vacancyId, substituteStaffId) {
   const nameById = buildNameMap_();
   const periodById = buildPeriodMap_();
   const p = periodById[String(course.period).trim()] || {};
-  const timeText = p.start_time ? p.start_time + '〜' + p.end_time : '';
+  const timeText = courseTimeText_(course, periodById);   // 移動を含む勤務時間（D58）
   const dateText = dateToStr_(vacancy.date);
   const slot = String(course.day).trim() + periodLabelOf_(course.period, p);
   const subId = String(substituteStaffId).trim();
@@ -384,7 +384,7 @@ function notifyVacancyClosed_(vacancyId, resultLabel) {
 
   const periodById = buildPeriodMap_();
   const p = periodById[String(course.period).trim()] || {};
-  const timeText = p.start_time ? p.start_time + '〜' + p.end_time : '';
+  const timeText = courseTimeText_(course, periodById);   // 移動を含む勤務時間（D58）
   const dateText = dateToStr_(vacancy.date);
   const slot = String(course.day).trim() + periodLabelOf_(course.period, p);
 
@@ -433,7 +433,7 @@ function notifySubstituteReleased_(vacancyId, substituteStaffId) {
 
   const periodById = buildPeriodMap_();
   const p = periodById[String(course.period).trim()] || {};
-  const timeText = p.start_time ? p.start_time + '〜' + p.end_time : '';
+  const timeText = courseTimeText_(course, periodById);   // 移動を含む勤務時間（D58）
   const dateText = dateToStr_(vacancy.date);
   const slot = String(course.day).trim() + periodLabelOf_(course.period, p);
   const name = buildNameMap_()[String(substituteStaffId).trim()] || substituteStaffId;
@@ -485,7 +485,7 @@ function notifyRecruitClosed_(vacancyId, reason, suggestion) {
   const nameById = buildNameMap_();
   const periodById = buildPeriodMap_();
   const p = periodById[String(course.period).trim()] || {};
-  const timeText = p.start_time ? p.start_time + '〜' + p.end_time : '';
+  const timeText = courseTimeText_(course, periodById);   // 移動を含む勤務時間（D58）
   const dateText = dateToStr_(vacancy.date);
   const slot = String(course.day).trim() + periodLabelOf_(course.period, p);
   const absentName = nameById[String(vacancy.absent_staff_id).trim()] || vacancy.absent_staff_id;

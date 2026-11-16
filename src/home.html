@@ -57,6 +57,9 @@
     .myview:hover { background: var(--brand-soft); }
     .myview input { margin: 0; }
     .cd-staff { display: block; color: var(--ok); margin-top: 3px; }
+    /* 担当は1人1行（シフト入力の時間割と同じ）。名前の途中で折り返さず、はみ出た分は横にずらして読む */
+    .cd-staff .nm { display: block; white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
+    .cd-staff .nm::-webkit-scrollbar { display: none; }
     .cd-room { display: block; color: var(--text-muted); margin-top: 1px; font-size: .88rem; }
     .cd-more { float: right; color: var(--text-faint); font-size: .82rem; }
     .tag { display: inline-block; font-size: .78rem; font-weight: 600; padding: 1px 9px;
@@ -321,7 +324,9 @@
       if (myOpen) cls += ' mine-open';
       else if (mine) cls += ' mine';
       else if (isOpen) cls += ' open';
-      var staff = escapeHtml(c.staffA || '—') + (c.staffB ? ' ・ ' + escapeHtml(c.staffB) : '');
+      var staff = [c.staffA || '—', c.staffB].filter(Boolean).map(function (name) {
+        return '<span class="nm">' + escapeHtml(name) + '</span>';
+      }).join('');
       var html = '<button type="button" class="cd ' + cls + '" onclick="openDetail(\'' +
         escapeAttr(c.course_id) + '\')">' +
         '<span class="cd-more">詳細 ›</span>' +
@@ -329,6 +334,8 @@
         (c.oneOffDate ? '<span class="tag once">単発</span>' : '') +
         '<span class="cd-staff">' + staff + '</span>';
       if (c.room) html += '<span class="cd-room">教室: ' + escapeHtml(c.room) + '</span>';
+      // 前後の移動があるときは、移動を含む勤務時間（D58）
+      if (c.workTime) html += '<span class="cd-room">勤務: ' + escapeHtml(c.workTime) + '（移動を含む）</span>';
       if (myOpen) html += '<span class="st st-myopen">✅ あなたが入れます</span>';
       else if (mine) html += '<span class="st st-mine">自分の担当</span>';
       else html += statusBadge(c);
@@ -553,6 +560,8 @@
         ['教室', escapeHtml(c.room || '—')],
         ['担当スタッフ', escapeHtml(c.staffA || '—') + (c.staffB ? ' ・ ' + escapeHtml(c.staffB) : '')],
       ];
+      // 前後の移動（D58）。移動の時間も勤務時間に入る
+      if (c.moveText) rows.splice(3, 0, ['移動', escapeHtml(c.moveText) + (c.workTime ? '（勤務 ' + escapeHtml(c.workTime) + '）' : '')]);
       // その日に欠勤・代行があれば、元の担当とは別に明示する
       if (c.absent && c.absent.length) rows.push(['この日の欠勤', escapeHtml(c.absent.join('・'))]);
       if (c.substitute) rows.push(['この日の代行', escapeHtml(c.substitute)]);

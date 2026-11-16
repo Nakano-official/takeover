@@ -243,17 +243,17 @@ h.check(staffRow('S101').available_slots === '火2', '古い形の slots はテ�
 h.check(staffRow('S101').assist_slots === '水3', '★古い画面からの保存でも介助を消さない');
 
 
-// ── 9) 業務限定の枠はその業務の表にだけ出る（D33）────────────
-h.section('9) 移動介助の枠はマイページの介助タブにだけ出る');
+// ── 9) 移動の枠はマイページに出さない（D57）────────────────
+// 移動介助のコマを作らなくなったので、空きコマとして聞かない。
+// 以前に保存した値（assist_slots の「月移動1-2」）は、画面を通さない経路では今まで通り受ける。
+h.section('9) 移動の枠はマイページに出さない（D57）');
 setup();
 h.add('periods', { period: '移動1-2', start_time: '09:00', end_time: '09:15',
   support_types: '介助', label: '移動介助' });
 asStudent();
 p = G.getMyProfile();
-const movePer = p.periods.filter(function (x) { return x.period === '移動1-2'; })[0];
-h.check(!!movePer && movePer.label === '移動介助', '表示名を渡す');
-h.check(JSON.stringify(movePer.supportTypes) === JSON.stringify(['介助']),
-  '★介助でしか選べない枠として渡す（画面はテイクのタブに出さない）');
+h.check(!p.periods.some(function (x) { return x.period === '移動1-2'; }), '★移動の枠は空きコマの表に出さない');
+h.check(p.periods.some(function (x) { return x.period === '1'; }), '授業の時限は出す');
 
 // 介助の空きコマとしては保存できる
 G.updateMyProfile({

@@ -10,7 +10,7 @@
  *
  * ■ 撮るものを足す・直すときは下の SHOTS だけを触る
  *   page    … render.js の SHOTS のキー（どの画面を開くか）
- *   device  … 'phone'（幅390）／'pc'（幅1280）。学生向けはスマホ、職員向けはPC
+ *   device  … 'phone'（幅390）／'pc'（幅1280）／'pcNarrow'（幅880）。学生向けはスマホ、職員向けはPC
  *   steps   … 撮る前の操作（click: 押すもの／run: 画面の中で実行する関数。ファイルを選ぶ操作など、
  *             押すだけでは作れない状態を作るときに使う）
  *   clip    … 写す範囲。並べた要素をすべて含む長方形を撮る
@@ -36,6 +36,8 @@ const IMG = path.join(__dirname, 'img');
 const DEVICES = {
   phone: { viewport: { width: 390, height: 1200 }, deviceScaleFactor: 1.5 },
   pc: { viewport: { width: 1280, height: 1000 }, deviceScaleFactor: 1 },
+  // シフト入力は時間割のために本文を広げた（D57）。入力カードの写真が横に間延びしてヘルプが重くならないよう、狭めて撮る
+  pcNarrow: { viewport: { width: 880, height: 1000 }, deviceScaleFactor: 1 },
 };
 const JPEG_QUALITY = 72;
 const MARK_COLOR = '#e5484d';
@@ -115,7 +117,7 @@ const SHOTS = [
     ] },
   { id: 'staff-4', page: 'staff-manage', device: 'pc',
     clip: ['.vac.done:has-text("V006")'], marks: [{ sel: '.vac.done:has-text("V006") .alt button' }] },
-  { id: 'staff-5', page: 'staff-input', device: 'pc',
+  { id: 'staff-5', page: 'staff-input', device: 'pcNarrow',
     clip: ['[id^="termtag-"] >> nth=0', '[id^="period-"] >> nth=0'],
     marks: [{ sel: '[id^="term-"] >> nth=0', n: 1 }] },
   // ── マイページ（スマホ・学生）──
@@ -155,7 +157,7 @@ const SHOTS = [
 
   // 時間割PDFから読み込んだ後（D52）。本物の PDF は使えないので、読み取り結果（架空）を画面に渡して
   // カードを並べる。カードを作る処理と結果欄は本物（buildPdfCards / renderPdfResult）
-  { id: 'staff-6', page: 'staff-input', device: 'pc',
+  { id: 'staff-6', page: 'staff-input', device: 'pcNarrow',
     steps: [{ run: demoPdfImport }],
     clip: ['#pdfBtn', '#pdfResult', '[id^="support_type-"] >> nth=0', '[id^="user_sel-"] >> nth=0'],
     marks: [

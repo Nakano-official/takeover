@@ -6,7 +6,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <?!= include('shared-styles') ?>
   <style>
-    :root { --main-max: 760px; }
+    /* 登録済みのコマを時間割で見せるので、シフト確認と同じく広めにする（D57）。
+       --help は介助の色（シフト確認と同じ） */
+    :root { --main-max: 1000px; --help: #c47f00; }
 
 
     label { display: block; font-size: .85rem; font-weight: 700; margin: 0 0 6px; }
@@ -55,20 +57,55 @@
     .toast.ok, .toast.err { display: block; }
 
     .count { font-size: .82rem; color: var(--text-muted); margin-bottom: 10px; }
-    /* 一覧は学期ごとに区切る（学期はカードごとに選ぶので、上部の学期の選択は無い・D52） */
-    .termhead { font-size: .9rem; font-weight: 700; color: var(--brand-ink); margin: 16px 0 2px;
-                padding-bottom: 4px; border-bottom: 2px solid var(--brand-border); }
-    .termhead:first-child { margin-top: 0; }
-    .termhead .n { font-weight: 400; color: var(--text-muted); font-size: .8rem; margin-left: 6px; }
+
+    /* ===== 登録済みのコマ＝学期ごとの時間割（D57）===== */
+    .tttabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+    .tttabs:empty { display: none; }
+    .tttabs button { border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
+                     border-radius: var(--radius-pill); padding: 5px 13px; font: inherit; font-size: .86rem;
+                     cursor: pointer; }
+    .tttabs button:hover { background: var(--brand-soft); border-color: var(--brand-border); }
+    .tttabs button.on { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 700; }
+    .tttabs button .n { font-size: .75rem; opacity: .8; margin-left: 4px; }
+    .ttwrap { overflow-x: auto; }
+    table.tt { border-collapse: collapse; width: 100%; min-width: 760px; table-layout: fixed; }
+    table.tt th, table.tt td { border: 1px solid var(--border); vertical-align: top; padding: 4px; }
+    table.tt thead th { background: var(--surface-alt); font-size: .85rem; padding: 6px 4px; }
+    table.tt th.per { width: 62px; background: var(--surface-alt); font-size: .85rem; }
+    table.tt th.per small { display: block; font-weight: 400; color: var(--text-muted); font-size: .68rem; }
+    /* 時間割の中の1コマ。左の色帯でテイク／介助 */
+    .cc { border: 1px solid var(--border); border-left: 3px solid var(--brand); border-radius: var(--radius-sm);
+          padding: 4px 6px; margin-bottom: 4px; font-size: .78rem; line-height: 1.45; background: var(--surface); }
+    .cc:last-child { margin-bottom: 0; }
+    .cc.help { border-left-color: var(--help); }
+    .cc.editing { background: #fff8e6; border-color: var(--warn-border); }
+    .cc .u { font-weight: 700; }
+    .cc .tp { font-size: .68rem; font-weight: 700; color: var(--brand-ink); margin-right: 3px; }
+    .cc.help .tp { color: var(--help); }
+    .cc .s { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* 担当は1人1行。名前が長くても途中で折り返さず、はみ出た分は横にずらして読む */
+    .cc .st { color: var(--ok); white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
+    .cc .st::-webkit-scrollbar { display: none; }
+    .cc .st.none { color: var(--danger); }
+    .cc .nt { color: var(--text-muted); font-size: .72rem; white-space: pre-wrap; }
+    .cc .wt { color: var(--help); font-size: .72rem; white-space: nowrap; }
+    .movebox label { font-weight: 600; cursor: pointer; }
+    .movebox input { width: auto; }
+    .cc .cops { display: flex; gap: 4px; margin-top: 4px; }
+    .cc .cops .btn { padding: 1px 7px; font-size: .72rem; }
+    .subhead { font-size: .9rem; font-weight: 700; color: var(--brand-ink); margin: 18px 0 2px;
+               padding-bottom: 4px; border-bottom: 2px solid var(--brand-border); }
+
+    /* 時間割の下に出す一覧（この日だけのコマ・時間割の枠に入らないコマ） */
     .row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0;
            border-top: 1px solid var(--border); }
-    .row:first-child, .termhead + .row { border-top: none; }
+    .subhead + .row { border-top: none; }
     .row .info { flex: 1; font-size: .88rem; line-height: 1.55; }
     .row .slot { font-weight: 700; color: var(--brand-ink); }
     .row .tag { display: inline-block; font-size: .7rem; padding: 0 7px;
                 border-radius: var(--radius-pill); color: #fff; margin-left: 6px; vertical-align: 1px; }
     .row .tag.take { background: var(--brand); }
-    .row .tag.help { background: #d98a00; }
+    .row .tag.help { background: var(--help); }
     /* 単発コマ（D27）＝その日1回だけ。毎週のコマと一覧で見分けられるよう別色にする */
     .row .tag.once { background: var(--warn); }
     .row .sub { color: var(--text-muted); }
@@ -100,7 +137,7 @@
       <p class="hint">利用学生の<b>受講登録確認表</b>（PDF）を選ぶと、授業ごとのカードが下に並びます。
         <b>内容（テイク／介助）と担当を選んでから</b>登録してください。
         PDFはこの端末の中だけで読み取り、どこにも送りません。
-        教室はPDFに載っていないので、決まったら一覧の「編集」で入れてください。</p>
+        教室はPDFに載っていないので、決まったら下の時間割の「編集」で入れてください。</p>
       <div id="pdfResult"></div>
     </div>
 
@@ -120,13 +157,16 @@
         毎週のコマでは、担当欄に「選んだ曜日・時限に空きがあり内容に対応できる人」だけを表示します。
         「この日だけ」（特別授業・説明会など）では<b>全員から選べます</b>
         （空きコマは毎週の予定なので、その日の予定を表さないため）。
-        登録済みのコマは下の一覧の「編集」から修正できます（教室が後から決まった場合など）。</p>
+        登録済みのコマは下の時間割の「編集」から修正できます（教室が後から決まった場合など）。
+        介助では、授業の前後の移動があれば<b>「前の移動あり／後の移動あり」</b>にチェックを入れます
+        （移動の時間も勤務時間に入ります）。</p>
       <div id="toast" class="toast"></div>
     </div>
 
     <div class="card">
       <h2>登録済みのコマ</h2>
       <div id="count" class="count"></div>
+      <div id="ttTabs" class="tttabs" role="tablist" aria-label="学期"></div>
       <div id="list" class="state">—</div>
     </div>
   </main>
@@ -196,7 +236,7 @@
     }
 
     // カードを1枚足す。from を渡すと、その内容を引き継ぐ（科目・教員・教室・備考は空）。
-    // 引き継ぐのは曜日・時限・内容・利用者・担当・移動のチェックで、
+    // 引き継ぐのは曜日・時限・内容・利用者・担当で、
     // 「同じ利用者の別のコマを続けて入れる」という実際の使い方に合わせている。
     // opts.pickType … 内容（テイク／介助）を未選択から始める（PDFから作るカード・D52）
     // opts.term     … カードの学期（PDFから作るカードは行ごとの開講期から決まる）
@@ -250,8 +290,8 @@
         }
       }
       el(to, 'eligOnly').checked = el(from, 'eligOnly').checked;
-      ['withMoveBefore', 'withMoveAfter'].forEach(function (name) {
-        if (el(from, name) && el(to, name)) el(to, name).checked = el(from, name).checked;
+      ['move_before', 'move_after'].forEach(function (name) {
+        el(to, name).checked = el(from, name).checked;
       });
       rebuildStaff(to);
       ['staff_a_id', 'staff_b_id'].forEach(function (name) {
@@ -291,8 +331,7 @@
             '<input type="date" id="date-' + n + '" onchange="onDateChange(' + n + ')">' +
             '<div class="hint" id="dateDay-' + n + '" style="margin:4px 0 0"></div></div>' +
           '<div><label>時限<span class="req">*</span></label>' +
-            '<select id="period-' + n + '" onchange="onPeriodChange(' + n + ')"></select>' +
-            '<div class="hint" id="periodNote-' + n + '" style="margin:4px 0 0"></div></div>' +
+            '<select id="period-' + n + '" onchange="onPeriodChange(' + n + ')"></select></div>' +
           '<div><label>内容<span class="req">*</span></label>' +
             '<select id="support_type-' + n + '" onchange="onTypeChange(' + n + ')">' +
             (opts.pickType ? '<option value="">（選んでください）</option>' : '') +
@@ -305,14 +344,13 @@
           '<div><label>担当教員</label><input id="instructor-' + n + '" placeholder="例：（仮）教員A"></div>' +
           '<div><label>教室</label><input id="room-' + n + '" placeholder="例：1-101"></div>' +
           '<div></div>' +
-          '<div class="full" id="moveBox-' + n + '" style="display:none">' +
-            '<label id="moveBeforeRow-' + n + '" style="font-weight:600;cursor:pointer;display:none">' +
-            '<input type="checkbox" id="withMoveBefore-' + n + '" checked style="width:auto">' +
-            '<span id="moveBeforeLabel-' + n + '"></span></label>' +
-            '<label id="moveAfterRow-' + n + '" style="font-weight:600;cursor:pointer;display:none">' +
-            '<input type="checkbox" id="withMoveAfter-' + n + '" checked style="width:auto">' +
-            '<span id="moveAfterLabel-' + n + '"></span></label>' +
-            '<div class="hint" id="moveHint-' + n + '" style="margin:4px 0 0"></div></div>' +
+          // 介助の授業の前後の移動（D58）。別のコマにはせず、このコマの印として持つ。移動の時間も勤務時間に入る
+          '<div class="full movebox" id="moveBox-' + n + '" style="display:none">' +
+            '<label id="moveBeforeRow-' + n + '"><input type="checkbox" id="move_before-' + n + '" checked> ' +
+              '<span id="moveBeforeLabel-' + n + '"></span></label>' +
+            '<label id="moveAfterRow-' + n + '"><input type="checkbox" id="move_after-' + n + '" checked> ' +
+              '<span id="moveAfterLabel-' + n + '"></span></label>' +
+            '<div class="hint" style="margin:4px 0 0">移動の時間も勤務時間に入ります。移動が要らないときは外してください。</div></div>' +
           '<div class="full"><label style="font-weight:600;cursor:pointer">' +
             '<input type="checkbox" id="eligOnly-' + n + '" checked onchange="rebuildStaff(' + n + ')" style="width:auto">' +
             ' このコマに空きがあり、スキルも合う人だけ表示</label>' +
@@ -437,9 +475,7 @@
 
     /**
      * その内容で選べる時限だけの <option>（D33）。
-     * ここを絞らないとテイクを移動介助の枠に登録でき、そのコマは
-     * **代行候補が永久に0人**になる（テイクの空きコマ表に移動枠は無いため）。
-     * サーバー側（validateCoursePayload_）でも同じ検証をしている。
+     * 移動の枠はサーバーが渡さない（D57）ので、ここに来るのは授業の時限だけ。
      */
     function periodOptions(type) {
       return DATA.periods.filter(function (p) {
@@ -458,20 +494,24 @@
       var sel = el(n, 'period');
       if (!sel) return;
       var keep = sel.value;
-      var type = v(n, 'support_type');
-      sel.innerHTML = periodOptions(type);
+      sel.innerHTML = periodOptions(v(n, 'support_type'));
       if (keep) sel.value = keep;
       if (!sel.value && sel.options.length) sel.selectedIndex = 0;
+    }
 
-      var note = el(n, 'periodNote');
-      if (note) {
-        var limited = DATA.periods.filter(function (p) {
-          return (p.supportTypes || []).indexOf(type) !== -1 && (p.supportTypes || []).length < 2;
-        });
-        note.textContent = limited.length
-          ? '「' + limited[0].label + '」は授業のあいだの枠です（' + type + 'のみ）。'
-          : '';
-      }
+    /**
+     * 時限・内容が変わったら、前後の移動のチェックを出し分け（D58）、担当の候補を組み直す。
+     * 移動は介助で、その授業に移動の枠があるときだけ出す。前と後は別の枠（2限のあとの食堂など・D35）。
+     */
+    function onPeriodChange(n) {
+      var per = currentPeriod(n);
+      var help = v(n, 'support_type') === '介助';
+      var before = help && per ? per.moveBefore : null;
+      var after = help && per ? per.moveAfter : null;
+      setMoveRow(n, 'Before', before, 'この授業の前の移動あり');
+      setMoveRow(n, 'After', after, 'この授業のあとの移動あり');
+      el(n, 'moveBox').style.display = (before || after) ? '' : 'none';
+      rebuildStaff(n);
     }
 
     // いま選んでいる時限（サーバーから来た定義）
@@ -480,48 +520,19 @@
       return (DATA.periods || []).filter(function (p) { return p.period === key; })[0] || null;
     }
 
-    /**
-     * 選んでいる授業にくっついた移動枠があれば、「一緒に登録」を出す（D34・D35）。
-     * 前と後は別の枠。2限のあと（食堂へ運ぶ）と3限の前は、同じ昼休みの中に並ぶが
-     * 担当する人が違うので、片方だけ出ることもある。
-     */
-    function onPeriodChange(n) {
-      var box = el(n, 'moveBox');
-      if (box) {
-        var per = currentPeriod(n);
-        var isMoveItself = per && (per.supportTypes || []).length < 2;
-        var eligible = per && !isMoveItself && v(n, 'support_type') === '介助' && !isOnce(n);
-        var before = eligible ? per.moveBefore : null;
-        var after = eligible ? per.moveAfter : null;
-        setMoveRow(n, 'Before', before, 'この授業の前の');
-        setMoveRow(n, 'After', after, 'この授業のあとの');
-        if (before || after) {
-          box.style.display = '';
-          el(n, 'moveHint').textContent =
-            '同じ担当・同じ利用者で、教室はこの授業の教室を引き継ぎます。移動が不要ならチェックを外してください。';
-        } else {
-          box.style.display = 'none';
-        }
-      }
-      rebuildStaff(n);
-    }
-
-    function setMoveRow(n, side, mv, prefix) {
+    function setMoveRow(n, side, mv, text) {
       var row = el(n, 'move' + side + 'Row');
-      if (!row) return;
       if (!mv) { row.style.display = 'none'; return; }
       row.style.display = '';
-      el(n, 'move' + side + 'Label').textContent =
-        '　' + prefix + mv.label + 'も一緒に登録する（' + mv.time + '）';
+      el(n, 'move' + side + 'Label').textContent = text + '（' + mv.time + '）';
     }
 
     // チェックが画面に出ていて、かつオンか
     function moveChecked(n, side) {
       var box = el(n, 'moveBox');
       var row = el(n, 'move' + side + 'Row');
-      if (!box || box.style.display === 'none') return false;
-      if (!row || row.style.display === 'none') return false;
-      return el(n, 'withMove' + side).checked;
+      if (!box || box.style.display === 'none' || !row || row.style.display === 'none') return false;
+      return el(n, 'move_' + side.toLowerCase()).checked;
     }
 
     // 担当A/Bの候補を「空き＋スキル」で組み直す（選択中の値は可能なら維持）
@@ -579,8 +590,8 @@
         staff_a_id: v(n, 'staff_a_id'),
         staff_b_id: el(n, 'staff_b_id').disabled ? '' : v(n, 'staff_b_id'),
         note: v(n, 'note').trim(),
-        withMoveBefore: moveChecked(n, 'Before'),
-        withMoveAfter: moveChecked(n, 'After'),
+        move_before: moveChecked(n, 'Before'),
+        move_after: moveChecked(n, 'After'),
       };
     }
 
@@ -645,6 +656,8 @@
 
       if (queue.length === 0) {
         showToast(doneSummary(done) + '。', true);
+        // 時間割は、最後に登録した学期を開く（いま入れたコマがすぐ見えるように）
+        if (done.length) TT_TERM = done[done.length - 1].term;
         clearPdfResult();
         buildForm();          // カードを1枚に戻す
         refreshList();
@@ -658,7 +671,7 @@
 
       google.script.run
         .withSuccessHandler(function (res) {
-          var ids = [res.course_id].concat(res.move_course_ids || []);
+          var ids = [res.course_id];
           var term = v(n, 'term');
           markCard(n, 'ok', '✅ ' + ids.join('・'));
           var node = document.getElementById('card-' + n);
@@ -909,8 +922,8 @@
       el(n, 'staff_a_id').value = c.staff_a_id || '';
       var b = el(n, 'staff_b_id');
       if (!b.disabled) b.value = c.staff_b_id || '';
-      // 編集では移動介助の同時作成を出さない（既存の1コマを直す操作のため・D34）
-      el(n, 'moveBox').style.display = 'none';
+      el(n, 'move_before').checked = !!c.move_before;
+      el(n, 'move_after').checked = !!c.move_after;
 
       document.getElementById('formTitle').textContent = 'コマを編集（' + id + '）';
       renderFormChrome();
@@ -963,54 +976,139 @@
         .deleteCourse(id);
     }
 
+    // ===== 登録済みのコマ＝学期ごとの時間割（D57）=====
+    //
+    // 以前は学期ごとに区切った一覧だった。コマが増えると「その曜日・時限に誰が入っているか」を
+    // 探しにくいので、シフト確認と同じ曜日×時限の表にする。学期はタブで切り替える
+    // （後期とクォーターを1つの表に重ねると、同じ枠に別の学期のコマが並んで読み違えるため）。
+    // 「この日だけ」のコマと、表の枠に入らないコマ（日曜など）は表の下に一覧で出す。
+    var TT_TERM = null;   // 表示中の学期
+
     function renderList() {
       var host = document.getElementById('list');
-      var countEl = document.getElementById('count');
-      var courses = DATA.courses;
-      // 終わっていない学期のコマを、学期ごとに区切って出す（並びはサーバーが学期順にしている）
-      countEl.textContent = '終わっていない学期のコマ: ' + courses.length + ' 件'
-        + '（終わった学期のコマは一覧に出しません）';
+      var tabs = document.getElementById('ttTabs');
+      var courses = DATA.courses || [];
+      document.getElementById('count').textContent =
+        '終わっていない学期のコマ: ' + courses.length + ' 件（終わった学期のコマは出しません）';
       if (courses.length === 0) {
+        tabs.innerHTML = '';
         host.className = 'state';
         host.textContent = 'まだコマがありません。上のフォームから追加してください。';
         return;
       }
+
+      // 学期の並びはサーバーが決めている（始まりの早い順・同じ日ならセメスターが先）
+      var terms = [];
       var perTerm = {};
-      courses.forEach(function (c) { perTerm[c.quarter] = (perTerm[c.quarter] || 0) + 1; });
-      var lastTerm = null;
-      host.className = '';
-      host.innerHTML = courses.map(function (c) {
-        var head = '';
-        if (c.quarter !== lastTerm) {
-          lastTerm = c.quarter;
-          head = '<div class="termhead">' + escapeHtml(c.quarter || '（学期なし）')
-            + '<span class="n">' + perTerm[c.quarter] + '件</span></div>';
-        }
-        var isTake = c.support_type === 'テイク';
-        var staff = escapeHtml(c.staffA || '—') + (c.staffB ? ' ・ ' + escapeHtml(c.staffB) : '');
-        // 単発コマは曜日ではなく実施日で示す（毎週のコマと読み分けられるように）
-        var slot = c.date
-          ? escapeHtml(dateLabel(c.date)) + escapeHtml(c.periodLabel || (c.period + '限'))
-          : escapeHtml(c.day) + escapeHtml(c.periodLabel || (c.period + '限'));
-        var info =
-          '<span class="slot">' + slot + '</span>' +
-          '<span class="tag ' + (isTake ? 'take' : 'help') + '">' + escapeHtml(c.support_type) + '</span>' +
-          (c.date ? '<span class="tag once">単発</span>' : '') +
-          ' <b>' + escapeHtml(c.user_student) + '</b>' +
-          '<div class="sub">' + escapeHtml(c.subject || '—')
-            + (c.room ? ' / ' + escapeHtml(c.room) : '')
-            + (c.instructor ? ' / ' + escapeHtml(c.instructor) : '') + '</div>' +
-          '<div class="stf">担当: ' + staff + '</div>' +
-          (c.note ? '<div class="sub">備考: ' + escapeHtml(c.note) + '</div>' : '');
-        // ID も属性の値として持たせ、onclick 側で読む（シートを手で直した ID に記号が入っていても壊れない）
-        var cid = escapeAttr(c.course_id);
-        var editing = (c.course_id === EDIT_ID) ? ' editing' : '';
-        return head + '<div class="row' + editing + '"><div class="info">' + info + '</div>' +
-          '<div class="ops">' +
-            '<button class="btn sm ed" data-id="' + cid + '" onclick="editCourse(this.getAttribute(\'data-id\'))">編集</button>' +
-            '<button class="btn sm del" data-id="' + cid + '" onclick="delCourse(this.getAttribute(\'data-id\'))">削除</button>' +
-          '</div></div>';
+      courses.forEach(function (c) {
+        if (!perTerm[c.quarter]) { perTerm[c.quarter] = 0; terms.push(c.quarter); }
+        perTerm[c.quarter]++;
+      });
+      if (terms.indexOf(TT_TERM) === -1) {
+        TT_TERM = terms.indexOf(DATA.quarter) !== -1 ? DATA.quarter : terms[0];
+      }
+      tabs.innerHTML = terms.map(function (t) {
+        var on = t === TT_TERM;
+        return '<button type="button" role="tab" aria-selected="' + on + '"' + (on ? ' class="on"' : '') +
+          ' data-term="' + escapeAttr(t) + '" onclick="pickTerm(this.getAttribute(\'data-term\'))">' +
+          escapeHtml(t || '（学期なし）') + '<span class="n">' + perTerm[t] + '</span></button>';
       }).join('');
+
+      var mine = courses.filter(function (c) { return c.quarter === TT_TERM; });
+      var days = DATA.days || [];
+      var periods = DATA.periods || [];
+      var cell = {};
+      var outside = [];
+      var once = [];
+      mine.forEach(function (c) {
+        if (c.date) { once.push(c); return; }
+        var inGrid = days.indexOf(c.day) !== -1 &&
+          periods.some(function (p) { return p.period === c.period; });
+        if (!inGrid) { outside.push(c); return; }
+        var key = c.day + '|' + c.period;
+        (cell[key] = cell[key] || []).push(c);
+      });
+
+      var head = '<tr><th class="per"></th>' + days.map(function (d) {
+        return '<th>' + escapeHtml(d) + '</th>';
+      }).join('') + '</tr>';
+      var body = periods.map(function (p) {
+        return '<tr><th class="per">' + escapeHtml(p.label || (p.period + '限')) +
+          (p.time ? '<small>' + escapeHtml(p.time) + '</small>' : '') + '</th>' +
+          days.map(function (d) {
+            return '<td>' + (cell[d + '|' + p.period] || []).map(chipHtml).join('') + '</td>';
+          }).join('') + '</tr>';
+      }).join('');
+
+      var html = '<div class="ttwrap"><table class="tt"><thead>' + head + '</thead><tbody>' + body +
+        '</tbody></table></div>';
+      if (once.length) {
+        html += '<div class="subhead">この日だけのコマ（' + once.length + '件）</div>' + once.map(rowHtml).join('');
+      }
+      if (outside.length) {
+        html += '<div class="subhead">時間割の枠に入らないコマ（' + outside.length + '件）</div>' +
+          '<p class="hint">業務のない曜日や、時限の設定に無い時限のコマです。必要なければ削除してください。</p>' +
+          outside.map(rowHtml).join('');
+      }
+      host.className = '';
+      host.innerHTML = html;
+    }
+
+    function pickTerm(t) {
+      TT_TERM = t;
+      renderList();
+    }
+
+    // 時間割の中の1コマ。名前などの文字は属性に入れず、ボタンには ID だけを持たせる
+    function chipHtml(c) {
+      var isTake = c.support_type === 'テイク';
+      var cid = escapeAttr(c.course_id);
+      // 担当A・Bは1人1行（名前の途中で折り返さない）。title で全部の名前も読めるようにする
+      var staff = [c.staffA, c.staffB].filter(Boolean).map(function (name) {
+        return '<div class="st" title="' + escapeAttr(name) + '">' + escapeHtml(name) + '</div>';
+      }).join('');
+      return '<div class="cc' + (isTake ? '' : ' help') + (c.course_id === EDIT_ID ? ' editing' : '') + '">' +
+        '<div><span class="tp">' + escapeHtml(c.support_type) + '</span><span class="u">' +
+          escapeHtml(c.user_student) + '</span></div>' +
+        (c.subject || c.room
+          ? '<div class="s">' + escapeHtml(c.subject || '') + (c.room ? '（' + escapeHtml(c.room) + '）' : '') + '</div>'
+          : '') +
+        (staff || '<div class="st none">担当未定</div>') +
+        // 前後の移動があるときだけ、移動を含む勤務時間（D58）。時限の時刻と違うことで移動があると分かる
+        (c.workTime ? '<div class="wt" title="前後の移動を含む勤務時間">勤務 ' + escapeHtml(c.workTime) + '</div>' : '') +
+        (c.note ? '<div class="nt">' + escapeHtml(c.note) + '</div>' : '') +
+        '<div class="cops">' +
+          '<button class="btn sm ed" data-id="' + cid + '" onclick="editCourse(this.getAttribute(\'data-id\'))">編集</button>' +
+          '<button class="btn sm del" data-id="' + cid + '" onclick="delCourse(this.getAttribute(\'data-id\'))">削除</button>' +
+        '</div></div>';
+    }
+
+    // 時間割の下の一覧の1行（この日だけのコマ・枠に入らないコマ）
+    function rowHtml(c) {
+      var isTake = c.support_type === 'テイク';
+      var staff = escapeHtml(c.staffA || '—') + (c.staffB ? ' ・ ' + escapeHtml(c.staffB) : '');
+      // 単発コマは曜日ではなく実施日で示す（毎週のコマと読み分けられるように）
+      var slot = c.date
+        ? escapeHtml(dateLabel(c.date)) + escapeHtml(c.periodLabel || (c.period + '限'))
+        : escapeHtml(c.day) + escapeHtml(c.periodLabel || (c.period + '限'));
+      var info =
+        '<span class="slot">' + slot + '</span>' +
+        '<span class="tag ' + (isTake ? 'take' : 'help') + '">' + escapeHtml(c.support_type) + '</span>' +
+        (c.date ? '<span class="tag once">単発</span>' : '') +
+        ' <b>' + escapeHtml(c.user_student) + '</b>' +
+        '<div class="sub">' + escapeHtml(c.subject || '—')
+          + (c.room ? ' / ' + escapeHtml(c.room) : '')
+          + (c.instructor ? ' / ' + escapeHtml(c.instructor) : '') + '</div>' +
+        '<div class="stf">担当: ' + staff + '</div>' +
+        (c.workTime ? '<div class="sub">勤務: ' + escapeHtml(c.workTime) + '（移動を含む）</div>' : '') +
+        (c.note ? '<div class="sub">備考: ' + escapeHtml(c.note) + '</div>' : '');
+      var cid = escapeAttr(c.course_id);
+      var editing = (c.course_id === EDIT_ID) ? ' editing' : '';
+      return '<div class="row' + editing + '"><div class="info">' + info + '</div>' +
+        '<div class="ops">' +
+          '<button class="btn sm ed" data-id="' + cid + '" onclick="editCourse(this.getAttribute(\'data-id\'))">編集</button>' +
+          '<button class="btn sm del" data-id="' + cid + '" onclick="delCourse(this.getAttribute(\'data-id\'))">削除</button>' +
+        '</div></div>';
     }
 
     function showToast(msg, ok) {
