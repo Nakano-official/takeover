@@ -83,6 +83,34 @@ h.check(termRow('2026-3Q').start_date === '2026-09-18' && termRow('2026-3Q').end
   '3Q の行は「一番早い曜日の始まり〜一番遅い曜日の終わり」');
 h.check(termRow('2026-4Q').start_date === '2026-11-16', '4Q の行の開始は一番早い曜日（月11/16）');
 
+h.section('1e) 二重起用の判定は、クォーターを曜日ごとの期間で比べる');
+// 行どうし（3Q 〜11/21 と 4Q 11/16〜）で比べると重なって見え、3Q の担当を 4Q の同じコマに入れられなかった
+const terms = G.readTerms_();
+const cal2 = G.classCalendar_();
+['月', '火', '水', '木', '金', '土'].forEach(function (d) {
+  const set = G.concurrentTermSet_('2026-4Q', terms, d, cal2);
+  h.check(!set['2026-3Q'], '★' + d + '曜：4Q と 3Q は同時ではない（同じ人を続けて入れられる）');
+});
+h.check(G.concurrentTermSet_('2026-4Q', terms, '月', cal2)['2026-後期'] === true, '4Q と後期は同時（同じ時間に2か所は弾く）');
+h.check(G.concurrentTermSet_('2026-後期', terms, '火', cal2)['2026-3Q'] === true, '後期と 3Q も同時');
+h.check(!G.concurrentTermSet_('2026-4Q', terms, '月', cal2)['2026-前期'], '前期とは同時ではない');
+
+// 実際の登録で確かめる（3Q の月3 に入っている人を、4Q の月3 に入れる）
+h.add('periods', { period: '3', start_time: '13:15', end_time: '14:45' });
+h.add('staffs', { staff_id: 'S1', name: '学生A', role: '学生', skills: 'テイク' });
+h.add('staffs', { staff_id: 'T1', name: '職員', role: '職員' });
+h.add('contacts', { staff_id: 'S1', name: '学生A', email: 's1@example.jp' });
+h.add('contacts', { staff_id: 'T1', name: '職員', email: 't1@example.jp' });
+h.setUser({ staff_id: 'T1', name: '職員', role: '職員', email: 't1@example.jp' });
+const pay = (q) => ({ quarter: q, day: '月', period: '3', support_type: 'テイク', user_student: '架空 花子', staff_a_id: 'S1' });
+G.addCourse(pay('2026-3Q'));
+let err = null;
+try { G.addCourse(pay('2026-4Q')); } catch (e) { err = e.message; }
+h.check(err === null, '★3Q の月3 の担当を、4Q の月3 にも登録できる：' + (err || 'OK'));
+err = null;
+try { G.addCourse(pay('2026-後期')); } catch (e) { err = e.message; }
+h.check(/既に別のコマ/.test(err || ''), '後期の月3 には入れない（4Q と同じ時間）');
+
 // ── 2) 画面へ渡すデータと欠勤連絡（今日からの相対）──────────────────
 h.section('2) 時間割と欠勤連絡');
 h.reset();

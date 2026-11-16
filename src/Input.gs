@@ -262,7 +262,7 @@ function validateCoursePayload_(p, excludeCourseId) {
   // 後期と 3Q のように別の学期でも期間が重なれば、同じ時間に2か所へ入ることになる（D52）。
   // 単発同士は日付が違えばぶつからない（occurrencesOverlap_・D27）。
   const exclude = String(excludeCourseId || '').trim();
-  const sameTime = concurrentTermSet_(quarter, terms);
+  const sameTime = concurrentTermSet_(quarter, terms, day, classCalendar_());
   const assigned = {};
   readRows_(SHEET.COURSES).forEach(function (c) {
     if (exclude && String(c.course_id).trim() === exclude) return;
@@ -293,22 +293,37 @@ function validateCoursePayload_(p, excludeCourseId) {
 }
 
 /**
- * その学期と**同時に授業がある**学期の集合（自分を含む）。二重起用チェック用（D52）。
+ * その学期と、**その曜日に同時に授業がある**学期の集合（自分を含む）。二重起用チェック用（D52）。
+ *
+ * クォーターは**曜日ごとの期間**で比べる（D53）。`terms` のクォーターの行は「一番早い曜日の始まり〜
+ * 一番遅い曜日の終わり」なので、行どうしで比べると 3Q（〜11/21）と 4Q（11/16〜）が重なって見え、
+ * 3Q と 4Q で同じ曜日・時限に入る人（よくある形）が全員「二重起用」で弾かれていた。
+ * 曜日ごとに見れば、同じ曜日の 3Q の終わりと 4Q の始まりは重ならない。
  *
  * Terms.gs の overlappingTermIds_ と違い、**境目の1日だけ重なるものは数えない**。
- * 学期設定で 1Q の終わりと 2Q の始まりを同じ日にしてしまうと、1Q と 2Q で同じ曜日・時限に
- * 入っている人（よくある形）が全員「二重起用」で登録できなくなるため。
  * 日付が入っていない学期は、同じ学期どうしだけを同時とみなす。
+ *
+ * @param {string} termId
+ * @param {Array}  terms   readTerms_() の結果
+ * @param {string} [day]   曜日。cal と一緒に渡すとクォーターを曜日ごとの期間で比べる
+ * @param {Object} [cal]   classCalendar_() の結果
  */
-function concurrentTermSet_(termId, terms) {
+function concurrentTermSet_(termId, terms, day, cal) {
   const set = {};
   set[termId] = true;
+  const rangeOf = function (t) {
+    const r = (day && cal) ? termRangeOn_(cal, t.term_id, day) : null;
+    if (r && r.start && r.end) return r;
+    return (t.start_date && t.end_date) ? { start: t.start_date, end: t.end_date } : null;
+  };
   var target = null;
   (terms || []).forEach(function (t) { if (t.term_id === termId) target = t; });
-  if (!target || !target.start_date || !target.end_date) return set;
+  const mine = target ? rangeOf(target) : null;
+  if (!mine) return set;
   terms.forEach(function (t) {
-    if (!t.start_date || !t.end_date) return;
-    if (t.start_date < target.end_date && target.start_date < t.end_date) set[t.term_id] = true;
+    const r = rangeOf(t);
+    if (!r) return;
+    if (r.start < mine.end && mine.start < r.end) set[t.term_id] = true;
   });
   return set;
 }
