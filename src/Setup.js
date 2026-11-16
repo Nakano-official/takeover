@@ -1187,6 +1187,8 @@ function currentYearTermsTemplate_() {
  */
 // 授業の無い日（D53）の列
 const NO_CLASS_HEADERS = ['no_class_id', 'start_date', 'end_date', 'from_period', 'reason'];
+// 個別の休講（D60）。その日のそのコマだけ。授業そのもの（courses）は消さない
+const CANCELLATION_HEADERS = ['cancellation_id', 'course_id', 'date', 'reason', 'created_by', 'created_at'];
 
 /**
  * 既存のメインDBに no_class_days（授業の無い日）シートを足す（D53）。GASエディタから1回実行。
@@ -1286,6 +1288,87 @@ function migrateMoveCoursesToFlags() {
     Logger.log('   授業のコマの担当・利用者が移動と違う可能性があります。シフト入力でその授業に印を付けてから、もう一度実行してください。');
   }
   return { flagged: flagged, deleted: deleted, kept: kept.length, orphan: orphan.length };
+}
+
+/**
+ * 利用者の名前の書き方のばらつきを、ログに出して確かめる（D59）。何も書き換えない。
+ * 「龍谷太郎」「龍谷 太郎」「龍谷　太郎」のように空白の入り方だけが違うものと、
+ * 全角の空白・連続した空白を含むものを一覧にする。揃えるときは fixUserStudentNames() を実行する。
+ */
+function previewUserStudentNames() {
+  requireEditorRun_();
+  const plan = userStudentNamePlan_();
+  if (!plan.length) { Logger.log('✅ 利用者の名前に揃えるものはありません。'); return []; }
+  Logger.log('利用者の名前を揃える案（' + plan.length + ' 件・まだ書き換えていません）：');
+  plan.forEach(function (x) {
+    Logger.log('　「' + x.from.join('」「') + '」→「' + x.to + '」（' + x.count + ' コマ）');
+  });
+  Logger.log('このとおりでよければ fixUserStudentNames() を実行してください。');
+  return plan;
+}
+
+/**
+ * 利用者の名前の書き方を揃える（D59）。GAS エディタから実行する。
+ * 空白は半角1つにし、空白の入り方だけが違う名前は「姓 名」の形（空白のある書き方）に寄せる。
+ * 先に previewUserStudentNames() で中身を確かめること。何度実行しても同じ結果になる。
+ */
+function fixUserStudentNames() {
+  requireEditorRun_();
+  const plan = userStudentNamePlan_();
+  if (!plan.length) { Logger.log('✅ 利用者の名前に揃えるものはありません。'); return { courses: 0 }; }
+  const toByName = {};
+  plan.forEach(function (x) { x.from.forEach(function (f) { toByName[f] = x.to; }); });
+  var n = 0;
+  readRows_(SHEET.COURSES).forEach(function (c) {
+    const u = String(c.user_student || '');
+    const to = toByName[u.trim()];
+    if (to && to !== u) {
+      updateRow_(SHEET.COURSES, 'course_id', String(c.course_id).trim(), { user_student: to });
+      n++;
+    }
+  });
+  plan.forEach(function (x) { Logger.log('　「' + x.from.join('」「') + '」→「' + x.to + '」'); });
+  Logger.log('✅ 利用者の名前を ' + n + ' コマぶん揃えました（D59）。');
+  return { courses: n };
+}
+
+/** 揃える案：[{from:[今の書き方…], to:揃えた形, count:コマ数}]（書き換えが要るものだけ） */
+function userStudentNamePlan_() {
+  const groups = {};
+  const order = [];
+  readRows_(SHEET.COURSES).forEach(function (c) {
+    const u = String(c.user_student || '').trim();
+    if (!u) return;
+    const k = nameKey_(u);
+    if (!groups[k]) { groups[k] = { spellings: [], count: 0 }; order.push(k); }
+    if (groups[k].spellings.indexOf(u) === -1) groups[k].spellings.push(u);
+    groups[k].count++;
+  });
+  return order.map(function (k) {
+    const g = groups[k];
+    const to = preferredNameSpelling_(g.spellings);
+    const from = g.spellings.filter(function (s) { return s !== to; });
+    return { from: from, to: to, count: g.count };
+  }).filter(function (x) { return x.from.length; });
+}
+
+/**
+ * 既存のメインDBに cancellations（個別の休講）シートを足す（D60）。GAS エディタから1回実行。
+ */
+function migrateAddCancellationsSheet() {
+  requireEditorRun_();
+  const ss = openMainDb_();
+  if (ss.getSheetByName('cancellations')) {
+    Logger.log('✅ cancellations シートは既に存在します（作成なし）。');
+    return;
+  }
+  const sheet = ss.insertSheet('cancellations');
+  sheet.getRange(1, 1, 1, CANCELLATION_HEADERS.length).setValues([CANCELLATION_HEADERS]);
+  sheet.getRange(2, 1, Math.max(sheet.getMaxRows() - 1, 1), CANCELLATION_HEADERS.length).setNumberFormat('@');
+  applyHeaderStyle_([sheet], '#4a86e8');
+  invalidateSheetCache_('cancellations'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
+  clearClassCalendarCache_();
+  Logger.log('✅ cancellations シートを作成しました（D60）。シフト確認でコマを押すと、職員には「この日だけ休講にする」が出ます。');
 }
 
 function migrateAddNoClassDaysSheet() {
@@ -1443,6 +1526,11 @@ function setupMainDb_(ss, data) {
   noClassSheet.getRange(1, 1, 1, NO_CLASS_HEADERS.length).setValues([NO_CLASS_HEADERS]);
   noClassSheet.getRange(2, 1, Math.max(noClassSheet.getMaxRows() - 1, 1), NO_CLASS_HEADERS.length).setNumberFormat('@');
 
+  // 個別の休講（D60）。日付はテキスト固定
+  const cancelSheet = ss.insertSheet('cancellations');
+  cancelSheet.getRange(1, 1, 1, CANCELLATION_HEADERS.length).setValues([CANCELLATION_HEADERS]);
+  cancelSheet.getRange(2, 1, Math.max(cancelSheet.getMaxRows() - 1, 1), CANCELLATION_HEADERS.length).setNumberFormat('@');
+
   const periodsSheet = ss.insertSheet('periods');
   // support_types は「その時限を選べる業務」。空＝全業務（通常の授業時限）。
   // 「介助」だけを入れれば、授業のあいだの移動枠のように介助でしか選べない枠を作れる（D32）。
@@ -1460,7 +1548,7 @@ function setupMainDb_(ss, data) {
   periodsSheet.getRange(2, 1, periodRows.length, 5).setValues(periodRows);
 
   applyHeaderStyle_(
-    [staffsSheet, coursesSheet, vacanciesSheet, responsesSheet, termsSheet, periodsSheet],
+    [staffsSheet, coursesSheet, vacanciesSheet, responsesSheet, termsSheet, periodsSheet, noClassSheet, cancelSheet],
     '#4a86e8'
   );
 }

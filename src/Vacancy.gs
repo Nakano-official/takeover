@@ -73,7 +73,9 @@ function getMyCourses() {
         skipDates: Object.keys(cal.noClass).filter(function (d) {
           return range.start && d >= range.start && d <= range.end && weekdayOf_(d) === String(c.day).trim()
             && isNoClassAt_(cal.noClass, d, c.period);
-        }),
+        }).concat(Object.keys(cal.cancelled || {}).filter(function (k) {
+          return k.indexOf(String(c.course_id).trim() + '|') === 0;   // 個別の休講（D60）
+        }).map(function (k) { return k.split('|')[1]; })),
       };
     });
 }

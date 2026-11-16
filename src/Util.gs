@@ -47,6 +47,25 @@ function validatePersonName_(label, value) {
 }
 
 /**
+ * 名前の空白を揃える：前後を除き、あいだの空白（全角・連続も）を半角スペース1つにする。
+ * 「龍谷　太郎」「龍谷  太郎」→「龍谷 太郎」。スタッフの氏名（利用登録・D54）と同じ形。
+ */
+function normalizeNameSpaces_(value) {
+  return String(value == null ? '' : value).replace(/[\s　]+/g, ' ').trim();
+}
+
+/** 同じ名前かを比べるための鍵（空白を全部除く）。「龍谷太郎」と「龍谷 太郎」は同じ鍵になる */
+function nameKey_(value) {
+  return String(value == null ? '' : value).replace(/[\s　]+/g, '');
+}
+
+/** 同じ鍵の書き方の中から、残す1つを選ぶ。空白のある形（「姓 名」）を優先し、無ければ先頭 */
+function preferredNameSpelling_(spellings) {
+  const list = (spellings || []).map(normalizeNameSpaces_).filter(Boolean);
+  return list.filter(function (s) { return s.indexOf(' ') !== -1; })[0] || list[0] || '';
+}
+
+/**
  * 電話番号の形を揃える（090-1234-5678）。全角は半角に直す。空は許す（必須かどうかは呼び出し側）。
  * ハイフンの無い11桁（古い書き方）は 3-4-4 に分ける。
  * @return {string} 揃えた番号

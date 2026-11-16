@@ -13,7 +13,7 @@
 const { Harness } = require('./gas-harness');
 
 const h = new Harness();
-h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Access.gs', 'ClassCalendar.gs', 'Input.gs', 'Setup.js']);
+h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Access.gs', 'ClassCalendar.gs', 'Cancellation.gs', 'Input.gs', 'Setup.js']);
 const G = h.G;
 const T = h.time;
 
@@ -402,6 +402,39 @@ try { h.G.migrateMoveCoursesToFlags(); } catch (e) { denied = e.message; }
 h.check(/スクリプトエディタ/.test(denied), '★画面からは実行できない（GAS エディタから実行する）');
 h.deployerEmail = '';
 h.setUser({ staff_id: 'T1', name: '職員', role: '職員' });
+
+// ── 10d) 利用者の名前の書き方を揃える（D59）──────────────────
+// 「龍谷太郎」「龍谷 太郎」「龍谷　太郎」が別の人にならないよう、空白を揃え、登録済みの書き方に寄せる。
+h.section('10d) 利用者の名前の書き方を揃える（D59）');
+h.reset();
+h.add('terms', { term_id: '2026-前期', system: 'semester', start_date: T.dateIn(-30), end_date: T.dateIn(30) });
+h.add('periods', { period: '1', start_time: '09:15', end_time: '10:45' });
+h.add('periods', { period: '2', start_time: '11:00', end_time: '12:30' });
+h.add('staffs', { staff_id: 'T1', name: '職員', role: '職員' });
+h.setUser({ staff_id: 'T1', name: '職員', role: '職員', email: 't1@example.jp' });
+const np = (period, name) => ({ quarter: '2026-前期', day: '月', period: period, support_type: 'テイク', user_student: name });
+h.G.addCourse(np('1', '  架空　 花子 '));
+h.check(h.row('courses', 'course_id', 'C001').user_student === '架空 花子', '★全角・連続の空白は半角1つに揃える');
+h.G.addCourse(np('2', '架空花子'));
+h.check(h.row('courses', 'course_id', 'C002').user_student === '架空 花子', '★空白の無い書き方でも、登録済みの「架空 花子」に寄せる');
+let nm = '';
+try { h.G.addCourse(np('2', '<b>架空</b>')); } catch (e) { nm = e.message; }
+h.check(/使えない記号/.test(nm), '名前に使えない記号は弾く');
+// 登録済みのばらつき（シートを手で直した・以前の入力）
+h.add('courses', Object.assign({ course_id: 'C010' }, np('1', '仮名太郎'), { day: '火' }));
+h.add('courses', Object.assign({ course_id: 'C011' }, np('2', '仮名　太郎'), { day: '火' }));
+h.add('courses', Object.assign({ course_id: 'C012' }, np('1', '仮名 太郎'), { day: '水' }));
+h.check(h.G.getInputData().users.join() === '仮名 太郎,架空 花子', '★利用者の候補は空白の違いを1人にまとめる（「姓 名」の形で出す）');
+const plan = h.G.previewUserStudentNames();
+h.check(plan.length === 1 && plan[0].to === '仮名 太郎' && plan[0].from.length === 2 && plan[0].count === 3,
+  '揃える案を出す（書き換えはしない）：' + JSON.stringify(plan));
+h.check(h.row('courses', 'course_id', 'C010').user_student === '仮名太郎', '案を出すだけでは書き換えない');
+const fixed = h.G.fixUserStudentNames();
+h.check(fixed.courses === 2 && ['C010', 'C011', 'C012'].every(function (id) {
+  return h.row('courses', 'course_id', id).user_student === '仮名 太郎'; }), '★揃えると全部「仮名 太郎」になる');
+h.check(h.G.previewUserStudentNames().length === 0, 'もう揃えるものは無い');
+h.setUser({ staff_id: 'T1', name: '職員', role: '職員' });
+
 
 // ── 11) 担当未定のまま授業だけ登録できる（D38）──────────────
 //

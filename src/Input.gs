@@ -60,12 +60,17 @@ function getInputData(quarter) {
 
   const allCourses = readRows_(SHEET.COURSES);
   const courseTermIds = [];
-  const users = [];
+  // 利用者の候補。空白の入り方だけが違う名前は1人にまとめる（D59）
+  const spellingsByKey = {};
   allCourses.forEach(function (c) {
     const q = String(c.quarter).trim();
     if (q && courseTermIds.indexOf(q) === -1) courseTermIds.push(q);
     const u = String(c.user_student || '').trim();
-    if (u && users.indexOf(u) === -1) users.push(u);
+    if (!u) return;
+    (spellingsByKey[nameKey_(u)] = spellingsByKey[nameKey_(u)] || []).push(u);
+  });
+  const users = Object.keys(spellingsByKey).map(function (k) {
+    return preferredNameSpelling_(spellingsByKey[k]);
   });
   users.sort();
 
@@ -192,7 +197,8 @@ function validateCoursePayload_(p, excludeCourseId) {
   const dateStr = String(p.date || '').trim();
   const period = String(p.period || '').trim();
   const supportType = String(p.support_type || '').trim();
-  const userStudent = String(p.user_student || '').trim();
+  // 利用者の名前は空白を揃え、同じ人が別の書き方で登録済みならその書き方に寄せる（D59）
+  const userStudent = canonicalUserStudent_(normalizeNameSpaces_(p.user_student));
   const staffA = String(p.staff_a_id || '').trim();
   const staffB = String(p.staff_b_id || '').trim();
 
@@ -236,6 +242,7 @@ function validateCoursePayload_(p, excludeCourseId) {
     throw new Error(periodLabelOf_(period, periodRow) + ' は ' + supportType + ' では選べません。');
   }
   if (!userStudent) throw new Error('利用者を入力してください。');
+  validatePersonName_('利用者', userStudent);
 
   // 前後の移動（D58）。介助のコマにだけ付けられ、その授業に移動の枠があるときだけ
   const wantBefore = !!p.move_before && p.move_before !== 'false';
@@ -428,7 +435,31 @@ function deleteCourse(courseId) {
 
   const n = deleteRowByKey_(SHEET.COURSES, 'course_id', id);
   if (!n) throw new Error('対象のコマが見つかりませんでした。');
+  // そのコマの休講の記録（D60）はコマが無ければ意味が無いので一緒に消す
+  readCancellations_().forEach(function (r) {
+    if (String(r.course_id).trim() === id) deleteRowByKey_(SHEET.CANCELLATIONS, 'cancellation_id', String(r.cancellation_id).trim());
+  });
+  if (readCancellations_().length) clearClassCalendarCache_();
   return { ok: true, deleted: n };
+}
+
+/**
+ * 利用者の名前を、登録済みの書き方に寄せる（D59）。
+ *
+ * 同じ利用学生でも「龍谷太郎」「龍谷 太郎」「龍谷　太郎」と書き方が違うと、別の人として扱われる
+ * （利用者の候補に2回出る・時間割の絞り込みで分かれる）。空白を除いて同じ名前が登録済みなら、
+ * 空白のある形（「姓 名」）を優先してその書き方にする。無ければ入力のまま。
+ */
+function canonicalUserStudent_(name) {
+  if (!name) return name;
+  const key = nameKey_(name);
+  const same = [];
+  readRows_(SHEET.COURSES).forEach(function (c) {
+    const u = String(c.user_student || '').trim();
+    if (u && nameKey_(u) === key) same.push(u);
+  });
+  if (!same.length) return name;
+  return preferredNameSpelling_([name].concat(same));
 }
 
 // staff_id → 氏名（無ければIDをそのまま返す）

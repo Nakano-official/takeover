@@ -28,6 +28,7 @@ node tools/sim-timetable-pdf.js # 時間割PDFの読み取り（架空の座標�
 node tools/sim-help.js        # 全画面で同じヘルプの一覧を開けるか・職員向けの話題が学生に出ないか（D51）
 node tools/sim-calendar.js    # 授業の無い日とクォーターの境目（2026年度の学年暦と一致するか・欠勤連絡・学期設定・D53）
 node tools/sim-access.js      # 学生への公開の切り替え（準備中は学生がマイページだけ・サーバー関数も止まる・D56）
+node tools/sim-cancel.js      # 個別の休講（その日だけ・削除とは別・欠勤連絡と欠員・Chat に利用学生の名前を書かない・D60）
 node tools/help-shots/render.js # ヘルプ撮影用に、架空データで画面を書き出す（D51・検証ではない）
 node tools/help-shots/shoot.js  # ヘルプの画像を撮り直して埋め込む（初回は tools/help-shots で npm install）
 ```

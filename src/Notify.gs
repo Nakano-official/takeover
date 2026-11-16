@@ -166,6 +166,81 @@ function blockSlotsText_(vacancy) {
   return parts.join(' ／ ') + '　※ ' + parts.length + '枠まとめて';
 }
 
+/**
+ * 休講（D60）を、担当・その日の代行に決まっていた人・職員スペースへ知らせる。
+ * 利用学生の名前は書かない（ほかの通知と同じ）。コマは曜日・時限・時刻・内容で示す。
+ *
+ * @param {Array<Object>} courses  休講にした（取り消した）コマ
+ * @param {string} dateStr
+ * @param {string} reason
+ * @param {boolean} undo     取り消しなら true
+ * @param {Array<string>} extraStaffIds  その日の代行に決まっていた人
+ * @param {string} byName    操作した職員
+ * @return {{staff:boolean, people:Array<{staff_id, name, sent, reason}>}}
+ */
+function notifyCancellation_(courses, dateStr, reason, undo, extraStaffIds, byName) {
+  const nameById = buildNameMap_();
+  const periodById = buildPeriodMap_();
+  const w = weekdayOf_(dateStr);
+  const dayText = dateStr + (w ? '（' + w + '）' : '');
+  const line = function (c) {
+    const p = periodById[String(c.period).trim()] || {};
+    const t = courseTimeText_(c, periodById);
+    return '・' + periodLabelOf_(c.period, p) + (t ? '（' + t + '）' : '') + ' ' + String(c.support_type || '').trim();
+  };
+  // 人ごとに、その人のコマだけを並べる
+  const byPerson = {};
+  const order = [];
+  const addTo = function (id, c) {
+    id = String(id || '').trim();
+    if (!id) return;
+    if (!byPerson[id]) { byPerson[id] = []; order.push(id); }
+    if (c && byPerson[id].indexOf(c) === -1) byPerson[id].push(c);
+  };
+  courses.forEach(function (c) { addTo(c.staff_a_id, c); addTo(c.staff_b_id, c); });
+  (extraStaffIds || []).forEach(function (id) { addTo(id, null); });
+
+  const head = undo
+    ? dayText + ' の次のコマの休講を取り消しました。いつも通り実施します。'
+    : dayText + ' の次のコマは休講です。この日は勤務がありません。';
+  const webhookById = buildWebhookMap_();
+  const people = [];
+  const targets = order.map(function (id) {
+    const mine = byPerson[id].length ? byPerson[id] : courses;
+    const name = nameById[id] || id;
+    people.push({ staff_id: id, name: name, sent: false, reason: '' });
+    return {
+      key: id,
+      url: webhookById[id] || '',
+      text: name + ' さん\n' + head + '\n' + mine.map(line).join('\n') +
+        (undo ? '' : '\n理由: ' + reason),
+    };
+  });
+  const staffUrl = getStaffSpaceWebhookOrEmpty_();
+  if (staffUrl) {
+    const who = function (c) {
+      const names = [c.staff_a_id, c.staff_b_id].map(function (x) { return String(x || '').trim(); }).filter(Boolean)
+        .map(function (x) { return nameById[x] || x; });
+      return names.length ? '　担当: ' + names.join('・') : '　担当: 未定';
+    };
+    targets.push({
+      key: '__staff__',
+      url: staffUrl,
+      text: (undo ? '↩️ *休講を取り消しました*' : '📢 *休講を登録しました*') + '\n' +
+        '日付: ' + dayText + '\n' +
+        courses.map(function (c) { return line(c) + who(c); }).join('\n') +
+        (undo ? '' : '\n理由: ' + reason) + '\n' +
+        '操作: ' + (byName || '職員'),
+    });
+  }
+  const sent = postToWebhooks_(targets);
+  people.forEach(function (p) {
+    const r = sent[p.staff_id];
+    if (r) { p.sent = r.sent; p.reason = r.reason; }
+  });
+  return { staff: !!(staffUrl && sent.__staff__ && sent.__staff__.sent), people: people };
+}
+
 function notifyNewVacancy_(vacancyId, reopened) {
   const vacancy = findRow_(SHEET.VACANCIES, 'vacancy_id', vacancyId);
   if (!vacancy) throw new Error('対象の欠員が見つかりません。');

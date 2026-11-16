@@ -20,6 +20,7 @@ const SHEET = {
   PERIODS: 'periods',
   TERMS: 'terms',
   NO_CLASS_DAYS: 'no_class_days',   // 授業の無い日（D53）
+  CANCELLATIONS: 'cancellations',   // 個別の休講（その日のそのコマだけ・D60）
   CONTACTS: 'contacts',
   // 利用登録の申請（D28）。氏名・電話・Webhook を含むので**連絡先DB側**に置く。
   REGISTRATIONS: 'registrations',
