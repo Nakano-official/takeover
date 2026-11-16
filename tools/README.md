@@ -31,6 +31,7 @@ node tools/sim-access.js      # 学生への公開の切り替え（準備中は
 node tools/sim-cancel.js      # 個別の休講（その日だけ・削除とは別・欠勤連絡と欠員・Chat に利用学生の名前を書かない・D60）
 node tools/help-shots/render.js # ヘルプ撮影用に、架空データで画面を書き出す（D51・検証ではない）
 node tools/help-shots/shoot.js  # ヘルプの画像を撮り直して埋め込む（初回は tools/help-shots で npm install）
+node tools/demo-site/build.js   # GitHub Pages のデモ（架空データで全画面を行き来できる・D62）を書き出す
 ```
 
 いずれも失敗時は終了コード 1 を返す。

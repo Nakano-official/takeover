@@ -48,6 +48,9 @@ node tools/help-shots/render.js
 
 日時を固定しているので、いつ撮っても同じ画面になる（夜に回して日付をまたぐ問題も起きない）。
 
+`demo-data.js` と `render.js` は、GitHub Pages のデモ（`tools/demo-site`・D62）でも使っている。
+ここを直すとデモにも効く（`node tools/demo-site/build.js` で確かめられる）。
+
 ## 写したい状態が無いとき
 
 `demo-data.js` の冒頭に「この週の出来事」がある。写したい状態（例：別の種類の欠員）が無ければ、

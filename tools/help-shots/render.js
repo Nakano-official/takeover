@@ -81,7 +81,8 @@ function viewAs(staffId) {
 
 // ── 画面が読み込み時に呼ぶサーバー関数 ──────────────────────
 // 引数ごとに結果を変えるもの（回答画面の欠員・ヘルプの話題）は 'name|引数' のキーで持つ。
-function precompute(pages, params) {
+function precompute(pages, params, opts) {
+  opts = opts || {};
   const out = {};
   const tryPut = function (key, fn) {
     try { out[key] = JSON.parse(JSON.stringify(fn())); } catch (e) { if (process.env.RENDER_DEBUG) console.log('  x', key, e.message); }
@@ -103,9 +104,12 @@ function precompute(pages, params) {
   if (params.vacancy) {
     tryPut('getVacancyForRespond|' + params.vacancy, function () { return G.getVacancyForRespond(params.vacancy); });
   }
-  Object.keys(h.value('HELP_TOPICS')).forEach(function (key) {
-    tryPut('getHelp|' + key, function () { return G.getHelp(key); });
-  });
+  // デモサイト（tools/demo-site）はヘルプを別ファイルから取り寄せるので埋め込まない（画像で重くなるため）
+  if (!opts.helpBase) {
+    Object.keys(h.value('HELP_TOPICS')).forEach(function (key) {
+      tryPut('getHelp|' + key, function () { return G.getHelp(key); });
+    });
+  }
   // 欠勤連絡の「登録」を押した後の画面を撮るため、登録の返事も本物で作る。
   // データを書き換えるので**最後に**呼ぶ（renderPage が画面ごとにデータを入れ直す）
   if (pages.indexOf('absence') !== -1 && params.course) {
@@ -117,9 +121,11 @@ function precompute(pages, params) {
 }
 
 // google.script.run の偽物。先に計算した結果を少し遅らせて返す（本物と同じく非同期）
-function gasStub(responses) {
+// helpBase を渡すと、getHelp は埋め込みではなく helpBase + 話題 + '.json' を取り寄せる（デモサイト用）
+function gasStub(responses, helpBase) {
   return '<script>(function () {\n' +
     '  var R = ' + JSON.stringify(responses).replace(/</g, '\\u003c') + ';\n' +
+    '  var HELP_BASE = ' + JSON.stringify(helpBase || '') + ';\n' +
     '  function runner(ok, ng) {\n' +
     '    return new Proxy({}, { get: function (_, name) {\n' +
     '      if (name === "withSuccessHandler") return function (f) { return runner(f, ng); };\n' +
@@ -127,8 +133,20 @@ function gasStub(responses) {
     '      if (name === "withUserObject") return function () { return runner(ok, ng); };\n' +
     '      return function () {\n' +
     '        var arg = arguments.length ? String(arguments[0]) : "";\n' +
-    '        var key = (name + "|" + arg) in R ? name + "|" + arg : name;\n' +
+    '        if (name === "getHelp" && HELP_BASE) {\n' +
+    '          fetch(HELP_BASE + encodeURIComponent(arg) + ".json").then(function (r) {\n' +
+    '            if (!r.ok) throw new Error("ヘルプが見つかりません。");\n' +
+    '            return r.json();\n' +
+    '          }).then(function (res) { if (ok) ok(res); }, function (e) { if (ng) ng(e); });\n' +
+    '          return;\n' +
+    '        }\n' +
+    // 引数2つで結果が変わるもの（代行依頼への承諾／辞退）は 'name|引数1|引数2' でも引ける
+    '        var arg2 = arguments.length > 1 ? String(arguments[1]) : "";\n' +
+    '        var key = (name + "|" + arg + "|" + arg2) in R ? name + "|" + arg + "|" + arg2\n' +
+    '          : (name + "|" + arg) in R ? name + "|" + arg : name;\n' +
     '        var res = key in R ? JSON.parse(JSON.stringify(R[key])) : { ok: true };\n' +
+    // 先に計算していない呼び出し＝書き込み。デモサイトはこれを見て「保存されません」と知らせる
+    '        if (!(key in R)) window.dispatchEvent(new CustomEvent("demo-write", { detail: name }));\n' +
     '        setTimeout(function () { if (ok) ok(res); }, 30);\n' +
     '      };\n' +
     '    } });\n' +
@@ -156,7 +174,13 @@ function evaluate(template, scope) {
   });
 }
 
-function renderPage(viewerKey, pageKey, params) {
+/**
+ * @param {Object=} opts デモサイト（tools/demo-site）用。
+ *   helpBase … ヘルプを取り寄せる場所（埋め込まない）
+ *   extra    … 先に計算しておく返事を足す関数（responses を受け取って書き足す。データを書き換えてよい）
+ */
+function renderPage(viewerKey, pageKey, params, opts) {
+  opts = opts || {};
   DEMO.seed(h);   // 画面ごとに入れ直す（前の画面で書き込んだもの＝欠勤の登録などを持ち越さない）
   // 学生への公開を「準備中」にした状態（D56）。seed のあとに入れる
   h.props.STUDENT_ACCESS = (params && params.closed) ? 'closed' : null;
@@ -170,7 +194,9 @@ function renderPage(viewerKey, pageKey, params) {
     appUrl: G.getAppUrl_(),
     chrome: G.renderChrome_(config, pageKey, user),
   });
-  const stub = gasStub(precompute([pageKey], params || {}));
+  const responses = precompute([pageKey], params || {}, opts);
+  if (opts.extra) opts.extra(responses);
+  const stub = gasStub(responses, opts.helpBase);
   // 画面のスクリプトより前に差し込む（読み込み直後に google.script.run を呼ぶため）
   return html.replace(/<head>/i, '<head>\n' + stub);
 }
@@ -207,4 +233,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { main, renderPage, SHOTS, OUT };
+module.exports = { main, renderPage, SHOTS, OUT, h, G, viewAs, DEMO };

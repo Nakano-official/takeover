@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>支援室シフト管理 デモ</title>
+  <!--STYLES-->
+  <style>
+    main { max-width: 860px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { font-size: 22px; margin: 0 0 6px; }
+    .lead { color: var(--text-muted); margin: 0 0 18px; }
+    .card { margin-bottom: 16px; }
+    .card h2 { font-size: 16px; margin: 0 0 10px; }
+    .items { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+    .item {
+      display: flex; flex-direction: column; gap: 2px; padding: 12px 14px;
+      border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
+      color: var(--text); text-decoration: none;
+    }
+    .item:hover { border-color: var(--brand-border); background: var(--brand-soft); }
+    .item .t { font-weight: 700; color: var(--brand-ink); }
+    .item .d { font-size: 13px; }
+    .item .who { font-size: 12px; color: var(--text-faint); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>支援室シフト管理 デモ</h1>
+    <p class="lead">
+      障がい学生支援室のシフト管理・欠員補充のWebシステムを、<strong>架空のデータ</strong>で動かした画面です。
+      日時は <!--DATE--> に固定しています。各画面の下の帯で「見る人」を切り替えられます。
+      ボタンを押しても保存されません。
+    </p>
+    <div class="notice info" style="margin-bottom:16px">
+      登場する人名・教室・電話番号・メールアドレスはすべて架空です。
+      画面は本物のプログラム（<code>src/</code>）が架空データから組み立てたもので、ソースを直すと次の更新で反映されます。
+    </div>
+    <!--SECTIONS-->
+  </main>
+</body>
+</html>

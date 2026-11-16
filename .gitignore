@@ -19,6 +19,9 @@ poster/
 # ヘルプ撮影用に書き出した画面（架空データだが、成果物は撮った画像の方なので置かない・D51）
 tools/help-shots/out/
 
+# デモサイトの書き出し（GitHub Actions が毎回作って Pages に載せる・D62）
+tools/demo-site/dist/
+
 # Logs
 logs
 *.log
