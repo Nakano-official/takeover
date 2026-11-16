@@ -199,6 +199,23 @@ Web App は `executeAs: USER_DEPLOYING`＝**最後にデプロイした人とし
 
 ---
 
+## 2.7 2026-11 以降に足したシート・列（D53〜D60）
+
+既存DBを使っている場合だけ必要（新規 `setupSpreadsheetsEmpty()` なら最初から入っている）。
+いずれも **`clasp push` を済ませてから** GASエディタで1回実行する。何度実行しても安全。
+
+| 関数 | 何をするか | 決定 |
+|---|---|---|
+| `migrateAddNoClassDaysSheet()` | メインDBに `no_class_days`（授業の無い日）シートを足す。無いと学期設定の「授業の無い日」が使えない | D53 |
+| `migrateAddRegistrationAssistSlots()` | 連絡先DBの `registrations` に `assist_slots` 列を足す。無いと申請の介助の空きコマが保存されない | D54 |
+| `migrateMoveCoursesToFlags()` | `courses` に `move_before` / `move_after` 列を足し、移動の枠のコマを介助のコマの印へ移し替える | D58 |
+| `migrateAddCancellationsSheet()` | メインDBに `cancellations`（その日だけの休講）シートを足す | D60 |
+
+既存の利用者名の空白を揃えるとき（D59）は、先に `previewUserStudentNames()` で何が変わるかを確かめてから
+`fixUserStudentNames()` を実行する。
+
+---
+
 ## 3. 職員スペースの Webhook（全体通知用）
 
 1. PC で [chat.google.com](https://chat.google.com) → スペースを作成（職員が見るスペース）。
@@ -379,8 +396,12 @@ node tools/run-all.js    # 構文チェック＋全ロジック検証（数秒�
 > 既存DBへの列追加マイグレーションは `migrateCoursesColumns()` / `migrateStaffsColumns()` /
 > `migrateStaffsPersonalCode()` / `migrateAddTermsSheet()` / `migratePeriodsTextFormat()` /
 > `migrateAddVacancyCloseNotifiedAt()`（D22）/ `migrateAddCourseDate()`（D27・単発コマ）/
-> **`migrateSlotsAndMovePeriods()`（D32・D33。下記2.6）**。
+> **`migrateSlotsAndMovePeriods()`（D32・D33。上記2.6）**、
+> 2026-11 以降のもの（上記2.7）。
 > いずれも冪等で、何度実行しても安全。
+>
+> 画面を見るだけなら、架空データの**公開デモ**（<https://nakano-official.github.io/takeover/>・D62）でも足りる。
+> DB を作らずに全画面を確かめられる（ボタンを押しても保存されない）。
 
 ---
 

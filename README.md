@@ -11,11 +11,15 @@
 —— **勤怠データとカレンダーの突き合わせ**（**機能B**）—— も一度スコープに入れたが、
 **今回のリリースからは外した**（[D41](docs/spec/decisions.md)）。経緯は後述。
 
+> ▶ **デモ：<https://nakano-official.github.io/takeover/>**
+> 架空のデータで、学生・職員それぞれの**全画面を触れます**（ボタンを押しても保存されません）。
+> 本物のコード（`src/`）を架空データで動かして書き出したもので、`main` が更新されるたびに作り直されます（[D62](docs/spec/decisions.md)）。
+
 | | |
 |---|---|
 | **技術** | Google Apps Script / HTML Service / Spreadsheet / Google Chat Webhook |
 | **データ** | すべて大学 Google Workspace 内に完結（外部DB・外部サービスへ個人情報を出さない） |
-| **規模** | 約 12,600 行（`src/`）・スクリプト18ファイル＋画面12・コミット 173 |
+| **規模** | 約 15,600 行（`src/`）・スクリプト21ファイル＋画面13・コミット 約210 |
 | **期間** | 2026-06 〜。**2026-09-28 に本番環境へデプロイ**（目標だった 9-17 授業開始日から2週間遅れ）。**2026-11-12 に実運用を開始**し、以降も改良を続けている |
 | **体制** | 1人で担当（要件定義・設計・実装・ドキュメント・職員向けマニュアル）。実装は Claude Code を併用。**M5Stack 端末は別メンバー担当**（本書では範囲外） |
 
@@ -122,22 +126,26 @@ sequenceDiagram
 
 | 画面 | URL | 対象 | 概要 |
 |---|---|---|---|
-| シフト確認（時間割） | `?page=home` | 全員 | 利用学生中心の時間割を週ごとに表示。PC＝曜日×時限グリッド／スマホ＝曜日タブ＋カード。空き枠を緑、欠員対応中を赤で区別。**赤いコマから自分で代行に入れる**。**マイビュー**で自分の担当と、自分が入れる枠・欠員だけに絞る |
+| シフト確認（時間割） | `?page=home` | 全員 | 利用学生中心の時間割を週ごとに表示。PC＝曜日×時限グリッド／スマホ＝曜日タブ＋カード。空き枠を緑、欠員対応中を赤で区別。**赤いコマから自分で代行に入れる**。**マイビュー**で自分の担当と、自分が入れる枠・欠員だけに絞る。授業の無い日・休講のコマは灰色で出す。職員は**コマの詳細から、その日だけの休講を登録**できる（[D60](docs/spec/decisions.md)） |
 | 欠勤連絡 | `?page=absence` | 学生 | 担当コマを選んで欠勤登録 → 候補抽出 → Chat 通知まで自動 |
 | 欠員一覧 | `?page=vacancies` | 全員 | 今日以降の、まだ決まっていない欠員。学生は**ここから自分で代行に入れる**（先着）。職員は学生から見えている状態の確認用 |
 | 代行依頼への回答 | `?page=respond` | 候補者 | 通知リンク専用。承諾／辞退。先着で自動確定 |
-| シフト入力 | `?page=input` | 職員 | 時間割の追加・編集・削除。**受講登録確認表（PDF）を読み込むと授業ごとのカードが並ぶ**（ブラウザ内で読み、PDF は送らない）。学期はカードごとに選ぶ。担当欄は**その枠に入れる人だけ**を自動表示。**カードを増やして複数コマをまとめて登録** |
+| シフト入力 | `?page=input` | 職員 | 時間割の追加・編集・削除。**受講登録確認表（PDF）を読み込むと授業ごとのカードが並ぶ**（ブラウザ内で読み、PDF は送らない）。学期はカードごとに選ぶ。担当欄は**その枠に入れる人だけ**を自動表示し、名前で探せる。**カードを増やして複数コマをまとめて登録**。登録済みのコマは学期ごとの時間割で見せ、編集は別の窓で開く（[D57](docs/spec/decisions.md)・[D61](docs/spec/decisions.md)） |
 | 欠員補充管理 | `?page=manage` | 職員 | 欠員一覧・回答状況・候補の電話番号（電話フォローを画面内で完結）・決着・再オープン |
 | マイページ | `?page=mypage` | 全員 | **本人**が連絡先・スキル・空きコマを直す。テイクと介助で空きコマを別々に登録。Webhook の作り方を画面内に同梱 |
-| スタッフ名簿 | `?page=roster` | 職員 | 登録済みスタッフの一覧（連絡先を含むため職員限定・読み取り専用） |
+| スタッフ名簿 | `?page=roster` | 職員 | 登録済みスタッフを**入学年度ごとに1人1枚の箱**で並べる（連絡先を含むため職員限定・読み取り専用・[D61](docs/spec/decisions.md)） |
 | 利用登録の申請 | `?page=signup` | 未登録者 | **名簿に無いアカウントでも開ける唯一の画面**。`doGet` が未登録者をここへ回す |
-| 利用登録の承認 | `?page=approvals` | 職員 | 申請を承認。**`staffs` / `contacts` に行を作る唯一の経路** |
-| 学期設定 | `?page=terms` | 職員 | 年度の学期を追加・開始/終了日を編集（スプレッドシートを直接触らせない） |
+| 利用登録の承認 | `?page=approvals` | 職員 | 申請を承認。**`staffs` / `contacts` に行を作る唯一の経路**。学生への公開／準備中の切り替えスイッチもここ |
+| 準備中 | （自動） | 学生 | 公開前の学生に出す画面。準備中はマイページだけ使える（[D56](docs/spec/decisions.md)） |
+| 学期設定 | `?page=terms` | 職員 | 年度の学期を追加・開始/終了日を編集。**授業の無い日**（祝日・休業）を登録すると、クォーターの境目を曜日ごとに計算して出す（[D53](docs/spec/decisions.md)） |
 | USB欠員通知 | `?page=deviceRelay` | 職員PC | M5Stack への USB 中継用に開きっぱなしにする画面 ※端末側は別メンバー担当 |
 | 端末エンドポイント | `?device=alert` | M5Stack | 未対応欠員の**件数と最新番号のみ**返す（個人情報なし）。※端末側は別メンバー担当 |
 
 主な画面の右上には「**？ ヘルプ**」があり、その画面の使い方が画像つきで1ページずつ出ます（[D51](docs/spec/decisions.md)）。
-話題は「シフトの見方／欠勤を連絡する／代行に入る／職員の操作」の4つで、職員の操作は学生には出しません。
+話題は、学生向けが「シフトの見方／欠勤を連絡する／代行に入る／マイページの使い方／通知先URLの作り方」、
+職員向けが「職員の操作／休講を登録する／スタッフ名簿の見方／申請を承認する／学期を設定する」の計10。職員向けは学生には出しません。
+
+すべての画面は[デモ](https://nakano-official.github.io/takeover/)で実際に触れます。
 
 ---
 
@@ -150,13 +158,13 @@ flowchart TB
   D["M5Stack 端末<br/>※別メンバー担当"]
 
   subgraph App["GAS Web App"]
-    UI["HTML Service 画面<br/>home / absence / vacancies / respond / input / manage<br/>mypage / roster / signup / approvals / terms"]
-    Logic["サーバーロジック<br/>code.js・Vacancy・Input・Notify・Profile・Registration<br/>Roster・Terms・Triggers・Identity・Calendar・Sheets・Device・Util"]
+    UI["HTML Service 画面<br/>home / absence / vacancies / respond / input / manage<br/>mypage / roster / signup / approvals / terms / closed"]
+    Logic["サーバーロジック<br/>code.js・Vacancy・Input・Notify・Profile・Registration<br/>Roster・Terms・ClassCalendar・Cancellation・Access<br/>Triggers・Identity・Calendar・Sheets・Device・Util"]
     UI --> Logic
   end
 
   subgraph DataLayer["Google Workspace 内データ"]
-    M[("メインDB<br/>staffs / courses / vacancies<br/>responses / terms / periods")]
+    M[("メインDB<br/>staffs / courses / vacancies / responses<br/>terms / periods / no_class_days / cancellations")]
     C[("連絡先DB<br/>contacts / registrations<br/>※職員のみ")]
   end
 
@@ -250,8 +258,13 @@ Chat 通知を3回逐次送信**していました。**競合が起きるまさ�
   食い違ってコマが丸ごと消えたため、表示範囲を決める軸を**週の1本**にした（[D37](docs/spec/decisions.md)）
 - 学期の日付は年によって違うのに自動更新の仕組みがない → 放置すると**無言で前年度表示に落ちる**。
   職員が画面から年度追加・日付編集できる「学期設定」を作り、状態を画面に出して**フォールバックを可視化**した（D19）
+- さらに、**クォーターの境目は曜日ごとに違う**ことが分かった（全8回の授業を曜日ごとに数えるため、祝日の多い曜日ほど後ろへずれる）。
+  開始日・終了日を1つずつ持つ `terms` では、どう入れても全曜日は合わない。
+  → **授業の無い日**（祝日・休業）を登録し、そこから曜日ごとに8回数えて境目を**計算する**ことにした（[D53](docs/spec/decisions.md)・`ClassCalendar.gs`）。
+  大学の学年暦（2025・2026年度）に書かれたクォーターの開始日と、**6曜日とも一致**することを確かめてある
 
-ドメインの二重構造を、コードの分岐ではなく**データ（日付レンジ）で表現**したのがポイントです。
+ドメインの二重構造を、コードの分岐ではなく**データ（日付レンジ・授業の無い日）で表現**したのがポイントです。
+「このコマがこの日にあるか」の判断は1つの関数にまとめ、時間割・欠勤連絡・代行・締切がすべてそれを使います（個別の休講 [D60](docs/spec/decisions.md) もここに足しただけ）。
 </details>
 
 <details>
@@ -305,7 +318,9 @@ Chat 通知を3回逐次送信**していました。**競合が起きるまさ�
   画面からは増やせない（[D28](docs/spec/decisions.md)）
 - 未登録アカウントは**利用登録の申請画面だけ**が開ける。`doGet` がそこへ回す
 - ヘルプの画像に**実際の画面は使わない**。名前を塗っても「支援を受けている学生がこの教室にこの時間にいる」は読めてしまう。
-  代わりに、架空データで本物のコードを動かして画面を組み立て、**自動で撮って**埋め込んでいる（[D51](docs/spec/decisions.md)・`tools/help-shots/`）
+  代わりに、架空データで本物のコードを動かして画面を組み立て、**自動で撮って**埋め込んでいる（[D51](docs/spec/decisions.md)・`tools/help-shots/`）。
+  公開している[デモ](https://nakano-official.github.io/takeover/)も同じ仕組みで作っている（[D62](docs/spec/decisions.md)・`tools/demo-site/`）
+- 利用学生の名前は **Chat の通知に書かない**（休講の知らせも含め、すべての通知で同じ）
 
 </details>
 
@@ -335,7 +350,7 @@ Chat 通知を3回逐次送信**していました。**競合が起きるまさ�
 <details>
 <summary><b>⑦ コピペ由来のバグを、構造で潰す</b></summary>
 
-画面が7つに増えた時点で（現在は12）、ヘッダー・ナビ・CSS を**各HTMLがコピーして持っている**状態になり、
+画面が7つに増えた時点で（現在は13）、ヘッダー・ナビ・CSS を**各HTMLがコピーして持っている**状態になり、
 実際にナビの内容がズレていました（学期設定を追加したとき、3画面にしかリンクを足していなかった）。
 画面を足すたび7ファイルへ手で追記する構造では、抜け漏れが再発し続けます。
 
@@ -374,6 +389,7 @@ erDiagram
   staffs ||--|| contacts : "連絡先（職員のみ）"
   registrations ||--o| staffs : "承認すると行ができる"
   courses ||--o{ vacancies : "対象コマ"
+  courses ||--o{ cancellations : "その日だけの休講"
   vacancies ||--o{ responses : "候補の回答"
   terms ||--o{ courses : "学期"
   periods ||--o{ courses : "時限"
@@ -388,11 +404,16 @@ erDiagram
 学生が自分で手を挙げる入口（D50）だけは空きコマを見ません。その日たまたま空いている人のための入口だからです
 （スキル・二重起用・担当・締切は同じ条件で弾きます）。
 
-`periods` には授業時限だけでなく**移動介助の枠**（`移動前3` のようなキー）も行として入ります。
-介助の担当は授業開始の15分前から業務が始まり、2限のあとは食堂へ運ぶ15分も仕事なので、
-**時限に収まらない仕事を時限と同じ形で持つ**ようにしました（[D33](docs/spec/decisions.md)/[D35](docs/spec/decisions.md)）。
-授業とその前後の移動介助は同じ人の仕事なので、欠勤も**かたまりで1つの募集**になります（`vacancies.group_id`・[D45](docs/spec/decisions.md)）。
+介助の担当は授業開始の15分前から業務が始まり、2限のあとは食堂へ運ぶ15分も仕事です。
+当初はこの**移動介助を時限と同じ形のコマ**（`移動前3` のようなキー）で持っていましたが（[D33](docs/spec/decisions.md)/[D35](docs/spec/decisions.md)）、
+時間割の行が増えて見にくくなったため、**介助のコマに「前の移動あり／後の移動あり」の印**を持たせる形に改めました
+（`courses.move_before` / `move_after`・[D57](docs/spec/decisions.md)/[D58](docs/spec/decisions.md)）。
+移動の時間も勤務時間に入るので、時刻は移動を含めて1か所（`courseWorkSpan_`）で計算し、代行募集の締切もそこから決めます。
+移動の長さは `periods` の移動の行の時刻で決まるので、その行は画面に出さずに残してあります。
 `periods` の**行の並び順がそのまま時間割の並び順**です。
+
+授業が無い日は2種類あり、別のシートで持ちます。全学の**授業の無い日**（祝日・休業）は `no_class_days`、
+**そのコマのその日だけの休講**は `cancellations`。どちらも授業（`courses`）は消しません（[D53](docs/spec/decisions.md)/[D60](docs/spec/decisions.md)）。
 
 > **各シートの全カラムとER図は [`docs/spec/architecture.md`](docs/spec/architecture.md) が正**です。
 > 同じ表を複数の場所に置くと必ずずれるので、そこ1か所にまとめてあります（[D43](docs/spec/decisions.md)）。
@@ -411,7 +432,8 @@ erDiagram
 | A | **決着を職員に返す**（締切で募集クローズのみ・`result` は書かない・D22） | ✅ |
 | A | 時間トリガー基盤（締切検知10分ごと・`Triggers.gs`） | ✅ |
 | A | 欠員補充管理（一覧・回答状況・候補の電話番号） | ✅ |
-| A | **欠勤を「授業＋前後の移動介助」のかたまりで扱う**（通知1回・承諾1回でまとめて確定・D45） | ✅ |
+| A | **移動介助を介助のコマの印で持ち、勤務時間と締切に含める**（D57/D58） | ✅ |
+| A | **その日だけの休講**（担当・代行に決まっていた人へ知らせ、未決着の欠員は「休講」で締める・D60） | ✅ |
 | A | 締切**前**のリマインド（未回答の候補への再依頼） | ⏳ 同じトリガー基盤に乗せる |
 | A | 代行確定の Google カレンダー自動反映 | ⏳ 当面は人手運用（D14） |
 | 共通 | 利用学生中心の時間割（週表示）・マイビュー・レスポンシブ | ✅ |
@@ -422,6 +444,10 @@ erDiagram
 | 共通 | **画面遷移の高速化**（本人確認のキャッシュ・開き直した画面は前回の表示を先に出す・D48/D49） | ✅ |
 | 共通 | **画面内ヘルプ**（右上の「？ ヘルプ」・画像は架空データで自動撮影・D51）／Webhook の作り方（D46） | ✅ |
 | 共通 | 学期マスタ・学期設定画面 | ✅ |
+| 共通 | **授業の無い日と、曜日ごとのクォーターの境目の計算**（D53） | ✅ |
+| 共通 | 学年暦の取り込み（公式ページから学期と授業の無い日を起こす・D53 の2回目） | ⏸ 設計案のみ・保留 |
+| 共通 | **導入期の「準備中」**（公開前の学生はマイページだけ・職員がスイッチで切り替え・D56） | ✅ |
+| 共通 | **公開デモ**（架空データで全画面を触れる・GitHub Pages・D62） | ✅ |
 | B | 勤怠整合性チェック一式 | — **今回のリリースから除外**（`future/feature-b/`・D41） |
 | 別担当 | M5Stack 物理アラート端末（スケッチ・実機） | — 本書の範囲外（別メンバー担当） |
 
@@ -433,14 +459,14 @@ erDiagram
 学生が自分から代行に入る入口（D50）も、本番で通し確認しました。
 
 ロジックは手元の Node で毎回検証しています（`node tools/run-all.js` ＝ 構文チェック＋画面の
-呼び出し先チェック＋8本のシミュレーション）。`src/*.gs` を**そのまま**読み込み、
+呼び出し先チェック＋13本のシミュレーション）。`src/*.gs` を**そのまま**読み込み、
 Sheets・通知・GAS API だけ差し替えてメモリ上で走らせる作りです。
 
 **未検証として残っているもの**：
 
 - **D45（欠勤のかたまり）の承諾経路** —— 3行を1つのロックの中で書く部分は、合成シミュレーションでは
-  通っていますが、**実 LockService と実シートでは未確認**です（`vacancies.group_id` は
-  2026-09-28 に追加。それ以前の欠員は空＝単独扱いで、従来どおり動きます）
+  通っていますが、**実 LockService と実シートでは未確認**です。移動介助を介助のコマの印にした（D58）ので、
+  いまは移動の枠のコマが残っている場合にだけ働きます
 - **D48（本人確認のキャッシュ）の変更トリガー** —— シートを手で直したときに動くことは確認済み。
   アプリ自身の書き込み（欠勤連絡など）でも動いてしまうかは、本番の利用が始まってから実行ログで確かめます
   （動いても結果は正しく、キャッシュの効きが落ちるだけ）
@@ -462,7 +488,7 @@ Sheets・通知・GAS API だけ差し替えてメモリ上で走らせる作り
 
 | ドキュメント | 役割 |
 |---|---|
-| [`docs/spec/decisions.md`](docs/spec/decisions.md) | **意思決定ログ（D52まで）**。背景・決定・影響・ステータスを1件ずつ。仕様の根拠を後から追える |
+| [`docs/spec/decisions.md`](docs/spec/decisions.md) | **意思決定ログ（D62まで）**。背景・決定・影響・ステータスを1件ずつ。仕様の根拠を後から追える |
 | [`docs/spec/requirements.md`](docs/spec/requirements.md) | 要件定義（As-Is / To-Be フロー図つき） |
 | [`docs/spec/architecture.md`](docs/spec/architecture.md) | アーキテクチャ・データフロー・ER図・権限設計 |
 | [`docs/spec/backlog.md`](docs/spec/backlog.md) | 未対応の改善点（気づいた時点で全部書く） |
@@ -472,6 +498,7 @@ Sheets・通知・GAS API だけ差し替えてメモリ上で走らせる作り
 | [`docs/history/changelog.md`](docs/history/changelog.md) | 日付ごとの変更履歴 |
 | [`docs/history/review-*.md`](docs/history/) | コードレビュー記録（指摘と対応を残す） |
 | [`tools/README.md`](tools/README.md) | push 前に手元で回す検証スクリプト（Node・`npm install` 不要）と、ヘルプ画像の撮影（`tools/help-shots/`） |
+| [`tools/demo-site/README.md`](tools/demo-site/README.md) | 公開デモの作り方（架空データ・GitHub Actions で Pages に載せる） |
 | [`future/`](future/) | **作らないと決めたもの**の退避先と、着手前の構想メモ |
 | [`CLAUDE.md`](CLAUDE.md) | AI コーディング支援に渡すプロジェクトコンテキスト（ドメイン知識・データ設計・規約） |
 
@@ -494,6 +521,9 @@ src/                  GAS スクリプト（.gs / .js）と画面（.html）※c
   Registration.gs     利用登録の申請
   Roster.gs           スタッフ名簿（職員向け・読み取り専用）
   Terms.gs            学期マスタ解決（クォーター/セメスター同時進行）
+  ClassCalendar.gs    授業の無い日と、曜日ごとのクォーターの境目の計算
+  Cancellation.gs     その日だけの休講
+  Access.gs           学生への公開／準備中の切り替え
   Calendar.gs         カレンダー連携（予定パース・診断）
   Device.gs           M5Stack 用エンドポイント（端末連携は別メンバー担当）
   Constants.gs        ドメイン定数（状態文字列・締切定数の一元化）
@@ -501,14 +531,19 @@ src/                  GAS スクリプト（.gs / .js）と画面（.html）※c
   Setup.js            DB初期化・ダミーデータ生成・マイグレーション
   Tests.gs / E2E.gs   GASでしか確かめられないもの（実ロック・実シート・実通知）
   shared-styles.html  全画面共通のCSS（デザイントークン＋共通パーツ）
+  shared-chrome.html  ヘッダーとナビ（スクロールで隠す・出す）
   shared-cache.html   画面の一時キャッシュ（開き直した画面に前回の表示を先に出す）
   shared-help.html    「？ ヘルプ」の入れ物と操作
+  shared-contact.html 氏名・電話番号の入力欄（申請とマイページで共通）
+  shared-chat-install.html  Google Chat アプリの案内（QR コード）
   shared-timetable-pdf.html  受講登録確認表（PDF）の読み取り（ブラウザ内・pdf.js）
-  help-*.html         ヘルプの中身（シフト・欠勤・代行・職員／Webhook の作り方）。押したときだけ読み込む
+  help-*.html         ヘルプの中身（10の話題）。押したときだけ読み込む
   *.html              home / absence / vacancies / respond / input / manage / mypage
-                      roster / signup / approvals / terms / device-relay
+                      roster / signup / approvals / terms / closed / device-relay
 tools/                push 前に手元で回す検証スクリプト（Node）※clasp push の対象外
   help-shots/         架空データで画面を組み立て、ヘルプの画像を自動で撮る
+  demo-site/          同じ仕組みで公開デモを書き出す（GitHub Pages）
+.github/workflows/    公開デモを main の更新ごとに作り直して載せる
 future/               作らないと決めたものの退避先・着手前の構想メモ ※同上
 device/               物理アラート端末（M5Stack）のスケッチと手順 ※別メンバー担当
 docs/                 spec=仕様・設計 / guides=手順書 / history=変更履歴・レビュー
@@ -541,8 +576,9 @@ npx clasp push
 3. 連絡先DB `contacts` の自分の行の `email` を実アドレスに変更してログイン確認
 4. `installTriggers()` を実行（締切検知・シートの変更検知・本人確認キャッシュの延長のトリガーが入る）
 
-既存DBに列を足すマイグレーションは `Setup.js` にまとまっています
-（最新は `migrateSlotsAndMovePeriods()`。7段をまとめて実行し、何をしたかログに出ます）。
+既存DBに列やシートを足すマイグレーションは `Setup.js` にまとまっています
+（最近のものは `migrateAddNoClassDaysSheet()`・`migrateMoveCoursesToFlags()`・`migrateAddCancellationsSheet()`）。
+本番で何を1回実行するかは、決定ログの各項目のステータスに書いてあります。
 
 ヘルプの画像を撮り直すときは `node tools/help-shots/shoot.js`（初回だけ `tools/help-shots` で `npm install`）。
 手順は [`tools/help-shots/README.md`](tools/help-shots/README.md)。
@@ -556,7 +592,8 @@ npx clasp push
 - このリポジトリに **実データは一切含まれません**。動作確認はすべてダミーデータで行っています
 - 実勤怠CSV・時間割PDF・実データを含むスクリーンショットは `.gitignore` で除外しています
   （被支援者・スタッフの氏名を含むため）
-- 画面内ヘルプの画像は、**架空データで組み立てた画面**から撮っています（実際の画面は使っていません）
+- 画面内ヘルプの画像と[公開デモ](https://nakano-official.github.io/takeover/)は、**架空データで組み立てた画面**です（実際の画面は使っていません）。
+  デモに出る人名・教室・電話番号・メールアドレスはすべて架空です
 - 連絡先DBの設計・共有範囲は大学本部に確認済みです（D3）
 
 ---
