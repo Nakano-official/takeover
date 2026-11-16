@@ -25,8 +25,10 @@ node tools/help-shots/render.js
 |---|---|---|
 | `student-home.html` | 学生（山田 太郎） | シフト確認 |
 | `student-absence.html` | 学生 | 欠勤連絡（木曜4限を選んだ状態） |
+| `student-absence-late.html` | 学生 | 直前の欠勤連絡（締切を過ぎたコマ） |
 | `student-vacancies.html` | 学生 | 欠員一覧 |
-| `student-respond.html` | 学生 | 代行依頼への回答 |
+| `candidate-respond.html` | 代行候補の学生（小林 健太） | 代行依頼への回答 |
+| `student-closed.html` | 学生 | 準備中（学生への公開を閉じているとき・D56） |
 | `staff-home.html` | 職員（支援室 職員） | シフト確認 |
 | `staff-manage.html` | 職員 | 欠員補充管理 |
 | `staff-input.html` | 職員 | シフト入力 |

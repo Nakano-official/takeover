@@ -186,6 +186,13 @@ GAS は src/ 一式（.gs と .html を同居）を clasp で push する。html
 `tools/` は開発用の検証スクリプト（Node）。`.clasp.json` の `rootDir` が `src` なので
 **`clasp push` の対象外**で、本番の動作には関係しない（使い方は `tools/README.md`）。
 
+**公開デモ**（D62・<https://nakano-official.github.io/takeover/>）は、`main` への push で
+`.github/workflows/demo-site.yml` が `tools/demo-site/build.js` を回して GitHub Pages に載せる。
+本物の `src/` を架空データ（`tools/help-shots/demo-data.js`）で動かして書き出すので、画面の変更は自動で追従する。
+- **誰でも見られる**。`demo-data.js` には架空の名前・番号しか書かない
+- 欠勤連絡の `var PRE_COURSE = '<?= params.course || "" ?>'` のように、テンプレートで埋めた値を URL から読むよう
+  差し替えている箇所がある（`absence` / `respond`）。この行の書き方を変えると `build.js` が止まるので、あわせて直す
+
 ### 画面（HTML）の共通ルール（D20）
 
 - **ヘッダーとナビは各HTMLに書かない**。`code.js` の `renderChrome_` がサーバー側で組み立て、
