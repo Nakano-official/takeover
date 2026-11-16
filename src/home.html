@@ -134,6 +134,21 @@
     /* モーダル下部の操作（欠勤連絡への導線・D24）。情報表示と視覚的に区切る */
     .m-act { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
     .m-act .hint { text-align: center; }
+    .m-act a.btn { text-decoration: none; }
+    .m-sub { margin: -10px 0 16px; color: var(--text-muted); font-size: .95rem; }
+    /* PC では広く使う：左にコマの情報、右に状態と操作（欠勤連絡・代行・休講）。
+       右に出すものが無いとき（.solo）は1列のまま */
+    @media (min-width: 761px) {
+      .sheet { max-width: 760px; padding: 24px 28px 26px; }
+      .sheet.solo { max-width: 520px; }
+      .m-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 0 28px; }
+      .sheet.solo .m-grid { display: block; }
+      .m-side { border-left: 1px solid var(--border); padding-left: 24px; }
+      .sheet.solo .m-side { border-left: 0; padding-left: 0; }
+      .m-side .m-status { margin-top: 0; }
+      .m-side .m-act:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+      .m-dl { grid-template-columns: 104px 1fr; }
+    }
     @media (max-width: 760px) {
       .modal { align-items: flex-end; padding: 0; }
       .sheet { max-width: none; border-radius: 14px 14px 0 0; max-height: 85vh; }
@@ -517,7 +532,7 @@
     function claimAction(c) {
       if (c.cancelled || !c.open || !c.open.length || isMine(c)) return '';
       if (DATA.me && DATA.me.role === '職員') {
-        return '<div class="m-act"><a class="btn block" href="' + escapeAttr(APP_URL + '?page=manage') +
+        return '<div class="m-act"><a class="btn primary block" href="' + escapeAttr(APP_URL + '?page=manage') +
           '">欠員補充管理で対応する</a></div>';
       }
       var hit = claimableOf(c);
@@ -587,15 +602,24 @@
       var tagCls = c.support_type === 'テイク' ? 'take' : 'help';
       var body = '<h3 class="m-title"><span class="tag ' + tagCls + '">' +
         escapeHtml(c.support_type || 'コマ') + '</span>' + escapeHtml(c.user_student || '') + '</h3>';
-      body += '<dl class="m-dl">' + rows.map(function (r) {
+      // 見出しの下に「いつのコマか」を1行で（表を読まなくても分かるように）
+      var when = (c.date ? ((WEEK && WEEK.labelByDay[c.day]) || c.date) + '（' + c.day + '） ' : c.day + '曜 ') +
+        (c.periodLabel || (c.period + '限')) + (c.workTime ? '　勤務 ' + c.workTime : (pt ? '　' + pt : ''));
+      body += '<p class="m-sub">' + escapeHtml(when) + '</p>';
+      var info = '<dl class="m-dl">' + rows.map(function (r) {
         return '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>';
       }).join('') + '</dl>';
+      // 右（スマホは下）：状態と操作
+      var side = '';
       var sb = c.cancelled ? '<span class="st st-cancel">休講（' + escapeHtml(c.cancelled) + '）</span>' : statusBadge(c);
-      if (sb) body += '<div class="m-status">状態 ' + sb + '</div>';
-      body += absenceAction(c);
-      body += claimAction(c);
-      body += cancelAction(c);
+      if (sb) side += '<div class="m-status">状態 ' + sb + '</div>';
+      side += absenceAction(c);
+      side += claimAction(c);
+      side += cancelAction(c);
+      body += '<div class="m-grid"><div class="m-info">' + info + '</div>' +
+        (side ? '<div class="m-side">' + side + '</div>' : '') + '</div>';
 
+      document.querySelector('#modal .sheet').classList.toggle('solo', !side);
       document.getElementById('modalBody').innerHTML = body;
       document.getElementById('modal').classList.add('show');
     }
