@@ -1192,6 +1192,102 @@ const NO_CLASS_HEADERS = ['no_class_id', 'start_date', 'end_date', 'from_period'
  * 既存のメインDBに no_class_days（授業の無い日）シートを足す（D53）。GASエディタから1回実行。
  * 無ければ学期設定の画面から授業の無い日を登録できない。
  */
+/**
+ * 移動の枠のコマ（D57 で使わなくなった）を、介助の授業のコマの印（D58）に移し替える。GAS エディタから1回実行する。
+ *
+ * 1. courses に move_before / move_after の列が無ければ足す
+ * 2. 移動の枠のコマごとに、くっついている授業（`移動前3` なら3限の前）のコマを探す。
+ *    同じ学期・曜日（単発なら同じ日）・利用者・担当の介助のコマ。見つかれば、その授業に印を付ける
+ * 3. 印を付けた移動の枠のコマを消す。欠員の記録が付いたものは記録を守るため残す（画面には出ない）
+ * 対応する授業が見つからないものは消さずにログに出す。何度実行しても同じ結果になる。
+ * 消したコマはログに残す（スプレッドシートの版の履歴からも戻せる）。
+ */
+function migrateMoveCoursesToFlags() {
+  requireEditorRun_();
+  const sheet = openMainDb_().getSheetByName('courses');
+  if (!sheet) { Logger.log('❌ courses シートが見つかりません。'); return null; }
+
+  // 1) 列を足す
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return String(h).trim(); });
+  const add = ['move_before', 'move_after'].filter(function (h) { return headers.indexOf(h) === -1; });
+  if (add.length) {
+    sheet.getRange(1, lastCol + 1, 1, add.length).setValues([add]);
+    invalidateSheetCache_('courses'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
+    Logger.log('✅ courses に ' + add.join('・') + ' 列を追加しました（D58）。');
+  }
+
+  // 2) 移し替え
+  const periods = readRows_(SHEET.PERIODS);
+  const classPeriods = periods.filter(function (p) { return !isMovePeriod_(p); });
+  // 移動の枠 → {side, period}（どの授業のどちら側か）
+  const attachOf = function (moveKey) {
+    const declared = declaredMoveAttachment_(moveKey);
+    if (declared) return declared;
+    for (var i = 0; i < classPeriods.length; i++) {
+      const key = String(classPeriods[i].period).trim();
+      const b = attachedMovePeriod_(key, '介助', 'before');
+      if (b && String(b.period).trim() === moveKey) return { side: 'before', period: key };
+      const a = attachedMovePeriod_(key, '介助', 'after');
+      if (a && String(a.period).trim() === moveKey) return { side: 'after', period: key };
+    }
+    return null;
+  };
+  const moveKeys = movePeriodKeys_();
+  const withVacancy = {};
+  readRows_(SHEET.VACANCIES).forEach(function (v) { withVacancy[String(v.course_id).trim()] = true; });
+  const all = readRows_(SHEET.COURSES);
+  const moves = all.filter(function (c) { return moveKeys[String(c.period).trim()]; });
+  if (!moves.length) {
+    Logger.log('✅ 移動の枠のコマはありません（移し替えるものなし）。');
+    return { flagged: 0, deleted: 0, kept: 0, orphan: 0 };
+  }
+  const t = function (v) { return String(v == null ? '' : v).trim(); };
+  const what = function (c) {
+    return t(c.course_id) + '（' + t(c.quarter) + ' ' + (courseDate_(c) || t(c.day)) + ' ' + t(c.period) + ' ' + t(c.user_student) + '）';
+  };
+  var flagged = 0, deleted = 0;
+  const kept = [], orphan = [];
+  moves.forEach(function (mc) {
+    const at = attachOf(t(mc.period));
+    const host = at && all.filter(function (c) {
+      return !moveKeys[t(c.period)] &&
+        t(c.period) === at.period &&
+        t(c.support_type) === '介助' &&
+        t(c.quarter) === t(mc.quarter) &&
+        t(c.day) === t(mc.day) &&
+        courseDate_(c) === courseDate_(mc) &&
+        t(c.user_student) === t(mc.user_student) &&
+        t(c.staff_a_id) === t(mc.staff_a_id);
+    })[0];
+    if (!host) { orphan.push(what(mc)); return; }
+    const col = at.side === 'before' ? 'move_before' : 'move_after';
+    if (!hasMoveFlag_(host[col])) {
+      const upd = {};
+      upd[col] = MOVE_FLAG_VALUE;
+      updateRow_(SHEET.COURSES, 'course_id', t(host.course_id), upd);
+      host[col] = MOVE_FLAG_VALUE;
+      flagged++;
+    }
+    if (withVacancy[t(mc.course_id)]) { kept.push(what(mc)); return; }
+    if (deleteRowByKey_(SHEET.COURSES, 'course_id', t(mc.course_id))) {
+      deleted++;
+      Logger.log('　' + what(mc) + ' → ' + t(host.course_id) + ' に「' + (at.side === 'before' ? '前' : 'あと') + 'の移動あり」を付けて削除');
+    }
+  });
+  Logger.log('✅ 授業のコマに移動の印を ' + flagged + ' 件付け、移動の枠のコマを ' + deleted + ' 件削除しました（D58）。');
+  if (kept.length) {
+    Logger.log('⚠️ 欠員の記録が付いているため残したコマ（' + kept.length + ' 件・印は付けた・画面には出ません）：');
+    kept.forEach(function (w) { Logger.log('　' + w); });
+  }
+  if (orphan.length) {
+    Logger.log('⚠️ くっついている授業のコマが見つからず、そのまま残したコマ（' + orphan.length + ' 件）：');
+    orphan.forEach(function (w) { Logger.log('　' + w); });
+    Logger.log('   授業のコマの担当・利用者が移動と違う可能性があります。シフト入力でその授業に印を付けてから、もう一度実行してください。');
+  }
+  return { flagged: flagged, deleted: deleted, kept: kept.length, orphan: orphan.length };
+}
+
 function migrateAddNoClassDaysSheet() {
   requireEditorRun_();
   const ss = openMainDb_();
@@ -1306,6 +1402,8 @@ function setupMainDb_(ss, data) {
     'staff_a_id', 'staff_b_id',
     'note',           // 備考
     'date',           // 単発コマの実施日（空＝毎週／'yyyy-MM-dd'＝その日だけ・D27）
+    'move_before',    // 介助：授業の前の移動あり（'あり'／空・D58）
+    'move_after',     // 介助：授業のあとの移動あり（D58）
   ];
   // period 列（D列）は periods シートと突合するためテキスト固定。初期データの行数ぶんではなく
   // 列全体に掛ける（10-6 / 10-6b と同じ理由。空セットアップだと1行しか掛からず、以後

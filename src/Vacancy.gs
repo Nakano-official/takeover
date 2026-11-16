@@ -59,7 +59,7 @@ function getMyCourses() {
         day: c.day,
         period: String(c.period).trim(),
       periodLabel: periodLabelOf_(c.period, p),
-        time: p.start_time ? p.start_time + '〜' + p.end_time : '',
+        time: courseTimeText_(c, periodById),     // 移動の印があれば移動を含む勤務時間（D58）
         partner: nameById[String(partnerId).trim()] || partnerId || '',
         oneOffDate: courseDate_(c),      // 単発コマの実施日（空＝毎週・D27）
         // このコマにくっついている移動介助のうち、**自分が担当のもの**（D45）。
@@ -211,7 +211,7 @@ function submitAbsence(courseId, date, includeAttached) {
   // 欠勤の記録は残すが、間に合わない代行依頼は候補へ送らない（requirements §8・運用決定）。
   // 職員スペースには「直前欠勤（代行募集なし）」を通知し、画面では学生に
   // Google Classroom への欠勤連絡を案内する（従来の人力フローへ戻す）。
-  if (isPastRecruitDeadline_(dateStr, course.period)) {
+  if (isPastRecruitDeadline_(dateStr, course)) {
     const late = closeRecruitWithoutSubstitute_(RECRUIT_CLOSE_REASON.PAST_DEADLINE);
     late.lateAbsence = true;
     late.deadlineMinutes = RECRUIT_DEADLINE_MIN_BEFORE;
@@ -285,7 +285,7 @@ function getVacancyForRespond(vacancyId) {
     period: course ? String(course.period).trim() : '',
     periodLabel: course
       ? periodLabelOf_(course.period, buildPeriodMap_()[String(course.period).trim()]) : '',
-    time: p.start_time ? p.start_time + '〜' + p.end_time : '',
+    time: courseTimeText_(course),   // 移動を含む勤務時間（D58）
     absentName: nameById[String(vacancy.absent_staff_id).trim()] || vacancy.absent_staff_id,
     closed: !!String(vacancy.result).trim(),       // 対応確定済みなら true
     deadlineClosed: course ? isRecruitClosed_(vacancy, course) : false, // 締切で募集終了（D22）
@@ -546,12 +546,11 @@ function getOpenVacancies() {
       const p = periodById[key2] || {};
       return {
         periodLabel: periodLabelOf_(c.period, p),
-        time: p.start_time ? p.start_time + '〜' + p.end_time : '',
+        time: courseTimeText_(c, periodById),   // 移動を含む勤務時間（D58）
         support_type: String(c.support_type || '').trim(),
       };
     });
-    const startP = periodById[String(main.period).trim()] || {};
-    const startMin = periodStartMinutes_(startP.start_time);
+    const startMin = workStartMinutes_(main);   // 前の移動があれば移動の始まり（D58）
     const deadlineMin = startMin === null ? null : startMin - RECRUIT_DEADLINE_MIN_BEFORE;
     const closed = members.some(function (v) {
       return isRecruitClosed_(v, courseById[String(v.course_id).trim()]);
@@ -648,12 +647,11 @@ function transitionVacancyOrThrow_(vacancyId, direction, updates) {
  * @param {(string|number)} period 時限
  * @return {boolean} 締切を過ぎていれば true
  */
-function isPastRecruitDeadline_(dateStr, period) {
+function isPastRecruitDeadline_(dateStr, periodOrCourse) {
   const dm = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!dm) return false;
 
-  const p = buildPeriodMap_()[String(period).trim()];
-  const startMin = p ? periodStartMinutes_(p.start_time) : null;
+  const startMin = workStartMinutes_(periodOrCourse);
   if (startMin === null) return false;
 
   // スクリプトのタイムゾーンは Asia/Tokyo（appsscript.json）なので、
@@ -661,6 +659,19 @@ function isPastRecruitDeadline_(dateStr, period) {
   const midnight = new Date(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3]), 0, 0, 0);
   const deadline = midnight.getTime() + (startMin - RECRUIT_DEADLINE_MIN_BEFORE) * 60 * 1000;
   return new Date().getTime() > deadline;
+}
+
+/**
+ * 勤務の始まり（0時からの分）。コマを渡すと、前の移動の印があれば移動の始まり（D58）。
+ * 時限（文字列）を渡すと、その時限の開始。読めなければ null。
+ * 移動から入る人にとっては移動の始まりが仕事の始まりなので、代行募集の締切もそこから数える。
+ */
+function workStartMinutes_(periodOrCourse) {
+  if (periodOrCourse && typeof periodOrCourse === 'object') {
+    return periodStartMinutes_(courseWorkSpan_(periodOrCourse).start);
+  }
+  const p = buildPeriodMap_()[String(periodOrCourse).trim()];
+  return p ? periodStartMinutes_(p.start_time) : null;
 }
 
 /**
@@ -681,7 +692,7 @@ function isPastRecruitDeadline_(dateStr, period) {
 function isRecruitClosed_(vacancy, course) {
   if (!vacancy || !course) return false;
   if (String(vacancy.result || '').trim()) return false;   // 決着済みは「募集中/クローズ」の軸の外
-  return isPastRecruitDeadline_(dateToStr_(vacancy.date), course.period);
+  return isPastRecruitDeadline_(dateToStr_(vacancy.date), course);
 }
 
 /**
@@ -817,7 +828,7 @@ function getVacanciesForManage() {
       day: course.day || '',
       period: String(course.period || '').trim(),
       periodLabel: periodLabelOf_(course.period, periodById[String(course.period || '').trim()]),
-      time: p.start_time ? p.start_time + '〜' + p.end_time : '',
+      time: courseTimeText_(course, periodById),   // 移動を含む勤務時間（D58）
       absentName: nameById[String(v.absent_staff_id).trim()] || v.absent_staff_id,
       result: String(v.result || '').trim(),
       substituteName: subId ? (nameById[subId] || subId) : '',
@@ -892,7 +903,7 @@ function reopenVacancy(vacancyId) {
   const cur = findRow_(SHEET.VACANCIES, 'vacancy_id', vacancyId);
   const curCourse = cur ? findRow_(SHEET.COURSES, 'course_id', cur.course_id) : null;
   const pastDeadline = cur && curCourse
-    ? isPastRecruitDeadline_(dateToStr_(cur.date), curCourse.period)
+    ? isPastRecruitDeadline_(dateToStr_(cur.date), curCourse)
     : false;
 
   // result が非空（決着済み）のときだけ atomically 開き直す（reopen 遷移）。
@@ -997,7 +1008,7 @@ function closeExpiredRecruits(verbose, onlyVacancyIds) {
     const course = courseById[String(v.course_id).trim()];
     if (!course) return;                                      // コマが消えている＝判定不能
     const dateStr = dateToStr_(v.date);
-    if (!isPastRecruitDeadline_(dateStr, course.period)) return; // まだ募集中
+    if (!isPastRecruitDeadline_(dateStr, course)) return; // まだ募集中
     out.scanned++;
 
     const claim = claimIfEmpty_(SHEET.VACANCIES, 'vacancy_id', vid, 'close_notified_at',
@@ -1156,6 +1167,98 @@ function slotsByTypeOf_(staff) {
     out[type] = splitSlots_(staff && staff[SLOT_COLUMN_BY_SUPPORT_TYPE[type]]);
   });
   return out;
+}
+
+/**
+ * その時限が授業のあいだの**移動の枠**か（D33・D57）。
+ *
+ * 移動の枠を別のコマとしては 2026-11-16 から使わない（D57）。移動は介助の授業のコマの印で持つ（D58）。
+ * `periods` の行は残すが、画面（時間割・シフト入力・空きコマ）には出さず、新しく登録もさせない。
+ * 判定：キーが `移動前3` / `移動後2` の形か、選べる業務が限られている（`support_types` が全業務でない）。
+ */
+function isMovePeriod_(periodRow) {
+  if (!periodRow) return false;
+  if (declaredMoveAttachment_(periodRow.period)) return true;
+  return SUPPORT_TYPES.some(function (t) { return !periodAllowsSupportType_(periodRow, t); });
+}
+
+// 介助のコマの「前の移動あり／後の移動あり」の印（D58）。シートで読める言葉にする
+const MOVE_FLAG_VALUE = 'あり';
+
+/** 移動の印が付いているか（空でなければあり） */
+function hasMoveFlag_(v) {
+  return !!String(v == null ? '' : v).trim();
+}
+
+/** 時限マスタの時刻（文字列 '9:15' でも Date でも）を 'HH:mm' にする。読めなければ元の文字 */
+function hhmmText_(v) {
+  const m = periodStartMinutes_(v);
+  if (m === null) return String(v == null ? '' : v).trim();
+  const pad = function (n) { return (n < 10 ? '0' : '') + n; };
+  return pad(Math.floor(m / 60)) + ':' + pad(m % 60);
+}
+
+/**
+ * コマの**勤務時間**（D58）。授業の時刻に、印の付いた前後の移動の枠を足したもの。
+ *
+ * 移動介助は勤務時間に入る。以前は移動を別のコマ（移動の枠）として持っていたが、時間割がかさばるので
+ * 介助の授業のコマの印（move_before / move_after）にした。移動の長さは時限マスタの移動の枠のまま
+ * （授業の前15分・2限のあと食堂へ15分など・D35）。テイクには付かない。
+ *
+ * @param {Object} course  courses の行
+ * @param {Object} [periodMap] buildPeriodMap_() の結果（無ければ読む）
+ * @return {{start:*, end:*, label:string, hasMove:boolean, before:Object|null, after:Object|null}}
+ *         start / end は時限マスタの値のまま（締切の計算に使う）。label は 'HH:mm〜HH:mm'
+ */
+function courseWorkSpan_(course, periodMap) {
+  const map = periodMap || buildPeriodMap_();
+  const p = map[String(course.period).trim()] || {};
+  var start = p.start_time;
+  var end = p.end_time;
+  var before = null;
+  var after = null;
+  if (String(course.support_type || '').trim() === '介助') {
+    if (hasMoveFlag_(course.move_before)) {
+      before = attachedMovePeriod_(course.period, '介助', 'before');
+      if (before && before.start_time) start = before.start_time;
+    }
+    if (hasMoveFlag_(course.move_after)) {
+      after = attachedMovePeriod_(course.period, '介助', 'after');
+      if (after && after.end_time) end = after.end_time;
+    }
+  }
+  return {
+    start: start, end: end,
+    label: start ? hhmmText_(start) + '〜' + hhmmText_(end) : '',
+    hasMove: !!(before || after), before: before, after: after,
+  };
+}
+
+/** 画面・通知に出す時刻。移動を含むときは「10:45〜12:45・移動を含む」 */
+function courseTimeText_(course, periodMap) {
+  if (!course) return '';
+  const span = courseWorkSpan_(course, periodMap);
+  return span.label + (span.hasMove ? '・移動を含む' : '');
+}
+
+/** 移動の印の説明（「授業の前・あと」など）。印が無ければ空 */
+function courseMoveText_(course) {
+  if (String(course.support_type || '').trim() !== '介助') return '';
+  const b = hasMoveFlag_(course.move_before);
+  const a = hasMoveFlag_(course.move_after);
+  if (b && a) return '授業の前とあとの移動';
+  if (b) return '授業の前の移動';
+  if (a) return '授業のあとの移動';
+  return '';
+}
+
+/** 移動の枠のキーの集合（period → true） */
+function movePeriodKeys_() {
+  const set = {};
+  readRows_(SHEET.PERIODS).forEach(function (p) {
+    if (isMovePeriod_(p)) set[String(p.period).trim()] = true;
+  });
+  return set;
 }
 
 /**

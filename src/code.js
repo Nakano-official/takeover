@@ -456,8 +456,12 @@ function getTimetable(quarter) {
   const periodTime = {};
   const periodIndex = {};
   const periodRowById = {};
+  // 移動の枠は時間割に出さない（D57）。15分の細い行が並ぶと授業が読み取りにくいため。
+  // 残っている移動の枠のコマも出さない（シフト入力の「まとめて消す」で片付ける）
+  const moveKeys = {};
   readRows_(SHEET.PERIODS).forEach(function (p, i) {
     const key = String(p.period).trim();
+    if (isMovePeriod_(p)) { moveKeys[key] = true; return; }
     periodTime[key] = p.start_time ? p.start_time + '〜' + p.end_time : '';
     periodIndex[key] = i;
     periodRowById[key] = p;
@@ -491,6 +495,7 @@ function getTimetable(quarter) {
   const cutoff = shiftDateStr_(todayJst_(), -365);
   const courses = allCourses
     .filter(function (c) {
+      if (moveKeys[String(c.period).trim()]) return false;   // 移動の枠のコマ（D57）
       if (courseDate_(c)) return true;                   // 単発コマは date が出す週を決める（D27）
       const r = termRange[String(c.quarter).trim()];
       if (!r) return true;                               // 日付未設定の学期は落とさない（画面で警告する）
@@ -515,6 +520,9 @@ function getTimetable(quarter) {
         note: String(c.note || '').trim(),
         oneOffDate: courseDate_(c),          // 単発コマの実施日（空＝毎週・D27）
         periodLabel: periodLabelOf_(c.period, periodRowById[String(c.period).trim()]),
+        // 前後の移動の印があるときだけ、移動を含む勤務時間と説明（D58）
+        workTime: courseWorkSpan_(c, periodRowById).hasMove ? courseWorkSpan_(c, periodRowById).label : '',
+        moveText: courseMoveText_(c),
         // status / substitute / absent / date は週によって変わるのでサーバーでは埋めない。
         // 下の vacancy（course_id|日付 の索引）から、クライアントが表示中の週ぶんだけ組み立てる。
       };

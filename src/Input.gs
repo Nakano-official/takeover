@@ -39,12 +39,13 @@ function getInputData(quarter) {
   const periodRows = readRows_(SHEET.PERIODS);
   const periodById = {};
   periodRows.forEach(function (p) { periodById[String(p.period).trim()] = p; });
-  const periods = periodRows.map(function (p) {
+  // 移動の枠は使わない（D57）。選択肢にも時間割にも出さない
+  const isMoveKey = function (key) { return isMovePeriod_(periodById[String(key).trim()]); };
+  const periods = periodRows.filter(function (p) { return !isMovePeriod_(p); }).map(function (p) {
     return {
       period: String(p.period).trim(),
       label: periodLabelOf_(p.period, p),
-      // その授業にくっついている移動枠（D34・D35）。画面は「一緒に登録」の
-      // チェックを出すかどうかの判断にこれを使う。前と後で別の枠になりうる。
+      // その授業の前後の移動の枠（D58）。介助のカードで「前の移動あり／後の移動あり」を出すのに使う
       moveBefore: moveSlotInfo_(precedingMovePeriod_(p.period, '介助')),
       moveAfter: moveSlotInfo_(followingMovePeriod_(p.period, '介助')),
       time: p.start_time ? p.start_time + '〜' + p.end_time : '',
@@ -110,8 +111,9 @@ function getInputData(quarter) {
     };
   });
 
+  // 残っている移動の枠のコマは出さない（D57）。片付けは GAS エディタから migrateMoveCoursesToFlags() で行う（D58）
   const courses = allCourses
-    .filter(function (c) { return listed(String(c.quarter).trim()); })
+    .filter(function (c) { return listed(String(c.quarter).trim()) && !isMoveKey(c.period); })
     .map(function (c) {
       return {
         course_id: String(c.course_id).trim(),
@@ -130,6 +132,9 @@ function getInputData(quarter) {
         staffA: nameById[String(c.staff_a_id).trim()] || String(c.staff_a_id || '').trim(),
         staffB: nameById[String(c.staff_b_id).trim()] || String(c.staff_b_id || '').trim(),
         note: String(c.note || '').trim(),
+        move_before: hasMoveFlag_(c.move_before),   // 前の移動あり（D58）
+        move_after: hasMoveFlag_(c.move_after),     // 後の移動あり
+        workTime: courseWorkSpan_(c, periodById).hasMove ? courseWorkSpan_(c, periodById).label : '',
       };
     })
     .sort(function (a, b) {
@@ -222,10 +227,30 @@ function validateCoursePayload_(p, excludeCourseId) {
   // エラーは出ないので誰も気づけない。
   const periodRow = buildPeriodMap_()[period];
   if (!periodRow) throw new Error('存在しない時限です：' + period);
+  // 移動の枠に別のコマとしては入れない（D57）。移動は介助の授業のコマの「前の移動あり／後の移動あり」で付ける（D58）
+  if (isMovePeriod_(periodRow)) {
+    throw new Error(periodLabelOf_(period, periodRow) + ' の枠は使わなくなりました。'
+      + '移動は介助の授業のコマの「前の移動あり／後の移動あり」で付けてください。');
+  }
   if (!periodAllowsSupportType_(periodRow, supportType)) {
     throw new Error(periodLabelOf_(period, periodRow) + ' は ' + supportType + ' では選べません。');
   }
   if (!userStudent) throw new Error('利用者を入力してください。');
+
+  // 前後の移動（D58）。介助のコマにだけ付けられ、その授業に移動の枠があるときだけ
+  const wantBefore = !!p.move_before && p.move_before !== 'false';
+  const wantAfter = !!p.move_after && p.move_after !== 'false';
+  if (wantBefore || wantAfter) {
+    if (supportType !== '介助') throw new Error('移動は介助のコマにだけ付けられます。');
+    if (getHeaders_(SHEET.COURSES).indexOf('move_before') === -1) {
+      throw new Error('移動を記録する列がまだありません。GAS エディタから migrateMoveCoursesToFlags() を実行してください。');
+    }
+    [['before', wantBefore, 'の前'], ['after', wantAfter, 'のあと']].forEach(function (x) {
+      if (x[1] && !attachedMovePeriod_(period, '介助', x[0])) {
+        throw new Error(periodLabelOf_(period, periodRow) + x[2] + 'の移動の枠がありません。');
+      }
+    });
+  }
 
   // 自由に書ける欄は、シートで数式として扱われる形（先頭が = など）を受け付けない（Util.gs）。
   // 時間割PDFから入る値（D52）も手入力と同じくここを通る。
@@ -262,7 +287,7 @@ function validateCoursePayload_(p, excludeCourseId) {
   // 後期と 3Q のように別の学期でも期間が重なれば、同じ時間に2か所へ入ることになる（D52）。
   // 単発同士は日付が違えばぶつからない（occurrencesOverlap_・D27）。
   const exclude = String(excludeCourseId || '').trim();
-  const sameTime = concurrentTermSet_(quarter, terms);
+  const sameTime = concurrentTermSet_(quarter, terms, day, classCalendar_());
   const assigned = {};
   readRows_(SHEET.COURSES).forEach(function (c) {
     if (exclude && String(c.course_id).trim() === exclude) return;
@@ -289,99 +314,67 @@ function validateCoursePayload_(p, excludeCourseId) {
     room: String(p.room || '').trim(),
     staff_a_id: a, staff_b_id: b,
     note: String(p.note || '').trim(),
+    move_before: wantBefore ? MOVE_FLAG_VALUE : '',
+    move_after: wantAfter ? MOVE_FLAG_VALUE : '',
   };
 }
 
 /**
- * その学期と**同時に授業がある**学期の集合（自分を含む）。二重起用チェック用（D52）。
+ * その学期と、**その曜日に同時に授業がある**学期の集合（自分を含む）。二重起用チェック用（D52）。
+ *
+ * クォーターは**曜日ごとの期間**で比べる（D53）。`terms` のクォーターの行は「一番早い曜日の始まり〜
+ * 一番遅い曜日の終わり」なので、行どうしで比べると 3Q（〜11/21）と 4Q（11/16〜）が重なって見え、
+ * 3Q と 4Q で同じ曜日・時限に入る人（よくある形）が全員「二重起用」で弾かれていた。
+ * 曜日ごとに見れば、同じ曜日の 3Q の終わりと 4Q の始まりは重ならない。
  *
  * Terms.gs の overlappingTermIds_ と違い、**境目の1日だけ重なるものは数えない**。
- * 学期設定で 1Q の終わりと 2Q の始まりを同じ日にしてしまうと、1Q と 2Q で同じ曜日・時限に
- * 入っている人（よくある形）が全員「二重起用」で登録できなくなるため。
  * 日付が入っていない学期は、同じ学期どうしだけを同時とみなす。
+ *
+ * @param {string} termId
+ * @param {Array}  terms   readTerms_() の結果
+ * @param {string} [day]   曜日。cal と一緒に渡すとクォーターを曜日ごとの期間で比べる
+ * @param {Object} [cal]   classCalendar_() の結果
  */
-function concurrentTermSet_(termId, terms) {
+function concurrentTermSet_(termId, terms, day, cal) {
   const set = {};
   set[termId] = true;
+  const rangeOf = function (t) {
+    const r = (day && cal) ? termRangeOn_(cal, t.term_id, day) : null;
+    if (r && r.start && r.end) return r;
+    return (t.start_date && t.end_date) ? { start: t.start_date, end: t.end_date } : null;
+  };
   var target = null;
   (terms || []).forEach(function (t) { if (t.term_id === termId) target = t; });
-  if (!target || !target.start_date || !target.end_date) return set;
+  const mine = target ? rangeOf(target) : null;
+  if (!mine) return set;
   terms.forEach(function (t) {
-    if (!t.start_date || !t.end_date) return;
-    if (t.start_date < target.end_date && target.start_date < t.end_date) set[t.term_id] = true;
+    const r = rangeOf(t);
+    if (!r) return;
+    if (r.start < mine.end && mine.start < r.end) set[t.term_id] = true;
   });
   return set;
 }
 
-// 1コマを追加する
 /**
  * 1コマを追加する。
  *
- * `payload.withMoveBefore` / `withMoveAfter` が真なら、**その授業にくっついた移動介助も
- * 同時に作る**（D34・D35）。介助は「その授業の担当が、その授業の前後の移動も担当する」のが
- * 基本形なので、入力を何回にも分けない。
- *
- * 前と後は**別の枠**になりうる（2限のあとの食堂への移動は2限の担当、3限の前の移動は
- * 3限の担当。同じ昼休みの中で2つ並ぶ・D35）。
- *
- * 移動ぶんは同じ利用者・同じ担当・同じ日（または曜日）で、教室は授業の教室を引き継ぐ。
+ * 以前は介助の授業の前後の移動介助を別のコマとして一緒に作っていた（D34・D35）が、2026-11-16 にやめた（D57）。
+ * 移動の15分の枠が時間割を読みにくくするため。今は介助のコマの印（move_before / move_after・D58）で持つ。
  */
 function addCourse(payload) {
   requireStaff_();
-  const p = payload || {};
-  const row = validateCoursePayload_(p, null);
-
-  // 先に移動ぶんも検証しておく。授業だけ作ってから移動で弾かれると、
-  // 「半分だけ登録された」状態を職員が手で片付けることになる。
-  const planned = [];
-  [
-    { on: p.withMoveBefore, side: 'before', word: 'の前の移動' },
-    { on: p.withMoveAfter, side: 'after', word: 'のあとの移動' },
-  ].forEach(function (x) {
-    if (!x.on) return;
-    const mv = attachedMovePeriod_(row.period, row.support_type, x.side);
-    if (!mv) {
-      throw new Error(periodLabelOf_(row.period, null) + x.word + 'の枠がありません。');
-    }
-    planned.push(validateCoursePayload_({
-      quarter: row.quarter,
-      day: row.day,
-      date: row.date,
-      period: String(mv.period).trim(),
-      support_type: row.support_type,
-      user_student: row.user_student,
-      staff_a_id: row.staff_a_id,
-      staff_b_id: row.staff_b_id,
-      room: row.room,                  // 移動先＝授業の教室
-      note: periodLabelOf_(row.period, null) + x.word,
-    }, null));
-  });
-
+  const row = validateCoursePayload_(payload || {}, null);
   const id = appendRowWithId_(SHEET.COURSES, 'course_id', 'C', row);
-
-  const moveIds = [];
-  for (var i = 0; i < planned.length; i++) {
-    try {
-      moveIds.push(appendRowWithId_(SHEET.COURSES, 'course_id', 'C', planned[i]));
-    } catch (e) {
-      // 作れたものは消さずに名指しで返す（黙って片方だけ残さない）
-      throw new Error('授業（' + id + '）'
-        + (moveIds.length ? '・移動介助（' + moveIds.join('・') + '）' : '')
-        + 'は登録しましたが、残りの移動介助の登録に失敗しました：' + e.message
-        + '　シフト入力からもう一度追加してください。');
-    }
-  }
-
-  return { ok: true, course_id: id, move_course_ids: moveIds };
+  return { ok: true, course_id: id };
 }
 
-/** 画面へ渡す移動枠の情報（無ければ null） */
+/** 画面へ渡す移動の枠の情報（無ければ null） */
 function moveSlotInfo_(mv) {
   if (!mv) return null;
   return {
     period: String(mv.period).trim(),
     label: periodLabelOf_(mv.period, mv),
-    time: mv.start_time ? mv.start_time + '〜' + mv.end_time : '',
+    time: mv.start_time ? hhmmText_(mv.start_time) + '〜' + hhmmText_(mv.end_time) : '',
   };
 }
 
