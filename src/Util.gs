@@ -66,6 +66,21 @@ function preferredNameSpelling_(spellings) {
 }
 
 /**
+ * 大学のメールアドレスから学籍番号と入学年度（下2桁）を読む（D61）。
+ * 学籍番号は「英字 + 入学年度の下2桁 + 番号」（例：y240241 → 24）。読めなければ空。
+ * 大学院生は年度の後に英字が付く（例：y24m012 → 24）。大学院生も同じ入学年度のまとまりに入れる（区別しない）。
+ * 名簿を入学年度でまとめるのに使う。職員のアドレスなど、学籍番号でないものは空になる。
+ * @return {{studentNo:string, entryYear:string}}
+ */
+function studentNoOfEmail_(email) {
+  const local = String(email == null ? '' : email).trim().split('@')[0];
+  // 年度の後は「数字3桁以上」（学部生）か「英字で始まる英数字」（大学院生 24m… など）
+  const m = local.match(/^([A-Za-z]{0,3})(\d{2})(\d{3,}|[A-Za-z][A-Za-z0-9]{1,})$/);
+  if (!m) return { studentNo: '', entryYear: '' };
+  return { studentNo: local.toUpperCase(), entryYear: m[2] };
+}
+
+/**
  * 電話番号の形を揃える（090-1234-5678）。全角は半角に直す。空は許す（必須かどうかは呼び出し側）。
  * ハイフンの無い11桁（古い書き方）は 3-4-4 に分ける。
  * @return {string} 揃えた番号

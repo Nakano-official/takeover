@@ -267,4 +267,19 @@ h.check(rowOf(res, 'S101').personal_code === undefined,
 h.check(JSON.stringify(res).indexOf('Y200001') === -1,
   '★個人コードの値がレスポンスのどこにも混ざらない');
 
+h.section('6) 入学年度（メールの学籍番号から・D61）');
+const sn = (e) => JSON.stringify(G.studentNoOfEmail_(e));
+h.check(sn('y240241@mail.example.ac.jp') === JSON.stringify({ studentNo: 'Y240241', entryYear: '24' }), '★y240241 → 学籍番号 Y240241・入学年度 24');
+h.check(G.studentNoOfEmail_('T250012@example.ac.jp').entryYear === '25', '大文字でも読む');
+h.check(G.studentNoOfEmail_('y24m012@example.ac.jp').entryYear === '24', '★大学院生（年度の後に m など）も同じ入学年度に入れる');
+h.check(G.studentNoOfEmail_('24m0012@example.ac.jp').entryYear === '24', '先頭に英字が無い形でも読む');
+h.check(G.studentNoOfEmail_('shienshitsu@example.ac.jp').entryYear === '', '職員のアドレスなど学籍番号でないものは空');
+h.check(G.studentNoOfEmail_('s101@example.ac.jp').entryYear === '', '桁の足りないものは学籍番号とみなさない');
+h.check(G.studentNoOfEmail_('').entryYear === '', '空でも落ちない');
+setup();
+h.row('contacts', 'staff_id', 'S101').email = 'y260101@example.ac.jp';
+asStaff();
+const r6 = G.getStaffRoster().rows.filter(function (r) { return r.staff_id === 'S101'; })[0];
+h.check(r6.entryYear === '26' && r6.studentNo === 'Y260101', '★名簿の行に入学年度と学籍番号を付ける');
+
 process.exitCode = h.report();

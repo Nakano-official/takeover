@@ -135,7 +135,7 @@ const SHOTS = [
     clip: ['.card:has(#summary)', '.controls'],
     marks: [{ sel: '#summary', n: 1 }, { sel: '.controls', n: 2 }] },
   { id: 'roster-2', page: 'staff-roster', device: 'pc',
-    clip: ['.tablewrap'], marks: [] },
+    clip: ['#groups'], marks: [] },
   { id: 'approvals-1', page: 'staff-approvals', device: 'pc',
     clip: ['.rg.pending'],
     marks: [
