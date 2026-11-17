@@ -73,9 +73,10 @@ function getMyCourses() {
         skipDates: Object.keys(cal.noClass).filter(function (d) {
           return range.start && d >= range.start && d <= range.end && weekdayOf_(d) === String(c.day).trim()
             && isNoClassAt_(cal.noClass, d, c.period);
-        }).concat(Object.keys(cal.cancelled || {}).filter(function (k) {
-          return k.indexOf(String(c.course_id).trim() + '|') === 0;   // 個別の休講（D60）
-        }).map(function (k) { return k.split('|')[1]; })),
+        }).concat(cancelledDatesOf_(cal, c.course_id)),
+        // 個別の休講（D60）の日だけ。単発コマはこれだけを見る（issue #49）。
+        // skipDates には全学の授業の無い日も入るが、単発コマ（補講・行事）はその日にも行うことがある
+        cancelledDates: cancelledDatesOf_(cal, c.course_id),
       };
     });
 }

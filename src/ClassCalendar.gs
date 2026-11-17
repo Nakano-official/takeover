@@ -207,10 +207,22 @@ function courseHeldOn_(course, dateStr, cal) {
 /**
  * そのコマがその日に個別の休講（D60）か。休講なら画面に出す文（「この日（…）のこのコマは休講です（理由）。」）、
  * そうでなければ ''。欠勤連絡・再オープン・代行の確定で、休講のコマを動かさないために使う。
+ *
+ * **休講の記録を直接見る**（courseHeldOn_ の結果に頼らない・issue #50）。courseHeldOn_ は、その日が授業の無い日
+ * （全学休講など）だと休講を調べる前に返すので、休講のあとで同じ日を授業の無い日にすると休講を見落としていた。
  */
 function cancelledNotice_(course, dateStr, cal) {
-  const held = courseHeldOn_(course, dateStr, cal || classCalendar_());
-  return held.cancelled ? 'この日（' + dateStr + '）のこのコマは' + held.reason + '。' : '';
+  const c = cal || classCalendar_();
+  const cx = c && c.cancelled && c.cancelled[String(course.course_id || '').trim() + '|' + dateStr];
+  return cx ? 'この日（' + dateStr + '）のこのコマは休講です（' + (cx.reason || '休講') + '）。' : '';
+}
+
+/** そのコマが個別の休講（D60）になっている日の一覧（'yyyy-MM-dd'） */
+function cancelledDatesOf_(cal, courseId) {
+  const prefix = String(courseId || '').trim() + '|';
+  return Object.keys((cal && cal.cancelled) || {}).filter(function (k) {
+    return k.indexOf(prefix) === 0;
+  }).map(function (k) { return k.split('|')[1]; });
 }
 
 /**
