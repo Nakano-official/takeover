@@ -204,6 +204,52 @@ function courseHeldOn_(course, dateStr, cal) {
   return base;
 }
 
+/**
+ * そのコマがその日に個別の休講（D60）か。休講なら画面に出す文（「この日（…）のこのコマは休講です（理由）。」）、
+ * そうでなければ ''。欠勤連絡・再オープン・代行の確定で、休講のコマを動かさないために使う。
+ */
+function cancelledNotice_(course, dateStr, cal) {
+  const held = courseHeldOn_(course, dateStr, cal || classCalendar_());
+  return held.cancelled ? 'この日（' + dateStr + '）のこのコマは' + held.reason + '。' : '';
+}
+
+/**
+ * その学期と、**その曜日に同時に授業がある**学期の集合（自分を含む）。二重起用チェック用（D52）。
+ * シフト入力（Input.gs）と、日付の無い代行候補の判定（busyStaffIds_）が使う。
+ *
+ * クォーターは**曜日ごとの期間**で比べる（D53）。`terms` のクォーターの行は「一番早い曜日の始まり〜
+ * 一番遅い曜日の終わり」なので、行どうしで比べると 3Q（〜11/21）と 4Q（11/16〜）が重なって見え、
+ * 3Q と 4Q で同じ曜日・時限に入る人（よくある形）が全員「二重起用」で弾かれていた。
+ * 曜日ごとに見れば、同じ曜日の 3Q の終わりと 4Q の始まりは重ならない。
+ *
+ * Terms.gs の overlappingTermIds_ と違い、**境目の1日だけ重なるものは数えない**。
+ * 日付が入っていない学期は、同じ学期どうしだけを同時とみなす。
+ *
+ * @param {string} termId
+ * @param {Array}  terms   readTerms_() の結果
+ * @param {string} [day]   曜日。cal と一緒に渡すとクォーターを曜日ごとの期間で比べる
+ * @param {Object} [cal]   classCalendar_() の結果
+ */
+function concurrentTermSet_(termId, terms, day, cal) {
+  const set = {};
+  set[termId] = true;
+  const rangeOf = function (t) {
+    const r = (day && cal) ? termRangeOn_(cal, t.term_id, day) : null;
+    if (r && r.start && r.end) return r;
+    return (t.start_date && t.end_date) ? { start: t.start_date, end: t.end_date } : null;
+  };
+  var target = null;
+  (terms || []).forEach(function (t) { if (t.term_id === termId) target = t; });
+  const mine = target ? rangeOf(target) : null;
+  if (!mine) return set;
+  terms.forEach(function (t) {
+    const r = rangeOf(t);
+    if (!r) return;
+    if (r.start < mine.end && mine.start < r.end) set[t.term_id] = true;
+  });
+  return set;
+}
+
 /** 休講を見ない「そのコマがその日の予定か」（学期の範囲・授業の無い日・単発の日付） */
 function courseScheduledOn_(course, dateStr, cal) {
   const oneOff = courseDate_(course);

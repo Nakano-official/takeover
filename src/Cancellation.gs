@@ -104,14 +104,15 @@ function cancelClass(p) {
       added.push(c);
     });
     // その日の決まっていない欠員は「休講」で決着させる（代行を探し続けない）
-    const ids = {};
-    added.forEach(function (c) { ids[String(c.course_id).trim()] = true; });
+    const byId = {};
+    added.forEach(function (c) { byId[String(c.course_id).trim()] = c; });
     const closed = [];
     const subs = [];
     readRows_(SHEET.VACANCIES).forEach(function (v) {
-      if (!ids[String(v.course_id).trim()] || dateToStr_(v.date) !== dateStr) return;
+      const c = byId[String(v.course_id).trim()];
+      if (!c || dateToStr_(v.date) !== dateStr) return;
       const sub = String(v.substitute_staff_id || '').trim();
-      if (sub) subs.push(sub);
+      if (sub) subs.push({ staff_id: sub, course: c });
       if (String(v.result || '').trim()) return;
       updateRow_(SHEET.VACANCIES, 'vacancy_id', String(v.vacancy_id).trim(), { result: VACANCY_RESULT.CANCELLED });
       closed.push(String(v.vacancy_id).trim());
@@ -166,17 +167,32 @@ function uncancelClass(p) {
   });
   clearClassCalendarCache_();
 
+  // その日のそのコマで**代行に決まっている人**にも、授業が戻ったことを知らせる（issue #44）。
+  // 休講のときに「勤務がありません」と知らせているので、取り消しも届けないと来ないままになる。
+  // 決まっているのは「補充済」で代行者が入っている欠員だけ（休講で締めた欠員には代行者がいない）
+  const byId = {};
+  removed.forEach(function (c) { byId[String(c.course_id).trim()] = c; });
+  const vacancies = readRows_(SHEET.VACANCIES).filter(function (v) {
+    return byId[String(v.course_id).trim()] && dateToStr_(v.date) === dateStr;
+  });
+  const subs = [];
+  vacancies.forEach(function (v) {
+    const sub = String(v.substitute_staff_id || '').trim();
+    if (sub && String(v.result || '').trim() === VACANCY_RESULT.FILLED) {
+      subs.push({ staff_id: sub, course: byId[String(v.course_id).trim()] });
+    }
+  });
+
   var notify = null;
   if (removed.length) {
     try {
-      notify = notifyCancellation_(removed, dateStr, '', true, [], me.name);
+      notify = notifyCancellation_(removed, dateStr, '', true, subs, me.name);
     } catch (e) {
       notify = { error: e.message };
     }
   }
-  const hadClosed = readRows_(SHEET.VACANCIES).some(function (v) {
-    return dateToStr_(v.date) === dateStr && String(v.result || '').trim() === VACANCY_RESULT.CANCELLED &&
-      removed.some(function (c) { return String(c.course_id).trim() === String(v.course_id).trim(); });
+  const hadClosed = vacancies.some(function (v) {
+    return String(v.result || '').trim() === VACANCY_RESULT.CANCELLED;
   });
   return { ok: true, courses: removed.map(cancellationLabel_), hadClosedVacancy: hadClosed, notify: notify };
 }

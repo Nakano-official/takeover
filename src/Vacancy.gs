@@ -115,12 +115,15 @@ function submitAbsence(courseId, date, includeAttached) {
   }
 
   // 単発コマ（D27）はその日1回しか無いので、実施日と一致するかだけを見る。
-  // 学期の開講期間チェックはしない（学期外の説明会・行事もありうるため）。
+  // 学期の開講期間・授業の無い日は見ない（学期外の説明会・行事もありうるため）。
+  // ただし個別の休講（D60）は見る。休講の日に欠勤を出すと、要らない代行募集が動く（issue #45）
   const oneOffDate = courseDate_(course);
   if (oneOffDate) {
     if (dateStr !== oneOffDate) {
       throw new Error('このコマは ' + oneOffDate + ' の1回限りです（指定：' + dateStr + '）。');
     }
+    const cancelled = cancelledNotice_(course, dateStr);
+    if (cancelled) throw new Error(cancelled + '欠勤の連絡は要りません。');
   } else {
     // 毎週のコマ：その日に授業が実際にあること（D53）。曜日ごとの学期の範囲（クォーターの境目）と、
     // 授業の無い日（祝日・全学休講・〇講時以降休講）を見る。学期の日付が未設定ならスキップ（後方互換）。
@@ -340,6 +343,11 @@ function respondToVacancy(vacancyId, answer) {
     return { ok: false, closed: true, deadline: true, message: MSG_RECRUIT_CLOSED };
   }
 
+  // 休講の日の欠員には代行を確定させない（issue #46）。ふだんは休講で「休講」に決着して上で弾かれるが、
+  // 経路の漏れで開いたままでも、ここで止める
+  const cancelled = cancelledNotice_(course, dateToStr_(vacancy.date));
+  if (cancelled) throw new Error(cancelled + '代行は要りません。');
+
   // 回答そのものは記録しておく（先着で負けても「承諾した事実」はログに残す）
   upsertRow_(
     SHEET.RESPONSES,
@@ -449,6 +457,8 @@ function selfClaimBlocker_(vacancy, staff, ctx) {
     if (String(v.absent_staff_id).trim() === staffId) return 'あなたの欠勤です。';
     if (isAssigned_(course, staffId)) return 'あなたが担当しているコマです。';
     if (isRecruitClosed_(v, course)) return MSG_SELF_CLAIM_CLOSED;
+    // 休講の日には入れない（issue #46）
+    if (cancelledNotice_(course, dateToStr_(v.date), (ctx && ctx.cal) || null)) return 'この日のこのコマは休講です。代行は要りません。';
     if (!hasSkillFor_(staff, course.support_type)) {
       return '「' + String(course.support_type).trim() + '」はあなたの対応できる業務に入っていません。';
     }
@@ -846,6 +856,15 @@ function getVacanciesForManage() {
   });
 }
 
+/** 休講の日の欠員なら止める（代行の確定・issue #46）。見つからないときは後段が理由つきで止める */
+function assertVacancyNotCancelled_(vacancy) {
+  if (!vacancy) return;
+  const course = findRow_(SHEET.COURSES, 'course_id', vacancy.course_id);
+  if (!course) return;
+  const cancelled = cancelledNotice_(course, dateToStr_(vacancy.date));
+  if (cancelled) throw new Error(cancelled + '代行は要りません。');
+}
+
 /**
  * 代行者を確定する。result を「補充済」にし substitute_staff_id を記録する。
  * （カレンダー反映は Phase 2 で Calendar.gs から行う）
@@ -853,6 +872,7 @@ function getVacanciesForManage() {
 function confirmSubstitute(vacancyId, substituteStaffId) {
   requireStaff_();
   if (!substituteStaffId) throw new Error('代行者が指定されていません。');
+  assertVacancyNotCancelled_(findRow_(SHEET.VACANCIES, 'vacancy_id', vacancyId));
 
   // result が空のときだけ atomically 確定する（settle 遷移）。
   // 職員の確定中に候補者が respondToVacancy で先着確定するケースを防ぐ（D1違反の是正・backlog 10-1）。
@@ -904,6 +924,14 @@ function reopenVacancy(vacancyId) {
   // 判定に使うコマは、reopen の書き込み前に引いておく（ロックの中で別シートを読まない）。
   const cur = findRow_(SHEET.VACANCIES, 'vacancy_id', vacancyId);
   const curCourse = cur ? findRow_(SHEET.COURSES, 'course_id', cur.course_id) : null;
+
+  // 休講中のコマは開き直さない（issue #46）。開くと授業の無い日に代行を募集し、確定までできてしまう。
+  // 休講を取り消してから開き直す（D60 の手順）
+  const cancelled = cur && curCourse ? cancelledNotice_(curCourse, dateToStr_(cur.date)) : '';
+  if (cancelled) {
+    throw new Error(cancelled + '再募集するときは、先にシフト確認でこのコマを押して休講を取り消してください。');
+  }
+
   const pastDeadline = cur && curCourse
     ? isPastRecruitDeadline_(dateToStr_(cur.date), curCourse)
     : false;
@@ -1094,13 +1122,24 @@ function hasSkillFor_(staff, supportType) {
 /**
  * そのコマと**同じ曜日・時限に、もう仕事が入っている人**（staff_id → true）。
  * 代行候補（findCandidates_）と、自分から代行に入る判定（selfClaimBlocker_・D50）で共通。
- *   - 同じ学期・同じ時限の別のコマの担当（単発コマは別の日なら競合しない・D27）
+ *   - 同じ時限の別のコマの担当。**学期の名前ではなく、実際に同じ時間に授業があるか**で見る（issue #43）。
+ *     後期と 4Q のように学期が違っても、同じ日に両方の授業があれば同じ人は入れない
+ *       - date を渡したとき：別のコマが**その日に実際にあるか**（courseHeldOn_：学期の曜日ごとの範囲・
+ *         授業の無い日・単発の日付・個別の休講）。その日が休講のコマの担当は、その時間は空いている
+ *       - date が無いとき：その曜日に同時に授業がある学期（concurrentTermSet_・シフト入力の二重起用チェックと同じ）で、
+ *         開催回が重なるもの（単発コマは別の日なら競合しない・D27）
  *   - date を渡したとき：その日・同じ時限で既に代行が確定している人
  */
 function busyStaffIds_(course, date, ctx) {
   const slotKey = String(course.day).trim() + String(course.period).trim();
   const quarter = String(course.quarter).trim();
   const courseId = String(course.course_id).trim();
+  const dateStr = date ? dateToStr_(date) : '';
+
+  // 一覧で何度も呼ぶときのために、学期の範囲は ctx に1回だけ持つ
+  const cal = (ctx && ctx.cal) || classCalendar_();
+  if (ctx && !ctx.cal) ctx.cal = cal;
+  const sameTime = dateStr ? null : concurrentTermSet_(quarter, readTerms_(), String(course.day).trim(), cal);
 
   // 同一スロットで「埋まっている」学生（ダブルブッキング除外用）
   const allCourses = (ctx && ctx.courses) || readRows_(SHEET.COURSES);
@@ -1109,21 +1148,25 @@ function busyStaffIds_(course, date, ctx) {
   allCourses.forEach(function (c) {
     const cid = String(c.course_id).trim();
     slotOf[cid] = String(c.day).trim() + String(c.period).trim();
-    // 単発コマ（date あり）は、同じ曜日・時限でも別の日なら競合しない（D27）
-    if (cid !== courseId &&
-        String(c.quarter).trim() === quarter &&
-        slotOf[cid] === slotKey &&
-        occurrencesOverlap_(courseDate_(course), courseDate_(c))) {
-      [c.staff_a_id, c.staff_b_id].forEach(function (id) {
-        id = String(id).trim();
-        if (id) busy[id] = true;
-      });
-    }
+    if (cid === courseId || slotOf[cid] !== slotKey) return;
+    const cTerm = String(c.quarter).trim();
+    // 日付があるとき、学期の違う毎週のコマは**その学期の期間が分かるときだけ**数える。
+    // 期間の無い学期（terms に行が無い古い年度など）は courseHeldOn_ が「ある」とみなすので、
+    // 数えると昔のコマの担当まで埋まっている扱いになる
+    const overlaps = dateStr
+      ? courseHeldOn_(c, dateStr, cal).held &&
+        (cTerm === quarter || !!courseDate_(c) || !!(cal && cal.ranges && cal.ranges[cTerm]))
+      : !!sameTime[cTerm] && occurrencesOverlap_(courseDate_(course), courseDate_(c));
+    if (!overlaps) return;
+    [c.staff_a_id, c.staff_b_id].forEach(function (id) {
+      id = String(id).trim();
+      if (id) busy[id] = true;
+    });
   });
 
   // date 指定時：その日・同スロットで既に代行確定済みの学生も除外
-  if (date) {
-    const target = dateToStr_(date);
+  if (dateStr) {
+    const target = dateStr;
     const allVacancies = (ctx && ctx.vacancies) || readRows_(SHEET.VACANCIES);
     allVacancies.forEach(function (v) {
       const sub = String(v.substitute_staff_id || '').trim();
