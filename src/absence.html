@@ -100,8 +100,9 @@
       // 単発コマ（D27）は実施日が1つしか無い。学期の開講期間からは日付を組み立てず、
       // その日だけを候補にする（サーバー側 submitAbsence も実施日との一致だけを見る）。
       if (c.oneOffDate) {
-        // その日が休講（D60）なら選ばせない（skipDates に休講の日が入っている・issue #45）
-        if ((c.skipDates || []).indexOf(c.oneOffDate) !== -1) {
+        // その日が個別の休講（D60）なら選ばせない（issue #45）。
+        // skipDates は見ない：全学の授業の無い日も入っていて、その日に行う単発コマ（補講・行事）まで止めてしまう（issue #49）
+        if ((c.cancelledDates || []).indexOf(c.oneOffDate) !== -1) {
           wrap.innerHTML = '<select id="date"><option value="">（' + escapeHtml(c.oneOffDate) + ' は休講です）</option></select>';
           applyPreDate();
           btn.disabled = true;

@@ -10,7 +10,30 @@
  *   4. 「この利用者のこの日のコマを全部」で、同じ利用学生のその日のコマだけをまとめて休講にする
  *   5. 職員だけが操作できる。取り消せる
  */
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
 const { Harness, time: T } = require('./gas-harness');
+
+/**
+ * 欠勤連絡の画面（src/absence.html）のスクリプトを、最小限の DOM の代わりで動かす。
+ * サーバーの判定と画面の判定が食い違う不具合（issue #49）は、サーバー側のテストだけでは見つからないため。
+ * getMyCourses の返り値を渡し、指定のコマで rebuildDates() を呼んだあとの画面の状態を返す。
+ */
+function absencePageFor(courses, courseId) {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'absence.html'), 'utf8');
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)[1].replace(/<\?!?=[\s\S]*?\?>/g, '');
+  const els = {};
+  const el = (id) => els[id] || (els[id] = { id: id, value: '', innerHTML: '', textContent: '', disabled: false,
+    checked: false, style: {}, options: [], classList: { add() {}, remove() {}, toggle() {} } });
+  const chain = new Proxy(function () {}, { get: () => chain, apply: () => chain });   // google.script.run は何もしない
+  const ctx = vm.createContext({ document: { getElementById: el }, google: { script: { run: chain } }, alert() {}, console });
+  vm.runInContext(script, ctx);
+  ctx.COURSES = JSON.parse(JSON.stringify(courses));   // 画面に届くのは JSON にした値
+  el('course').value = courseId;
+  ctx.rebuildDates();
+  return { disabled: el('submit').disabled, hint: el('datehint').textContent, options: el('dateWrap').innerHTML };
+}
 
 const h = new Harness();
 h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Access.gs', 'ClassCalendar.gs', 'Cancellation.gs',
@@ -215,5 +238,68 @@ h.row('vacancies', 'vacancy_id', 'V1').result = '休講';
 G.uncancelClass({ course_id: 'C1', date: D });
 const ro = G.reopenVacancy('V1');
 h.check(ro.ok && h.row('vacancies', 'vacancy_id', 'V1').result === '', '★休講を取り消したあとは再オープンできる');
+
+h.section('9) 全学の授業の無い日の単発コマは、画面からも欠勤連絡できる（issue #49）');
+setup();
+asStaff();
+h.add('courses', { course_id: 'C9', quarter: 'X-後期', day: DAY, period: '2', support_type: 'テイク',
+  user_student: '仮名 太郎', staff_a_id: 'S1', staff_b_id: '', date: D });
+// 学期の外の単発コマ（行事など）
+const OUT = T.dateIn(120);
+h.add('courses', { course_id: 'C10', quarter: 'X-後期', day: G.weekdayOf_(OUT), period: '1', support_type: 'テイク',
+  user_student: '仮名 太郎', staff_a_id: 'S1', staff_b_id: '', date: OUT });
+h.add('no_class_days', { no_class_id: 'N1', start_date: D, end_date: '', from_period: '', reason: '全学休講' });
+G.clearClassCalendarCache_();
+asStudent();
+var mine9 = G.getMyCourses();
+var p9 = absencePageFor(mine9, 'C9');
+h.check(!p9.disabled && p9.hint.indexOf('休講') === -1, '★全学休講の日の単発コマは、画面で欠勤の登録ボタンが押せる（休講と出さない）：' + p9.hint);
+h.check(p9.options.indexOf('value="' + D + '"') !== -1, '実施日が選択肢に出る');
+const pOut = absencePageFor(mine9, 'C10');
+h.check(!pOut.disabled && pOut.options.indexOf('value="' + OUT + '"') !== -1, '学期の外の単発コマも今まで通り選べる');
+const p1 = absencePageFor(mine9, 'C1');
+h.check(p1.options.indexOf(D) === -1 && p1.options.indexOf(NEXT) !== -1, '★毎週のコマは、全学休講の日を今まで通り選択肢から外す');
+const s9 = G.submitAbsence('C9', D);
+h.check(!!s9.vacancy_id, 'サーバーも受け付ける（画面とサーバーの判定が揃う）');
+// 同じ単発コマを個別に休講にしたら、画面もサーバーも止める
+asStaff();
+G.cancelClass({ course_id: 'C9', date: D, reason: '教員の都合' });
+asStudent();
+mine9 = G.getMyCourses();
+p9 = absencePageFor(mine9, 'C9');
+h.check(p9.disabled && p9.hint.indexOf('休講') !== -1, '★個別に休講にした単発コマは、画面で登録ボタンを押せない');
+h.check(/休講です/.test(errOf(() => G.submitAbsence('C9', D)) || ''), '★サーバーも受け付けない');
+
+h.section('10) 休講のあとで同じ日を全学休講にしても、休講を見落とさない（issue #50）');
+setup();
+asStaff();
+h.row('staffs', 'staff_id', 'S4').available_slots = DAY + '1';
+G.cancelClass({ course_id: 'C1', date: D, reason: '教員の都合' });
+h.add('no_class_days', { no_class_id: 'N1', start_date: D, end_date: '', from_period: '', reason: '全学休講' });
+G.clearClassCalendarCache_();
+h.check(!held('C1', D).held, '前提：その日は授業の無い日でもある');
+h.check(G.cancelledNotice_(h.row('courses', 'course_id', 'C1'), D).indexOf('教員の都合') !== -1,
+  '★全学休講と重なっても、個別の休講を見つける');
+posted.length = 0;
+const resBefore = h.db.responses.length;
+h.check(/休講です/.test(errOf(() => G.reopenVacancy('V1')) || ''), '★再オープンできない');
+const v1 = h.row('vacancies', 'vacancy_id', 'V1');
+h.check(v1.result === '休講' && !v1.substitute_staff_id, '欠員の結果と代行者は変えない');
+h.check(h.db.responses.length === resBefore && posted.length === 0, '回答も募集の通知も作らない');
+// 経路の漏れで開いたままでも、代行の回答・確定で止める
+v1.result = '';
+h.setUser({ staff_id: 'S4', name: '代行 四郎', role: '学生', email: 's4@example.jp' });
+h.check(G.claimVacancy('V1').ok === false, '★自分から代行に入れない');
+h.check(/休講です/.test(errOf(() => G.respondToVacancy('V1', '承諾')) || ''), '★代行依頼に承諾できない');
+asStaff();
+h.check(/休講です/.test(errOf(() => G.confirmSubstitute('V1', 'S4')) || ''), '★職員も代行を確定できない');
+h.check(!h.row('vacancies', 'vacancy_id', 'V1').substitute_staff_id, 'どの経路でも代行者は書かれない');
+// 休講を取り消し、授業のある日に戻れば再オープンできる
+v1.result = '休講';
+G.uncancelClass({ course_id: 'C1', date: D });
+h.db.no_class_days = [];
+G.clearClassCalendarCache_();
+const ro10 = G.reopenVacancy('V1');
+h.check(ro10.ok && h.row('vacancies', 'vacancy_id', 'V1').result === '', '★休講を取り消して授業のある日に戻れば、再オープンできる');
 
 process.exit(h.report());
