@@ -138,4 +138,82 @@ G.cancelClass({ course_id: 'C3', date: D, reason: '教員の都合' });
 G.deleteCourse('C3');
 h.check(!h.row('courses', 'course_id', 'C3') && h.db.cancellations.length === 0, '削除したコマの休講の記録は残さない');
 
+h.section('6) 休講を取り消したら、代行に決まっている人にも知らせる（issue #44）');
+setup();
+asStaff();
+// 別の日・別のコマにも代行がいる（その人には送らない）
+h.add('vacancies', { vacancy_id: 'V3', date: NEXT, course_id: 'C2', absent_staff_id: 'S3', result: '補充済', substitute_staff_id: 'S1' });
+G.cancelClass({ course_id: 'C2', date: D, reason: '教員の都合' });
+h.check(!!to('S4') && to('S4').text.indexOf('休講です') !== -1, '休講のとき、代行の人（S4）に知らせる');
+posted.length = 0;
+const u3 = G.uncancelClass({ course_id: 'C2', date: D });
+h.check(!!to('S4') && to('S4').text.indexOf('取り消しました') !== -1, '★取り消したときも、代行の人（S4）に「いつも通り実施」を知らせる');
+h.check(!!to('S4') && to('S4').text.indexOf('2限') !== -1 && to('S4').text.indexOf('1限') === -1, '代行の人には、その人のコマだけを並べる');
+h.check(!to('S1'), '★別の日の代行の人（S1）には送らない');
+h.check(u3.notify.people.some((p) => p.staff_id === 'S4' && p.sent), '代行の人に届いたかを画面へ返す（届かなければ職員が分かる）');
+h.check(h.row('vacancies', 'vacancy_id', 'V2').substitute_staff_id === 'S4', '代行の人はそのまま担当に残る');
+// 休講で締めた欠員（代行者なし）の人には送らない／代行者が残っていても決着が「補充済」でなければ送らない
+setup();
+asStaff();
+h.row('vacancies', 'vacancy_id', 'V2').result = '職員対応';
+G.cancelClass({ course_id: 'C2', date: D, reason: '教員の都合' });
+posted.length = 0;
+G.uncancelClass({ course_id: 'C2', date: D });
+h.check(!to('S4'), '補充済でない欠員の代行者欄は宛先にしない');
+// 代行の人に Webhook が無ければ「届かなかった」と返す
+setup();
+asStaff();
+h.row('vacancies', 'vacancy_id', 'V2').substitute_staff_id = 'S2';   // S2 は Webhook なし
+G.cancelClass({ course_id: 'C2', date: D, reason: '教員の都合' });
+const u4 = G.uncancelClass({ course_id: 'C2', date: D });
+h.check(u4.notify.people.some((p) => p.staff_id === 'S2' && !p.sent), '★代行の人に届かなかったら、画面に「届かなかった」と返す');
+
+h.section('7) 休講にした単発コマは欠勤連絡できない（issue #45）');
+setup();
+asStaff();
+h.add('courses', { course_id: 'C9', quarter: 'X-後期', day: DAY, period: '2', support_type: 'テイク',
+  user_student: '仮名 太郎', staff_a_id: 'S1', staff_b_id: '', date: D });
+G.cancelClass({ course_id: 'C9', date: D, reason: '教員の都合' });
+asStudent();
+const vBefore = h.db.vacancies.length;
+h.check(/休講です/.test(errOf(() => G.submitAbsence('C9', D)) || ''), '★休講の単発コマは欠勤連絡を受け付けない');
+h.check(h.db.vacancies.length === vBefore, '欠員を作らない（代行の募集も動かない）');
+const one = G.getMyCourses().filter((c) => c.course_id === 'C9')[0];
+h.check(one && one.oneOffDate === D && one.skipDates.indexOf(D) !== -1, '★画面へ「その日は休講」と分かる形で渡す（欠勤連絡で選べない）');
+// 個別の休講でなければ、授業の無い日でも単発コマは今まで通り（学期外の行事・補講）
+asStaff();
+G.uncancelClass({ course_id: 'C9', date: D });
+h.add('no_class_days', { no_class_id: 'N1', start_date: D, end_date: '', from_period: '', reason: '全学休講' });
+G.clearClassCalendarCache_();
+asStudent();
+h.db.vacancies = h.db.vacancies.filter((v) => v.course_id !== 'C9');   // 上で（直す前のコードなら）できた欠員を消してから試す
+var r9 = null;
+try { r9 = G.submitAbsence('C9', D); } catch (e) { r9 = { error: e.message }; }
+h.check(r9 && r9.vacancy_id, '★授業の無い日でも、休講でなければ単発コマは欠勤連絡できる（今まで通り）');
+
+h.section('8) 休講中の欠員は再オープンも代行の確定もできない（issue #46）');
+setup();
+asStaff();
+h.row('staffs', 'staff_id', 'S4').available_slots = DAY + '1';   // S4 は C1 の代行候補
+G.cancelClass({ course_id: 'C1', date: D, reason: '教員の都合' });
+h.check(h.row('vacancies', 'vacancy_id', 'V1').result === '休講', '前提：V1 は「休講」で締まっている');
+h.check(/休講です/.test(errOf(() => G.reopenVacancy('V1')) || ''), '★休講中は再オープンできない');
+h.check(/取り消して/.test(errOf(() => G.reopenVacancy('V1')) || ''), '先に休講を取り消すよう案内する');
+h.check(h.row('vacancies', 'vacancy_id', 'V1').result === '休講', '結果は書き換えない');
+// 経路の漏れで開いたままになっていても、代行を確定させない
+h.row('vacancies', 'vacancy_id', 'V1').result = '';
+h.setUser({ staff_id: 'S4', name: '代行 四郎', role: '学生', email: 's4@example.jp' });
+const c4 = G.claimVacancy('V1');
+h.check(c4.ok === false && /休講/.test(c4.message || ''), '★自分から代行に入れない');
+h.check(/休講です/.test(errOf(() => G.respondToVacancy('V1', '承諾')) || ''), '★代行依頼に承諾できない');
+asStaff();
+h.check(/休講です/.test(errOf(() => G.confirmSubstitute('V1', 'S4')) || ''), '★職員も代行を確定できない');
+h.check(h.row('vacancies', 'vacancy_id', 'V1').result === '' && !h.row('vacancies', 'vacancy_id', 'V1').substitute_staff_id,
+  'どの経路でも代行者は書かれない');
+// 休講を取り消せば、いつも通り再オープンできる
+h.row('vacancies', 'vacancy_id', 'V1').result = '休講';
+G.uncancelClass({ course_id: 'C1', date: D });
+const ro = G.reopenVacancy('V1');
+h.check(ro.ok && h.row('vacancies', 'vacancy_id', 'V1').result === '', '★休講を取り消したあとは再オープンできる');
+
 process.exit(h.report());

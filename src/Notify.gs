@@ -174,7 +174,8 @@ function blockSlotsText_(vacancy) {
  * @param {string} dateStr
  * @param {string} reason
  * @param {boolean} undo     取り消しなら true
- * @param {Array<string>} extraStaffIds  その日の代行に決まっていた人
+ * @param {Array<string|{staff_id:string, course:Object}>} extraStaffIds  その日の代行に決まっている人。
+ *        休講のときも取り消しのときも渡す（取り消しで代行の人に知らせないと、勤務なしと思ったまま授業が戻る・issue #44）
  * @param {string} byName    操作した職員
  * @return {{staff:boolean, people:Array<{staff_id, name, sent, reason}>}}
  */
@@ -198,7 +199,11 @@ function notifyCancellation_(courses, dateStr, reason, undo, extraStaffIds, byNa
     if (c && byPerson[id].indexOf(c) === -1) byPerson[id].push(c);
   };
   courses.forEach(function (c) { addTo(c.staff_a_id, c); addTo(c.staff_b_id, c); });
-  (extraStaffIds || []).forEach(function (id) { addTo(id, null); });
+  // 代行に決まっている人など。{staff_id, course} で渡すとその人のコマだけを並べる（id だけなら全部）
+  (extraStaffIds || []).forEach(function (x) {
+    if (x && typeof x === 'object') addTo(x.staff_id, x.course || null);
+    else addTo(x, null);
+  });
 
   const head = undo
     ? dayText + ' の次のコマの休講を取り消しました。いつも通り実施します。'

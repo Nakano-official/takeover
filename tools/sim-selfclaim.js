@@ -234,4 +234,31 @@ G.claimVacancy('V001');
 tt = G.getTimetable('');
 h.check(tt.vacancy[key].open.length === 0 && tt.vacancy[key].status === '補充済', '確定後は open が空になる');
 
+h.section('9) 学期が違っても、同じ時間に授業がある人は入れない（issue #43）');
+// 後期の欠員 V001（明日の3限）。同じ曜日・3限に 4Q のコマ（S8）と 3Q のコマ（S9）がある。
+// 後期は60日前から始まっているので、明日はもう 4Q（曜日ごとに8回数えた後半）
+setup(false);
+h.add('terms', { term_id: '2026-後期', system: 'semester', start_date: T.dateIn(-60), end_date: T.dateIn(120) });
+h.add('terms', { term_id: '2026-3Q', system: 'quarter', start_date: T.dateIn(-60), end_date: T.dateIn(0) });
+h.add('terms', { term_id: '2026-4Q', system: 'quarter', start_date: T.dateIn(1), end_date: T.dateIn(120) });
+[['S8', '4Qの担当'], ['S9', '3Qの担当']].forEach(function (s) {
+  h.add('staffs', { staff_id: s[0], name: s[1], role: '学生', skills: 'テイク', available_slots: T.dayJp(DAY) + '3' });
+  h.add('contacts', { staff_id: s[0], name: s[1], email: s[0].toLowerCase() + '@example.jp' });
+});
+h.add('courses', { course_id: 'C008', quarter: '2026-4Q', day: T.dayJp(DAY), period: '3', support_type: 'テイク',
+  user_student: '四Q 利用者', staff_a_id: 'S8', staff_b_id: '' });
+h.add('courses', { course_id: 'C009', quarter: '2026-3Q', day: T.dayJp(DAY), period: '3', support_type: 'テイク',
+  user_student: '三Q 利用者', staff_a_id: 'S9', staff_b_id: '' });
+G.clearClassCalendarCache_();
+const cal9 = G.classCalendar_();
+h.check(G.courseHeldOn_(h.row('courses', 'course_id', 'C008'), T.dateIn(DAY), cal9).held &&
+  !G.courseHeldOn_(h.row('courses', 'course_id', 'C009'), T.dateIn(DAY), cal9).held, '前提：明日は 4Q のコマがあり、3Q のコマは無い');
+h.check(/別の担当/.test(blockerFor('V001', 'S8')), '★4Q の担当（同じ時間に授業がある）は自分から入れない');
+as('S8');
+const r9 = G.claimVacancy('V001');
+h.check(r9.ok === false && vac('V001').result === '', '★claimVacancy でも確定しない');
+h.check(blockerFor('V001', 'S9') === '', '3Q の担当（もう終わっている）は入れる');
+const cands9 = G.findCandidates_(h.row('courses', 'course_id', 'C001'), ['S1', 'S2'], T.dateIn(DAY)).map((x) => x.staff_id);
+h.check(cands9.indexOf('S8') === -1 && cands9.indexOf('S9') !== -1, '★代行依頼の候補も同じ（4Q の担当は外し、3Q の担当は残す）');
+
 process.exitCode = h.report();

@@ -111,6 +111,32 @@ err = null;
 try { G.addCourse(pay('2026-後期')); } catch (e) { err = e.message; }
 h.check(/既に別のコマ/.test(err || ''), '後期の月3 には入れない（4Q と同じ時間）');
 
+h.section('1f) 代行の候補も、学期の名前ではなく実際に同じ時間に授業があるかで外す（issue #43）');
+// 月3 に 後期（K1）・4Q（K2）・3Q（K3）のコマ。月曜の 3Q は 11/9 まで、4Q は 11/16 から（1) の計算）
+[['S3', '後期の担当'], ['S5', '4Qの担当'], ['S6', '3Qの担当']].forEach(function (s) {
+  h.add('staffs', { staff_id: s[0], name: s[1], role: '学生', skills: 'テイク', available_slots: '月3' });
+});
+const k = (id, q, a) => h.add('courses', { course_id: id, quarter: q, day: '月', period: '3', support_type: 'テイク',
+  user_student: '架空 ' + id, staff_a_id: a, staff_b_id: '' });
+const K1 = k('K1', '2026-後期', 'S3');
+const K2 = k('K2', '2026-4Q', 'S5');
+k('K3', '2026-3Q', 'S6');
+const ids = (list) => list.map((x) => x.staff_id).sort().join(',');
+h.check(ids(G.findCandidates_(K1, ['S3'], '2026-11-30')) === 'S6',
+  '★後期の 11/30（月）の欠員：4Q の担当（S5）は同じ時間に授業があるので外す／3Q の担当（S6）はもう終わっているので候補：' + ids(G.findCandidates_(K1, ['S3'], '2026-11-30')));
+h.check(ids(G.findCandidates_(K1, ['S3'], '2026-11-02')) === 'S5',
+  '後期の 11/2（月）の欠員：3Q の担当（S6）を外し、まだ始まっていない 4Q の担当（S5）は候補：' + ids(G.findCandidates_(K1, ['S3'], '2026-11-02')));
+h.check(ids(G.findCandidates_(K2, ['S5'], '2026-11-30')) === 'S6',
+  '★4Q の 11/30 の欠員：後期の担当（S3）を外す（学期名が違っても同じ時間）：' + ids(G.findCandidates_(K2, ['S5'], '2026-11-30')));
+h.check(ids(G.findCandidates_(K2, ['S5'])) === 'S6',
+  '日付の無い判定も、シフト入力と同じく「その曜日に同時に授業がある学期」で外す：' + ids(G.findCandidates_(K2, ['S5'])));
+h.check(ids(G.findCandidates_(K1, ['S3'], '2026-11-23')) === 'S5,S6',
+  '授業の無い日（勤労感謝の日）は、ほかのコマも無いので誰も外さない：' + ids(G.findCandidates_(K1, ['S3'], '2026-11-23')));
+// 期間の分からない学期（terms に行が無い古い年度）のコマは数えない（昔の担当まで埋まっている扱いにしない）
+h.add('staffs', { staff_id: 'S7', name: '昔の担当', role: '学生', skills: 'テイク', available_slots: '月3' });
+k('K4', '2019-後期', 'S7');
+h.check(ids(G.findCandidates_(K1, ['S3'], '2026-11-30')).indexOf('S7') !== -1, '期間の分からない古い学期のコマの担当は外さない');
+
 // ── 2) 画面へ渡すデータと欠勤連絡（今日からの相対）──────────────────
 h.section('2) 時間割と欠勤連絡');
 h.reset();
