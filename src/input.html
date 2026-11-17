@@ -248,6 +248,16 @@
       renderList();
     }
 
+    // 入力したら「未保存あり」にする（issue #56）。値を JS で入れたときはイベントが出ないので、作り直しでは立たない
+    ['input', 'change'].forEach(function (type) {
+      document.getElementById('form').addEventListener(type, function (e) {
+        if (!isFilterField_(e.target)) FORM_DIRTY = true;
+      });
+      document.getElementById('editCard').addEventListener(type, function (e) {
+        if (!isFilterField_(e.target)) EDIT_DIRTY = true;
+      });
+    });
+
     // ===== 入力カード（D44）=====
     //
     // 1カード＝1コマ。「＋」で増やし、最後に1回の操作でまとめて登録する。
@@ -267,7 +277,49 @@
     function el(n, name) { return document.getElementById(name + '-' + n); }
     function v(n, name) { var e = el(n, name); return e ? e.value : ''; }
 
+    // ===== 未保存の入力（issue #56）=====
+    //
+    // 登録前のカードと、編集の窓の変更は、画面を移ると消える（入力はページの中にしか無い）。
+    // 変更があるときだけ、移る前に確かめる。下書きを localStorage などへ残すことはしない
+    // （実在の利用学生の名前などが入るため。残すなら保存範囲と消し方を別に決める）。
+    //   FORM_DIRTY … 上の追加カードに、まだ登録していない入力がある
+    //   EDIT_DIRTY … 編集の窓に、まだ「更新する」していない変更がある
+    // 担当の絞り込み（eligOnly・staffQ）は表示の切り替えなので変更に数えない。
+    var FORM_DIRTY = false;
+    var EDIT_DIRTY = false;
+    var LEAVING = false;   // 確かめたうえで移るときは、ブラウザの確認を重ねない
+
+    function isFilterField_(t) {
+      return !!t && !!t.id && /^(eligOnly|staffQ)-/.test(t.id);
+    }
+    function hasUnsaved() { return FORM_DIRTY || EDIT_DIRTY; }
+
+    // 再読み込み・タブを閉じる（対応するブラウザでは「このサイトを離れますか？」が出る）
+    window.addEventListener('beforeunload', function (e) {
+      if (!hasUnsaved() || LEAVING) return;
+      e.preventDefault();
+      e.returnValue = '';
+    });
+
+    // ナビ・マイページなど画面の中のリンク。ブラウザの確認より先に、何が消えるかを言葉で確かめる。
+    // 画面のほかのクリック処理より先に受ける（window の捕捉段階）
+    window.addEventListener('click', function (e) {
+      if (!hasUnsaved()) return;
+      var a = e.target && e.target.closest && e.target.closest('a[href]');
+      if (!a) return;
+      var href = a.getAttribute('href') || '';
+      if (!href || href.charAt(0) === '#' || /^javascript:/i.test(href)) return;
+      if (confirm('まだ登録していない入力があります。この画面を離れると、入力は失われます。\n\n' +
+          '移動しますか？（「キャンセル」で入力に戻ります）')) {
+        LEAVING = true;
+        return;
+      }
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }, true);
+
     function buildForm() {
+      FORM_DIRTY = false;   // カードを作り直す＝何も入っていない状態（読み込み直後・全部登録できたあと）
       CARDS = [];
       CARD_SEQ = 0;
       var host = document.getElementById('form');
@@ -829,6 +881,7 @@
           });
           PDF_LAST = { parsed: parsed, plan: plan };
           buildPdfCards(plan, parsed);
+          FORM_DIRTY = true;   // PDF から作ったカードは、まだ登録していない（issue #56）
           setPdfBusy(false);
           renderPdfResult();
         })
@@ -1003,10 +1056,15 @@
       save.textContent = '更新する';
       document.getElementById('editModal').hidden = false;
       document.body.classList.add('edit-open');
+      EDIT_DIRTY = false;   // 開いた直後は、登録済みの内容のまま
       renderList();   // 時間割の中の、いま直しているコマに色を付ける
     }
 
-    function closeEdit() {
+    // force … 保存・削除が済んだあとなど、変更を確かめずに閉じる
+    function closeEdit(force) {
+      if (!force && EDIT_DIRTY &&
+          !confirm('編集した内容は、まだ「更新する」していません。閉じると変更は失われます。\n\n閉じますか？')) return;
+      EDIT_DIRTY = false;
       document.getElementById('editModal').hidden = true;
       document.body.classList.remove('edit-open');
       document.getElementById('editCard').innerHTML = '';
@@ -1026,7 +1084,7 @@
       btn.textContent = '更新中…';
       google.script.run
         .withSuccessHandler(function (res) {
-          closeEdit();
+          closeEdit(true);   // 保存できたので、変更ありの状態も解く
           showListToast('更新しました（' + ((res && res.course_id) || id) + '）。', true);
           refreshList();   // 上の入力カードはそのまま、時間割と候補だけ読み直す
         })
@@ -1087,7 +1145,7 @@
         '1日だけ授業が無いときは削除せず、シフト確認でそのコマを押して「この日だけ休講にする」を使ってください。\n\n削除しますか？')) return;
       google.script.run
         .withSuccessHandler(function () {
-          if (EDIT_ID === id) closeEdit();
+          if (EDIT_ID === id) closeEdit(true);   // 消したコマの変更は、もう保存先が無い
           showListToast('削除しました（' + id + '）。', true);
           refreshList();   // 上の入力カードはそのまま
         })

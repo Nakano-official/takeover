@@ -60,6 +60,11 @@ function getMyCourses() {
         period: String(c.period).trim(),
       periodLabel: periodLabelOf_(c.period, p),
         time: courseTimeText_(c, periodById),     // 移動の印があれば移動を含む勤務時間（D58）
+        // 登録前の確認に出す（issue #54）。自分の担当のコマなので、シフト確認で見えている範囲と同じ
+        support_type: String(c.support_type || '').trim(),
+        user_student: String(c.user_student || '').trim(),
+        subject: String(c.subject || '').trim(),
+        room: String(c.room || '').trim(),
         partner: nameById[String(partnerId).trim()] || partnerId || '',
         oneOffDate: courseDate_(c),      // 単発コマの実施日（空＝毎週・D27）
         // このコマにくっついている移動介助のうち、**自分が担当のもの**（D45）。
@@ -292,6 +297,18 @@ function getVacancyForRespond(vacancyId) {
     periodLabel: course
       ? periodLabelOf_(course.period, buildPeriodMap_()[String(course.period).trim()]) : '',
     time: courseTimeText_(course),   // 移動を含む勤務時間（D58）
+    // 判断に要るコマの情報（issue #53）。欠員一覧（getOpenVacancies）と同じ範囲。Chat の通知には入れない
+    support_type: course ? String(course.support_type || '').trim() : '',
+    user_student: course ? String(course.user_student || '').trim() : '',
+    subject: course ? String(course.subject || '').trim() : '',
+    room: course ? String(course.room || '').trim() : '',
+    // かたまり（D45）で一緒に引き受ける、ほかの枠（承諾するとまとめて確定する）
+    together: vacancyGroupOf_(vacancy).filter(function (v) {
+      return String(v.vacancy_id).trim() !== String(vacancyId).trim() && !String(v.result || '').trim();
+    }).map(function (v) {
+      const c = findRow_(SHEET.COURSES, 'course_id', v.course_id);
+      return c ? labelOfCourse_(c) : '';
+    }).filter(Boolean),
     absentName: nameById[String(vacancy.absent_staff_id).trim()] || vacancy.absent_staff_id,
     closed: !!String(vacancy.result).trim(),       // 対応確定済みなら true
     deadlineClosed: course ? isRecruitClosed_(vacancy, course) : false, // 締切で募集終了（D22）
@@ -726,24 +743,53 @@ function isRecruitClosed_(vacancy, course) {
  * @param {string} absentStaffId  欠勤者
  * @return {string} VACANCY_RESULT.SOLO / VACANCY_RESULT.STAFF
  */
-function suggestSettleResult_(course, dateStr, absentStaffId) {
+function suggestSettleResult_(course, dateStr, absentStaffId, allVacancies) {
+  const options = settleOptionsFor_(course, dateStr, absentStaffId, allVacancies);
+  return options.indexOf(VACANCY_RESULT.SOLO) !== -1 ? VACANCY_RESULT.SOLO : VACANCY_RESULT.STAFF;
+}
+
+/**
+ * 代行者なしで決着させるときに**選べる結果**（D22・issue #52）。画面のボタン・サーバーの検証・決着の提案が共通で使う。
+ *   - 介助 … 1人体制なので「職員対応」だけ。「1人テイク」にすると、介助の担当がいないまま決着済みになり、
+ *            対応待ちから消える
+ *   - テイク … その日その時間に**担当が残る**なら「1人テイク」も選べる。誰も残らなければ「職員対応」だけ
+ * 1人で回してよいかの最終判断は職員がする（D22）。ここは「そもそも成り立たない選択肢」を出さないだけ。
+ *
+ * @param {Object} course
+ * @param {string} dateStr        'yyyy-MM-dd'
+ * @param {string} absentStaffId  この欠員の欠勤者
+ * @param {Array}  [allVacancies] 読み込み済みの vacancies（一覧で何件も判定するとき用）
+ * @return {Array<string>} VACANCY_RESULT.SOLO / VACANCY_RESULT.STAFF の並び（STAFF は必ず入る）
+ */
+function settleOptionsFor_(course, dateStr, absentStaffId, allVacancies) {
+  if (String(course.support_type || '').trim() === '介助') return [VACANCY_RESULT.STAFF];
+  return remainingStaffOn_(course, dateStr, absentStaffId, allVacancies).length > 0
+    ? [VACANCY_RESULT.SOLO, VACANCY_RESULT.STAFF]
+    : [VACANCY_RESULT.STAFF];
+}
+
+/**
+ * その日そのコマに**実際に入る人**（この欠員の欠勤者を除く）。
+ * 担当A・B から、同じ日・同じコマで欠勤している人を除き、その欠勤に代行が決まっていれば（補充済）代行の人を足す。
+ * 例：相方も欠勤 → 残らない／相方の欠勤に代行が決まっている → 代行の人が残る
+ */
+function remainingStaffOn_(course, dateStr, absentStaffId, allVacancies) {
   const courseId = String(course.course_id).trim();
-  const absentId = String(absentStaffId).trim();
-
-  const absentSameSlot = {};
-  readRows_(SHEET.VACANCIES).forEach(function (v) {
-    if (String(v.course_id).trim() === courseId && dateToStr_(v.date) === dateStr) {
-      const a = String(v.absent_staff_id).trim();
-      if (a) absentSameSlot[a] = true;
-    }
+  const absent = {};
+  absent[String(absentStaffId || '').trim()] = true;
+  const subs = [];
+  (allVacancies || readRows_(SHEET.VACANCIES)).forEach(function (v) {
+    if (String(v.course_id).trim() !== courseId || dateToStr_(v.date) !== dateStr) return;
+    const a = String(v.absent_staff_id || '').trim();
+    if (a) absent[a] = true;
+    const sub = String(v.substitute_staff_id || '').trim();
+    if (sub && String(v.result || '').trim() === VACANCY_RESULT.FILLED) subs.push(sub);
   });
-
   const remaining = [course.staff_a_id, course.staff_b_id]
-    .map(function (x) { return String(x).trim(); })
-    .filter(Boolean)
-    .filter(function (id) { return id !== absentId && !absentSameSlot[id]; });
-
-  return remaining.length > 0 ? VACANCY_RESULT.SOLO : VACANCY_RESULT.STAFF;
+    .map(function (x) { return String(x || '').trim(); })
+    .filter(function (id) { return id && !absent[id]; });
+  subs.forEach(function (id) { if (remaining.indexOf(id) === -1) remaining.push(id); });
+  return remaining;
 }
 
 /**
@@ -849,8 +895,16 @@ function getVacanciesForManage() {
       awaitingDecision: closed,
       // 決着の手がかり（相方が残るか）。提案であって、システムは書き込まない（D22）
       suggestion: closed
-        ? suggestSettleResult_(course, dateToStr_(v.date), String(v.absent_staff_id).trim())
+        ? suggestSettleResult_(course, dateToStr_(v.date), String(v.absent_staff_id).trim(), allVacancies)
         : '',
+      // 代行なしで決着させるときに選べる結果（介助に「1人テイク」は出さない・issue #52）
+      settleOptions: resolved || !String(course.course_id || '').trim() ? [] :
+        settleOptionsFor_(course, dateToStr_(v.date), String(v.absent_staff_id).trim(), allVacancies),
+      // 判断に要るコマの情報（issue #53）。電話の前に別の画面でコマを探さなくてよいように
+      support_type: String(course.support_type || '').trim(),
+      user_student: String(course.user_student || '').trim(),
+      subject: String(course.subject || '').trim(),
+      room: String(course.room || '').trim(),
       responses: responsesByVacancy[vid] || [],
       candidates: candidates,
     };
@@ -897,6 +951,15 @@ function setVacancyResult(vacancyId, result) {
   requireStaff_();
   if (VACANCY_RESULT_VALUES.indexOf(result) === -1 || result === VACANCY_RESULT.FILLED) {
     throw new Error('指定できる結果は「' + VACANCY_RESULT.SOLO + '」または「' + VACANCY_RESULT.STAFF + '」です。');
+  }
+  // そのコマ・その日に成り立たない決着は受け付けない（issue #52）。画面にボタンが無くても、直接呼ばれたら止める
+  const vacancy = findRow_(SHEET.VACANCIES, 'vacancy_id', vacancyId);
+  const course = vacancy ? findRow_(SHEET.COURSES, 'course_id', vacancy.course_id) : null;
+  if (vacancy && course &&
+      settleOptionsFor_(course, dateToStr_(vacancy.date), vacancy.absent_staff_id).indexOf(result) === -1) {
+    throw new Error(String(course.support_type || '').trim() === '介助'
+      ? 'この欠員は介助です。介助は1人体制なので「' + VACANCY_RESULT.SOLO + '」にはできません。代行を確定するか「' + VACANCY_RESULT.STAFF + '」にしてください。'
+      : 'この日のこのコマには、ほかに入る担当がいません（相方も欠勤など）。「' + VACANCY_RESULT.SOLO + '」にはできません。代行を確定するか「' + VACANCY_RESULT.STAFF + '」にしてください。');
   }
 
   // result が空のときだけ atomically 決着する（settle 遷移）。

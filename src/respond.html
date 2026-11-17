@@ -10,7 +10,9 @@
 
     .detail { font-size: .95rem; line-height: 1.9; margin: 0; }
     .detail dt { color: var(--text-muted); font-size: .78rem; }
-    .detail dd { margin: 0 0 12px; font-weight: 700; }
+    .detail dd { margin: 0 0 12px; font-weight: 700; overflow-wrap: anywhere; }
+    .detail .unset { color: var(--text-faint); font-weight: 400; }
+    .detail .sub { font-size: .78rem; color: var(--text-muted); font-weight: 400; line-height: 1.5; }
     /* 承諾／辞退は指で押す前提なので大きめ・等幅に並べる */
     .btns { display: flex; gap: 12px; margin-top: 22px; }
     .btns .btn { flex: 1; padding: 15px; font-size: 1.05rem; font-weight: 700; }
@@ -62,11 +64,21 @@
         return;
       }
 
+      // 回答の前に、どんな仕事かを確かめられるように（issue #53）。空欄は「未設定」
+      var orUnset = function (s) { return s ? escapeHtml(s) : '<span class="unset">未設定</span>'; };
       var detail =
         '<dl class="detail">' +
         '<dt>日付</dt><dd>' + escapeHtml(fmtDate(v.date)) + '</dd>' +
         '<dt>コマ</dt><dd>' + escapeHtml(v.day + (v.periodLabel || (v.period + '限'))) +
           (v.time ? '（' + escapeHtml(v.time) + '）' : '') + '</dd>' +
+        (v.together && v.together.length
+          ? '<dt>一緒に引き受けるコマ</dt><dd>' + escapeHtml(v.together.join('・')) +
+            '<div class="sub">承諾すると、これらもまとめてあなたに決まります</div></dd>'
+          : '') +
+        '<dt>業務</dt><dd>' + orUnset(v.support_type) + '</dd>' +
+        '<dt>利用者</dt><dd>' + orUnset(v.user_student) + '</dd>' +
+        '<dt>科目</dt><dd>' + orUnset(v.subject) + '</dd>' +
+        '<dt>教室</dt><dd>' + orUnset(v.room) + '</dd>' +
         '<dt>欠勤するスタッフ</dt><dd>' + escapeHtml(v.absentName) + '</dd>' +
         '</dl>';
 
@@ -121,8 +133,11 @@
     // 「いつ・どのコマか」を確認ダイアログに出すための1行（例：2026-09-12（土）4限（15:15〜16:45））
     function slotText() {
       if (!CUR) return '';
+      var what = [CUR.support_type, CUR.user_student, CUR.subject, CUR.room].filter(Boolean).join('・');
       return fmtDate(CUR.date) + '（' + CUR.day + '）' + (CUR.periodLabel || (CUR.period + '限'))
-        + (CUR.time ? '（' + CUR.time + '）' : '');
+        + (CUR.time ? '（' + CUR.time + '）' : '')
+        + (what ? '\n' + what : '')
+        + (CUR.together && CUR.together.length ? '\n一緒に引き受けるコマ: ' + CUR.together.join('・') : '');
     }
 
     // 承諾も辞退も、押した時点で確定して取り消しが効かない。どちらもワンクッション置く。

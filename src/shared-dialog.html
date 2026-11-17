@@ -1,0 +1,86 @@
+<!--
+  画面の上に重ねる窓（モーダル）のキーボード操作（issue #55・#54）
+
+  窓を開いても操作先（フォーカス）が背後に残っていると、Tab で見えない背景のボタンへ移ってしまう。
+  画面に見えている操作の対象と、キーボードの操作の対象を一致させるために、窓を開くときと閉じるときに次をする。
+
+    dialogOpen(container, focusTarget)
+      - 背景（body の直下で、窓を含まない要素）を inert にする＝操作も読み上げもされない
+      - 操作先を窓の中へ移す（focusTarget か、窓の中の最初の操作できる要素）
+      - 開く前の操作先を覚えておく
+    dialogClose(container)
+      - 背景を元に戻し、開く前の操作先（押したカードなど）へ戻す
+
+  inert を知らない古いブラウザのために、Tab / Shift+Tab を窓の中で回す処理も入れてある。
+  Escape で閉じる処理は各画面が持つ（閉じるときに画面ごとの後片付けがあるため）。
+
+  使い方：画面のスクリプトより前に <?!= include('shared-dialog') ?> を置く。
+  窓の要素には role="dialog"・aria-modal="true"・aria-labelledby（見出しの id）を付けておく。
+-->
+<script>
+  var DIALOG_STACK_ = [];
+
+  var DIALOG_FOCUSABLE_ = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]),' +
+    ' textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+  function dialogFocusables_(container) {
+    return Array.prototype.filter.call(container.querySelectorAll(DIALOG_FOCUSABLE_), function (el) {
+      return el.offsetParent !== null || el === document.activeElement;   // 見えているものだけ
+    });
+  }
+
+  function dialogOpen(container, focusTarget) {
+    if (!container) return;
+    var hidden = [];
+    Array.prototype.forEach.call(document.body.children, function (el) {
+      if (el === container || el.contains(container)) return;
+      if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') return;
+      if (el.inert) return;
+      el.inert = true;
+      el.setAttribute('aria-hidden', 'true');
+      hidden.push(el);
+    });
+    DIALOG_STACK_.push({ container: container, opener: document.activeElement, hidden: hidden });
+    var target = focusTarget || dialogFocusables_(container)[0] || container;
+    if (target === container && !container.hasAttribute('tabindex')) container.setAttribute('tabindex', '-1');
+    try { target.focus(); } catch (e) { /* 移せなくても操作はできる */ }
+  }
+
+  function dialogClose(container) {
+    for (var i = DIALOG_STACK_.length - 1; i >= 0; i--) {
+      if (DIALOG_STACK_[i].container !== container) continue;
+      var entry = DIALOG_STACK_.splice(i, 1)[0];
+      entry.hidden.forEach(function (el) { el.inert = false; el.removeAttribute('aria-hidden'); });
+      var back = entry.opener;
+      if (back && document.body.contains(back) && typeof back.focus === 'function') {
+        try { back.focus(); } catch (e) { /* 戻せなくてもよい */ }
+      }
+      return;
+    }
+  }
+
+  // Tab / Shift+Tab は窓の中だけを回す（ブラウザ任せにしない）。
+  // 開いたときの操作先が見出し（tabindex=-1・押す場所ではない）だと、ブラウザは次の操作先を窓の外に探しに行くため、
+  // 「いまの位置の次（前）にある、窓の中の操作できる要素」をこちらで選ぶ。inert を知らないブラウザでも外へ出ない
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Tab' || !DIALOG_STACK_.length) return;
+    var container = DIALOG_STACK_[DIALOG_STACK_.length - 1].container;
+    var list = dialogFocusables_(container);
+    e.preventDefault();
+    if (!list.length) return;
+    var active = document.activeElement;
+    var i = list.indexOf(active);
+    var next;
+    if (i !== -1) {
+      next = list[(i + (e.shiftKey ? -1 : 1) + list.length) % list.length];
+    } else if (active && container.contains(active)) {
+      // 見出しなど、一覧に無い場所から：文書の順で次（前）のもの
+      var after = list.filter(function (el) { return active.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING; });
+      var before = list.filter(function (el) { return active.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING; });
+      next = e.shiftKey ? (before[before.length - 1] || list[list.length - 1]) : (after[0] || list[0]);
+    } else {
+      next = e.shiftKey ? list[list.length - 1] : list[0];
+    }
+    next.focus();
+  });
+</script>
