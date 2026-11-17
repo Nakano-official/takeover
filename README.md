@@ -488,7 +488,7 @@ Sheets・通知・GAS API だけ差し替えてメモリ上で走らせる作り
 
 | ドキュメント | 役割 |
 |---|---|
-| [`docs/spec/decisions.md`](docs/spec/decisions.md) | **意思決定ログ（D62まで）**。背景・決定・影響・ステータスを1件ずつ。仕様の根拠を後から追える |
+| [`docs/spec/decisions.md`](docs/spec/decisions.md) | **意思決定ログ（D63まで）**。背景・決定・影響・ステータスを1件ずつ。仕様の根拠を後から追える |
 | [`docs/spec/requirements.md`](docs/spec/requirements.md) | 要件定義（As-Is / To-Be フロー図つき） |
 | [`docs/spec/architecture.md`](docs/spec/architecture.md) | アーキテクチャ・データフロー・ER図・権限設計 |
 | [`docs/spec/backlog.md`](docs/spec/backlog.md) | 未対応の改善点（気づいた時点で全部書く） |

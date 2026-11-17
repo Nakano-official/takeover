@@ -20,6 +20,13 @@
     /* 学期境界の但し書き（terms は曜日ごとのズレを表現できない・D23） */
     .termnote { font-size: .8rem; color: var(--text-muted); line-height: 1.6;
                 margin: 18px 0 0; padding-top: 12px; border-top: 1px solid var(--border); }
+    /* 登録前の確認（issue #54）。見た目はヘルプのシートと同じ（スマホは下から・PC は中央） */
+    .confirm-dl { display: grid; grid-template-columns: 6.5em 1fr; gap: 8px 12px; margin: 0 0 14px; }
+    .confirm-dl dt { color: var(--text-muted); font-size: .82rem; }
+    .confirm-dl dd { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
+    .confirm-dl .unset { color: var(--text-faint); font-weight: 400; }
+    .confirm-note { font-size: .85rem; line-height: 1.7; color: var(--text-muted); margin: 0; }
+    .confirm-foot { justify-content: flex-end; }
     .cand { display: inline-block; background: var(--brand-soft); color: var(--brand-ink);
             border: 1px solid var(--brand-border); border-radius: var(--radius-pill);
             padding: 2px 10px; margin: 2px 4px 2px 0; font-size: .85rem; }
@@ -38,6 +45,23 @@
     </div>
     <div id="result"></div>
   </main>
+
+  <!-- 登録前の確認（issue #54）。ここではまだサーバーを呼ばない。「この内容で欠勤を登録」を押したときだけ登録する -->
+  <div id="absConfirm" class="help-modal" hidden onclick="if (event.target === this) cancelConfirm()">
+    <div class="help-sheet fit" role="dialog" aria-modal="true" aria-labelledby="absConfirmTitle">
+      <div class="help-head">
+        <h2 id="absConfirmTitle">この内容で欠勤を登録しますか？</h2>
+        <button type="button" class="help-x" onclick="cancelConfirm()" aria-label="閉じる">×</button>
+      </div>
+      <div class="help-body" id="absConfirmBody"></div>
+      <div class="help-foot confirm-foot">
+        <button type="button" class="btn" onclick="cancelConfirm()">戻って修正</button>
+        <button type="button" class="btn danger" id="absConfirmGo" onclick="confirmGo()">この内容で欠勤を登録</button>
+      </div>
+    </div>
+  </div>
+
+  <?!= include('shared-dialog') ?>
 
   <script>
     function escapeHtml(s) {
@@ -238,13 +262,71 @@
       return COURSES.filter(function (x) { return x.course_id === id; })[0] || null;
     }
 
+    // 確認に出した内容（{courseId, date, withAttached}）。登録はこの値で送る＝確認したものと送るものが食い違わない
+    var PENDING = null;
+    var SENDING = false;   // 二重に送らない
+
+    // 「欠勤を登録」→ まず確認を出す（issue #54）。ここではサーバーを呼ばない
     function submit() {
+      if (SENDING) return;
       var courseId = document.getElementById('course').value;
       var date = document.getElementById('date').value;
       if (!date) { alert('欠勤日を選んでください。'); return; }
       var box = document.getElementById('attachBox');
       var withAttached = !(box && box.style.display !== 'none')
         ? false : document.getElementById('withAttached').checked;
+      var c = currentCourse() || {};
+      PENDING = { courseId: courseId, date: date, withAttached: withAttached };
+
+      var W = ['日', '月', '火', '水', '木', '金', '土'];
+      var wd = W[parseISO(date).getDay()] || '';
+      var orUnset = function (s) { return s ? escapeHtml(s) : '<span class="unset">未設定</span>'; };
+      var rows = [
+        ['欠勤日', escapeHtml(date + '（' + wd + '）')],
+        ['コマ', escapeHtml((c.periodLabel || (c.period + '限')) + (c.time ? '（' + c.time + '）' : ''))],
+        ['業務', orUnset(c.support_type)],
+        ['利用者', orUnset(c.user_student)],
+        ['科目', orUnset(c.subject)],
+        ['教室', orUnset(c.room)],
+      ];
+      if (withAttached && c.attached && c.attached.length) {
+        rows.push(['一緒に休む', escapeHtml('前後の移動介助（' + c.attached.join('・') + '）')]);
+      }
+      document.getElementById('absConfirmBody').innerHTML =
+        '<dl class="confirm-dl">' + rows.map(function (r) { return '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>'; }).join('') + '</dl>' +
+        // 実際の動きと合わせる：職員へは必ず知らせる。代行の募集は締切（授業開始の N 分前）より前のときだけ
+        '<p class="confirm-note">登録すると職員へ知らせます。授業開始の<?= RECRUIT_DEADLINE_MIN_BEFORE ?>分前より前なら、' +
+        '空いている代行候補にも代行を依頼します（過ぎていたら代行の募集はしません）。<br>' +
+        '<b>登録した欠勤は、自分では取り消せません。</b></p>';
+
+      var modal = document.getElementById('absConfirm');
+      modal.hidden = false;
+      document.body.classList.add('help-open');   // 後ろの画面をスクロールさせない（ヘルプと同じ）
+      document.getElementById('absConfirmGo').disabled = false;
+      dialogOpen(modal, document.getElementById('absConfirmGo'));
+    }
+
+    // 「戻って修正」：何も送らずに閉じる。入力はそのまま
+    function cancelConfirm() {
+      var modal = document.getElementById('absConfirm');
+      if (modal.hidden || SENDING) return;
+      PENDING = null;
+      modal.hidden = true;
+      document.body.classList.remove('help-open');
+      dialogClose(modal);
+    }
+
+    // 「この内容で欠勤を登録」：確認に出した値で、1回だけ送る
+    function confirmGo() {
+      if (!PENDING || SENDING) return;
+      SENDING = true;
+      var p = PENDING;
+      PENDING = null;
+      document.getElementById('absConfirmGo').disabled = true;
+      var modal = document.getElementById('absConfirm');
+      modal.hidden = true;
+      document.body.classList.remove('help-open');
+      dialogClose(modal);
 
       var btn = document.getElementById('submit');
       btn.disabled = true;
@@ -253,10 +335,15 @@
       google.script.run
         .withSuccessHandler(onDone)
         .withFailureHandler(onFail)
-        .submitAbsence(courseId, date, withAttached);
+        .submitAbsence(p.courseId, p.date, p.withAttached);
     }
 
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') cancelConfirm();
+    });
+
     function onDone(res) {
+      SENDING = false;   // 別のコマを選び直せば、続けて登録できる（今まで通り）
       var box = document.getElementById('result');
       var c = res.course;
       var head = '<h2>✅ 欠員を登録しました</h2>'
@@ -314,6 +401,7 @@
     }
 
     function onFail(err) {
+      SENDING = false;   // 送れなかったので、もう一度押せるように戻す
       alert('エラー: ' + err.message);
       var btn = document.getElementById('submit');
       btn.disabled = false;

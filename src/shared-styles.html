@@ -306,6 +306,8 @@
       content: ''; width: 40px; height: 5px; border-radius: var(--radius-pill); background: var(--border-strong);
     }
     .help-head { touch-action: none; }
+    /* 確認などの短い窓（欠勤連絡の確認・issue #54）は中身に合わせた高さにする */
+    .help-sheet.fit { height: auto; max-height: 85vh; max-height: 85dvh; }
   }
   .help-head {
     display: flex; align-items: center; gap: 8px;

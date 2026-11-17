@@ -127,6 +127,7 @@
     .sheet .x { position: absolute; top: 6px; right: 10px; border: none; background: none;
                 font-size: 1.5rem; line-height: 1; color: var(--text-faint); cursor: pointer; }
     .m-title { margin: 0 0 16px; font-size: 1.2rem; }
+    .m-title:focus { outline: none; }   /* 開いたときに操作先を移すだけで、押す場所ではない */
     .m-dl { display: grid; grid-template-columns: 92px 1fr; gap: 10px 12px; margin: 0; font-size: 1.02rem; }
     .m-dl dt { color: var(--text-muted); font-size: .92rem; }
     .m-dl dd { margin: 0; }
@@ -281,13 +282,14 @@
   </main>
 
   <div id="modal" class="modal" onclick="closeDetail(event)">
-    <div class="sheet" onclick="event.stopPropagation()">
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="modalTitle" onclick="event.stopPropagation()">
       <button class="x" type="button" onclick="closeDetail()" aria-label="閉じる">×</button>
       <div id="modalBody"></div>
     </div>
   </div>
 
   <?!= include('shared-cache') ?>
+  <?!= include('shared-dialog') ?>
   <script>
     var DATA = null;          // サーバーから来た全データ
     var VIEW = null;          // 絞り込み後の { courses, days, periods }
@@ -600,7 +602,8 @@
       if (c.note) rows.push(['備考', escapeHtml(c.note)]);
 
       var tagCls = c.support_type === 'テイク' ? 'take' : 'help';
-      var body = '<h3 class="m-title"><span class="tag ' + tagCls + '">' +
+      // 見出しは窓の名前（aria-labelledby）で、開いたときの操作先（tabindex=-1・issue #55）
+      var body = '<h3 class="m-title" id="modalTitle" tabindex="-1"><span class="tag ' + tagCls + '">' +
         escapeHtml(c.support_type || 'コマ') + '</span>' + escapeHtml(c.user_student || '') + '</h3>';
       // 見出しの下に「いつのコマか」を1行で（表を読まなくても分かるように）
       var when = (c.date ? ((WEEK && WEEK.labelByDay[c.day]) || c.date) + '（' + c.day + '） ' : c.day + '曜 ') +
@@ -621,8 +624,20 @@
 
       document.querySelector('#modal .sheet').classList.toggle('solo', !side);
       document.getElementById('modalBody').innerHTML = body;
-      document.getElementById('modal').classList.add('show');
+      var modal = document.getElementById('modal');
+      DETAIL_COURSE = courseId;
+      if (modal.classList.contains('show')) {
+        // 開いたまま中身を描き直した（操作のあと）。背景はもう外してあるので、操作先だけ見出しへ
+        document.getElementById('modalTitle').focus();
+        return;
+      }
+      modal.classList.add('show');
+      // 操作先を窓の中へ移し、Tab で背後の時間割へ出ないようにする（issue #55）
+      dialogOpen(modal, document.getElementById('modalTitle'));
     }
+
+    // 開いている詳細のコマ。閉じたあと、時間割が描き直されていても同じコマのカードへ操作先を戻すため
+    var DETAIL_COURSE = '';
 
     // ===== 個別の休講（D60・職員だけ）=====
     //
@@ -692,7 +707,17 @@
 
     function closeDetail(e) {
       if (e && e.type === 'click' && e.target.id !== 'modal') return;
-      document.getElementById('modal').classList.remove('show');
+      var modal = document.getElementById('modal');
+      if (!modal.classList.contains('show')) return;
+      modal.classList.remove('show');
+      dialogClose(modal);   // 背景を戻し、開く前のカードへ操作先を戻す
+      // 開いている間に時間割が描き直されて元のカードが無いときは、同じコマのカードへ
+      if (DETAIL_COURSE && (!document.activeElement || document.activeElement === document.body)) {
+        var card = Array.prototype.filter.call(
+          document.querySelectorAll('[onclick^="openDetail(\'' + DETAIL_COURSE + '\'"]'),
+          function (el) { return el.offsetParent !== null; })[0];   // PC の表とスマホの一覧のうち、見えている方
+        if (card) card.focus();
+      }
     }
 
     document.addEventListener('keydown', function (e) {

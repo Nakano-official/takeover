@@ -10,29 +10,19 @@
  *   4. 「この利用者のこの日のコマを全部」で、同じ利用学生のその日のコマだけをまとめて休講にする
  *   5. 職員だけが操作できる。取り消せる
  */
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
 const { Harness, time: T } = require('./gas-harness');
+const { loadPage } = require('./page-vm');
 
 /**
- * 欠勤連絡の画面（src/absence.html）のスクリプトを、最小限の DOM の代わりで動かす。
+ * 欠勤連絡の画面（src/absence.html）のスクリプトを動かし、指定のコマで rebuildDates() を呼んだあとの状態を返す。
  * サーバーの判定と画面の判定が食い違う不具合（issue #49）は、サーバー側のテストだけでは見つからないため。
- * getMyCourses の返り値を渡し、指定のコマで rebuildDates() を呼んだあとの画面の状態を返す。
  */
 function absencePageFor(courses, courseId) {
-  const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'absence.html'), 'utf8');
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)[1].replace(/<\?!?=[\s\S]*?\?>/g, '');
-  const els = {};
-  const el = (id) => els[id] || (els[id] = { id: id, value: '', innerHTML: '', textContent: '', disabled: false,
-    checked: false, style: {}, options: [], classList: { add() {}, remove() {}, toggle() {} } });
-  const chain = new Proxy(function () {}, { get: () => chain, apply: () => chain });   // google.script.run は何もしない
-  const ctx = vm.createContext({ document: { getElementById: el }, google: { script: { run: chain } }, alert() {}, console });
-  vm.runInContext(script, ctx);
-  ctx.COURSES = JSON.parse(JSON.stringify(courses));   // 画面に届くのは JSON にした値
-  el('course').value = courseId;
-  ctx.rebuildDates();
-  return { disabled: el('submit').disabled, hint: el('datehint').textContent, options: el('dateWrap').innerHTML };
+  const p = loadPage('absence', { include: ['shared-dialog'] });
+  p.ctx.COURSES = JSON.parse(JSON.stringify(courses));   // 画面に届くのは JSON にした値
+  p.el('course').value = courseId;
+  p.ctx.rebuildDates();
+  return { disabled: p.el('submit').disabled, hint: p.el('datehint').textContent, options: p.el('dateWrap').innerHTML };
 }
 
 const h = new Harness();

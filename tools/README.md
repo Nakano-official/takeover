@@ -29,6 +29,7 @@ node tools/sim-help.js        # 全画面で同じヘルプの一覧を開ける
 node tools/sim-calendar.js    # 授業の無い日とクォーターの境目（2026年度の学年暦と一致するか・欠勤連絡・学期設定・D53）
 node tools/sim-access.js      # 学生への公開の切り替え（準備中は学生がマイページだけ・サーバー関数も止まる・D56）
 node tools/sim-cancel.js      # 個別の休講（その日だけ・削除とは別・欠勤連絡と欠員・Chat に利用学生の名前を書かない・D60）
+node tools/sim-settle.js      # 決着の選択肢（介助に1人テイクを出さない）・判断に要る情報・欠勤連絡の確認（#52〜#54）
 node tools/help-shots/render.js # ヘルプ撮影用に、架空データで画面を書き出す（D51・検証ではない）
 node tools/help-shots/shoot.js  # ヘルプの画像を撮り直して埋め込む（初回は tools/help-shots で npm install）
 node tools/demo-site/build.js   # GitHub Pages のデモ（架空データで全画面を行き来できる・D62）を書き出す
@@ -238,6 +239,25 @@ process.exitCode = h.report();
 - `h.check(cond, msg)` / `h.section(title)` / `h.report()`
 
 外部送信（`UrlFetchApp`）は呼ばれたら例外になるようにしてある。実送信は絶対に起きない。
+
+### 画面のスクリプトを動かす（page-vm.js）
+
+サーバーのテストだけでは、**画面とサーバーの判定の食い違い**（issue #49）や、**確認の前にサーバーを呼んでいないか**
+（issue #54）は見つからない。`tools/page-vm.js` の `loadPage` で、本物の `src/*.html` のスクリプトを
+最小限の DOM の代わりで動かし、画面の関数を直接呼んで確かめる（`sim-cancel.js`・`sim-settle.js` が使う）。
+
+```js
+const { loadPage } = require('./page-vm');
+const p = loadPage('absence', { include: ['shared-dialog'] });   // 中身を入れる include だけ挙げる
+p.ctx.COURSES = G.getMyCourses();          // サーバーの返り値をそのまま渡す
+p.el('course').value = 'C1';
+p.ctx.submit();
+p.calls      // google.script.run の呼び出し（呼んだ関数名と引数）
+p.confirms   // confirm() で聞かれた文（答えは p.confirmAnswer）
+```
+
+`getElementById` はどの id にも値・`innerHTML`・`hidden` を持つ箱を返すだけで、`innerHTML` の中の要素は作らない。
+**見た目・フォーカス・画面の移動は確かめられない**ので、そこはブラウザで確かめる。
 
 > ⚠️ **シート列を増やしたら `gas-harness.js` の `DEFAULT_HEADERS` も更新すること。**
 > ハーネスは本番の `writeRowUpdates_` と同じく「ヘッダーに無い列は書かない」挙動を再現するため、

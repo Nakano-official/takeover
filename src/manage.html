@@ -18,6 +18,11 @@
     .vac.await { border-left-color: var(--warn); border-left-width: 6px; background: var(--warn-bg); }
     .vac h2 { font-size: 1rem; margin: 0 0 4px; font-weight: 700; }
     .vac .meta { font-size: .82rem; color: var(--text-muted); margin-bottom: 10px; }
+    /* コマの情報（業務・利用者・科目・教室・issue #53）。長い名前でも折り返す */
+    .vac .info { font-size: .85rem; margin: -4px 0 10px; overflow-wrap: anywhere; }
+    .vac .info .tag { display: inline-block; padding: 0 8px; border-radius: var(--radius-pill);
+                      background: var(--brand-soft); color: var(--brand-ink); font-weight: 700; margin-right: 6px; }
+    .alt .why-not { font-size: .78rem; color: var(--text-muted); align-self: center; }
     .badge { display: inline-block; padding: 2px 10px; border-radius: var(--radius-pill);
              font-size: .78rem; font-weight: 600; }
     .b-open { background: var(--danger-bg); color: var(--danger); }
@@ -68,9 +73,22 @@
       // 決着待ち（募集は終わったのに result が空）→ 対応中 → 確定 の順に並べる。
       // 決着待ちが一番上に来るのが D22 の肝：補充できなかった欠員こそ職員の判断が要る。
       list.sort(function (a, b) { return rank(a) - rank(b); });
+      SHOWN = {};
+      list.forEach(function (v) { SHOWN[v.vacancy_id] = v; });
 
       content.className = '';
       content.innerHTML = list.map(renderVacancy).join('');
+    }
+
+    // コマの情報（業務の種類・利用者・科目・教室・issue #53）。空欄は「未設定」と出す
+    function courseInfoHtml(v) {
+      var parts = [
+        '利用者: ' + (v.user_student || '未設定'),
+        '科目: ' + (v.subject || '未設定'),
+        '教室: ' + (v.room || '未設定'),
+      ];
+      return '<div class="info"><span class="tag">' + escapeHtml(v.support_type || '業務未設定') + '</span>' +
+        escapeHtml(parts.join('　／　')) + '</div>';
     }
 
     // 0=決着待ち / 1=対応中（募集中）/ 2=確定済み
@@ -85,7 +103,8 @@
         '<h2>' + escapeHtml(v.day + (v.periodLabel || (v.period + '限')))
           + (v.time ? '（' + escapeHtml(v.time) + '）' : '') + '</h2>' +
         '<div class="meta">' + escapeHtml(v.date) + '　欠勤: ' + escapeHtml(v.absentName) +
-          '　／　欠員ID: ' + escapeHtml(v.vacancy_id) + '</div>';
+          '　／　欠員ID: ' + escapeHtml(v.vacancy_id) + '</div>' +
+        courseInfoHtml(v);
 
       if (resolved) {
         var label = v.result === '補充済' && v.substituteName
@@ -128,12 +147,20 @@
           }).join('');
       }
 
-      // 決着待ちのときは「1人テイク／職員対応」を主ボタンにする（これが求められている操作）
+      // 決着待ちのときは「1人テイク／職員対応」を主ボタンにする（これが求められている操作）。
+      // 出すのはサーバーが「このコマ・この日に成り立つ」と返した結果だけ（介助に「1人テイク」は出さない・issue #52）
       var primary = v.awaitingDecision ? ' primary' : '';
+      var opts = (v.settleOptions && v.settleOptions.length) ? v.settleOptions : ['職員対応'];
+      var whyNot = opts.indexOf('1人テイク') !== -1 ? '' :
+        '<span class="why-not">' + (v.support_type === '介助'
+          ? '介助は1人体制のため「1人テイク」はありません'
+          : 'この日はほかに入る担当がいないため「1人テイク」はありません') + '</span>';
       var alt =
         '<div class="alt">' +
-        '<button class="btn sm' + primary + '" onclick="setResult(\'' + v.vacancy_id + '\',\'1人テイク\',this)">1人テイクにする</button>' +
-        '<button class="btn sm' + primary + '" onclick="setResult(\'' + v.vacancy_id + '\',\'職員対応\',this)">職員対応にする</button>' +
+        opts.map(function (r) {
+          return '<button class="btn sm' + primary + '" onclick="setResult(\'' + v.vacancy_id + '\',\'' +
+            escapeHtml(r) + '\',this)">' + escapeHtml(r) + 'にする</button>';
+        }).join('') + whyNot +
         '</div>';
 
       if (v.awaitingDecision) {
@@ -173,9 +200,19 @@
       reload();
     }
 
+    // 表示中の欠員（vacancy_id → 1件）。確定の確認に、日時とコマと代行者の名前を出すため（issue #53）
+    var SHOWN = {};
+
     function confirmSub(vacancyId, staffId, btn) {
       if (viewCacheLocked()) return;
-      if (!confirm('この候補者を代行者として確定します。よろしいですか？')) return;
+      var v = SHOWN[vacancyId] || {};
+      var cand = (v.candidates || []).filter(function (c) { return c.staff_id === staffId; })[0] || {};
+      var what = [
+        (v.date || '') + ' ' + (v.day || '') + (v.periodLabel || '') + (v.time ? '（' + v.time + '）' : ''),
+        (v.support_type || '') + (v.user_student ? '・' + v.user_student : '') + (v.subject ? '・' + v.subject : ''),
+      ].filter(function (x) { return x.trim(); }).join('\n');
+      if (!confirm('次の欠員の代行者を「' + (cand.name || staffId) + '」さんに確定します。\n\n' + what +
+        '\n\n確定すると、代行の人・ほかの候補・職員スペースへ Chat で知らせます。よろしいですか？')) return;
       disableAll(btn);
       google.script.run
         .withSuccessHandler(reloadAfterWrite)
