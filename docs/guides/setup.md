@@ -59,6 +59,7 @@ Web App は `executeAs: USER_DEPLOYING`＝**最後にデプロイした人とし
 | `CHAT_WEBHOOK_URL` | 職員スペースの Incoming Webhook URL（→ 3章） |
 | `DEVICE_TOKEN` | M5Stack 端末を使う場合のみ（任意） |
 | `STUDENT_ACCESS` | 入れない。職員が「利用登録の承認」画面のスイッチで切り替える（`closed`＝準備中・D56） |
+| `APP_URL` | 入れない。公開用の `/exec` の URL で、`/exec` で画面が開かれると自動で入る。Chat に入れるリンク（承認・代行依頼）はこれを使う。デプロイを作り直して URL が変わっても、新しい `/exec` を開けば入れ替わる |
 
 ### 1.3 連絡先DBを「職員のみ」に共有
 連絡先DB（メール・電話・Webhook）は**スプレッドシートの共有設定で職員のみ**に制限。学生には共有しない。

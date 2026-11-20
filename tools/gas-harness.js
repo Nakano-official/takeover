@@ -383,6 +383,8 @@ class Harness {
         if (!active || active !== effective) throw new Error('この関数はスクリプトエディタから実行してください。');
       },
       getAppUrl_: function () { return 'https://example.invalid/app'; },
+      // Chat に入れる公開用の URL（code.js を読み込まない検証用。本物は code.js・tools/sim-appurl.js で確かめる）
+      getPublicAppUrl_: function () { return 'https://example.invalid/app'; },
       readTerms_: function () { return copy(DB().terms); },
       todayJst_: function () { return time.today(); },
 

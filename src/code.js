@@ -89,6 +89,9 @@ function doGet(e) {
     return handleDevicePoll_(params);
   }
 
+  // `/exec` で開かれたら、その URL を Chat のリンク用に覚える（`/dev` のときは何もしない）
+  rememberPublicAppUrl_();
+
   // 未知の page は既定画面へフォールバックするが、必ず以降の共通ガード
   // （null ユーザー拒否 → staffOnly 判定）を通す。ここで renderPage_ を直接呼ぶと
   // 未登録ユーザーが ?page=xxx で利用登録ゲートを素通りできてしまう（旧実装のバグ）。
@@ -357,8 +360,48 @@ function noClassFrom_(index, fromDate) {
   return out;
 }
 
+/**
+ * いま開いている Web App の URL。**画面の中のリンク（ナビなど）にだけ使う**。
+ * `/dev`（テスト用のデプロイ）で開いていれば `/dev` を返すので、検証中は `/dev` の中で移動できる。
+ * Chat など画面の外へ送るリンクには使わない（getPublicAppUrl_ を使う）。
+ */
 function getAppUrl_() {
   return ScriptApp.getService().getUrl();
+}
+
+// ─── 公開用の URL（Chat に入れるリンク）────────────────────────
+//
+// getUrl() は、その操作が `/dev` から行われていれば `/dev` の URL を返す。`/dev` はスクリプトの編集権限がある人しか
+// 開けないので、それを Chat に入れると、学生が開いたときに「アクセス権が必要です」になり、
+// 「リクエスト」を押すとスクリプトの持ち主（支援室のアカウント）へ共有のリクエストが届いていた。
+// そこで、`/exec` で画面が開かれたときにその URL を覚えておき（APP_URL）、Chat のリンクは必ずそれを使う。
+// `/dev` と `/exec` は URL の中の ID が違う（スクリプトID／デプロイID）ので、`/dev` から作り替えることはできない。
+const APP_URL_PROP = 'APP_URL';
+
+function isExecUrl_(url) {
+  return /^https:\/\/script\.google\.com\/.+\/exec$/.test(String(url || ''));
+}
+
+/** `/exec` で開かれたら、その URL を覚える（doGet から呼ぶ・変わったときだけ書く）。失敗しても画面は止めない */
+function rememberPublicAppUrl_() {
+  try {
+    const url = getAppUrl_();
+    if (!isExecUrl_(url)) return;
+    const props = PropertiesService.getScriptProperties();
+    if (props.getProperty(APP_URL_PROP) !== url) props.setProperty(APP_URL_PROP, url);
+  } catch (e) { /* 覚えられなくても、次に開かれたときに覚える */ }
+}
+
+/**
+ * Chat など**画面の外へ送る**リンクの URL。覚えてある `/exec` の URL を使い、無ければ getUrl()（従来どおり）。
+ * 覚えた値は `/exec` の形のときだけ使う（手で入れ間違えた値でリンクを壊さない）。
+ */
+function getPublicAppUrl_() {
+  try {
+    const saved = PropertiesService.getScriptProperties().getProperty(APP_URL_PROP);
+    if (isExecUrl_(saved)) return saved;
+  } catch (e) { /* 読めなければ getUrl() */ }
+  return getAppUrl_();
 }
 
 // ─── 画面用データAPI（google.script.run から呼ぶ）───────────

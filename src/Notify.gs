@@ -259,7 +259,7 @@ function notifyNewVacancy_(vacancyId, reopened) {
   const dateText = dateToStr_(vacancy.date);
   const slot = String(course.day).trim() + periodLabelOf_(course.period, p);
   const absentName = nameById[String(vacancy.absent_staff_id).trim()] || vacancy.absent_staff_id;
-  const respondUrl = getAppUrl_() + '?page=respond&vacancy=' + encodeURIComponent(vacancyId);
+  const respondUrl = getPublicAppUrl_() + '?page=respond&vacancy=' + encodeURIComponent(vacancyId);
 
   const result = { staff: false, candidates: [], errors: [] };
   const tag = reopened ? '（再募集）' : '';
@@ -569,7 +569,7 @@ function notifyRecruitClosed_(vacancyId, reason, suggestion) {
   const dateText = dateToStr_(vacancy.date);
   const slot = String(course.day).trim() + periodLabelOf_(course.period, p);
   const absentName = nameById[String(vacancy.absent_staff_id).trim()] || vacancy.absent_staff_id;
-  const manageUrl = getAppUrl_() + '?page=manage';
+  const manageUrl = getPublicAppUrl_() + '?page=manage';
 
   var head, why;
   if (reason === RECRUIT_CLOSE_REASON.PAST_DEADLINE) {
