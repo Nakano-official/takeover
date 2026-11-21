@@ -1,0 +1,118 @@
+<!--
+  画面の中の「確認」「お知らせ」「入力」の窓（ブラウザの confirm() / alert() / prompt() の代わり）
+
+  ブラウザの確認・お知らせ・入力の窓は、見た目がブラウザや端末ごとに違い、システムの画面と別物に見える。
+  文字の大きさや改行も変えられず、スマホでは小さく読みにくい。そこで全部この窓に替えた（2026-11-21）。
+  ブラウザの confirm / alert / prompt は使わない（tools/check-pages.js が見つけたらエラーにする）。
+
+  code.js の renderChrome_ が全画面に付ける（各画面で include しない）。見た目はヘルプのシート（スマホは下から・PC は中央）、
+  キーボードの操作は shared-dialog（背景を止める・Tab を窓の中で回す・閉じたら元の場所へ戻す）。
+
+  ■ 使い方（ブラウザの窓と違って、答えは関数で受け取る）
+    askConfirm({ title: '承認しますか？', message: '本文（\n で改行）', ok: '承認する', danger: false }, function (yes) {
+      if (!yes) return;
+      ...押したあとの処理...
+    });
+    showNotice({ title: 'エラー', message: err.message, kind: 'err' });   // OK だけの窓。閉じたあとの関数も渡せる
+    showNotice('代行に入りました。');                                     // 文字だけでもよい
+    askText({ title: '却下の理由', message: '…', placeholder: '例：…' }, function (text) {
+      if (text === null) return;   // 「やめる」
+    });
+
+  message は文字として扱う（HTML にしない）。太字などが要るときだけ html を渡す（必ず escape 済みの値で組み立てる）。
+  danger: true … 取り消せない・消える操作。OK を赤くし、最初の操作先を「やめる」にする（Enter で消さないように）。
+-->
+<style>
+  .ask-sheet .help-head h2 { font-size: 1rem; }
+  .ask-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; font-size: .95rem; }
+  .ask-body.html { white-space: normal; }
+  .ask-body.err { color: var(--danger); }
+  .ask-input { width: 100%; font-size: 1rem; padding: 9px 11px; margin-top: 10px; font-family: inherit; }
+  .ask-input[hidden] { display: none; }
+  .ask-foot { justify-content: flex-end; }
+  .ask-foot .btn { min-width: 96px; }
+</style>
+<div id="askModal" class="help-modal" hidden onclick="if (event.target === this) askClose_(false)">
+  <div class="help-sheet fit ask-sheet" role="dialog" aria-modal="true" aria-labelledby="askTitle" aria-describedby="askBody">
+    <div class="help-head"><h2 id="askTitle">確認</h2></div>
+    <div class="help-body">
+      <div class="ask-body" id="askBody"></div>
+      <input type="text" id="askInput" class="ask-input" hidden aria-labelledby="askTitle">
+    </div>
+    <div class="help-foot ask-foot">
+      <button type="button" class="btn" id="askCancel" onclick="askClose_(false)">やめる</button>
+      <button type="button" class="btn primary" id="askOk" onclick="askClose_(true)">OK</button>
+    </div>
+  </div>
+</div>
+<script>
+  var ASK_STATE_ = null;   // { cb, mode }（開いている窓。1つずつ）mode: 'confirm' | 'notice' | 'text'
+
+  function askOpen_(o, mode, cb) {
+    if (typeof o === 'string') o = { message: o };
+    o = o || {};
+    if (ASK_STATE_) askClose_(false);   // 開いていたら、先のものは「やめる」で閉じる
+    var modal = document.getElementById('askModal');
+    var body = document.getElementById('askBody');
+    var input = document.getElementById('askInput');
+    var ok = document.getElementById('askOk');
+    var cancel = document.getElementById('askCancel');
+    document.getElementById('askTitle').textContent =
+      o.title || (mode === 'notice' ? 'お知らせ' : mode === 'text' ? '入力' : '確認');
+    if (o.html) { body.innerHTML = o.html; body.className = 'ask-body html'; }
+    else { body.textContent = o.message || ''; body.className = 'ask-body' + (o.kind === 'err' ? ' err' : ''); }
+    input.hidden = mode !== 'text';
+    input.value = o.value || '';
+    input.placeholder = o.placeholder || '';
+    if (o.maxLength) input.maxLength = o.maxLength; else input.removeAttribute('maxlength');
+    ok.textContent = o.ok || 'OK';
+    ok.className = 'btn ' + (o.danger ? 'danger' : 'primary');
+    cancel.textContent = o.cancel || 'やめる';
+    cancel.hidden = mode === 'notice';
+    ASK_STATE_ = { cb: cb || null, mode: mode };
+    modal.hidden = false;
+    document.body.classList.add('help-open');
+    // 入力の窓は入力欄へ。消える操作は「やめる」を最初の操作先にする（Enter を押しただけで実行されないように）
+    var first = mode === 'text' ? input : (mode === 'confirm' && o.danger ? cancel : ok);
+    if (typeof window.dialogOpen === 'function') window.dialogOpen(modal, first); else first.focus();
+  }
+
+  /** 確認の窓。cb(true) … 「OK」、cb(false) … 「やめる」・背景・Escape */
+  function askConfirm(o, cb) { askOpen_(o, 'confirm', cb); }
+
+  /** お知らせの窓（OK だけ）。閉じたあとに cb() */
+  function showNotice(o, cb) { askOpen_(o, 'notice', cb); }
+
+  /** 入力の窓。cb(入れた文字) … 「OK」、cb(null) … 「やめる」・背景・Escape */
+  function askText(o, cb) { askOpen_(o, 'text', cb); }
+
+  function askClose_(yes) {
+    var st = ASK_STATE_;
+    if (!st) return;
+    ASK_STATE_ = null;
+    var modal = document.getElementById('askModal');
+    var text = document.getElementById('askInput').value;
+    modal.hidden = true;
+    // ほかの窓（ヘルプ・詳細など）がまだ開いていれば、後ろの画面を止めたままにする
+    var other = Array.prototype.some.call(document.querySelectorAll('.help-modal, .modal.show, .emodal'), function (el) {
+      return el !== modal && !el.hidden && el.offsetParent !== null;
+    });
+    if (!other) document.body.classList.remove('help-open');
+    if (typeof window.dialogClose === 'function') window.dialogClose(modal);
+    if (!st.cb) return;
+    if (st.mode === 'confirm') st.cb(!!yes);
+    else if (st.mode === 'text') st.cb(yes ? text : null);
+    else st.cb();
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (!ASK_STATE_) return;
+    if (e.key === 'Escape') {
+      e.stopImmediatePropagation();   // 後ろの窓（詳細など）まで一緒に閉じない
+      askClose_(false);
+    } else if (e.key === 'Enter' && ASK_STATE_.mode === 'text' && e.target && e.target.id === 'askInput') {
+      e.preventDefault();
+      askClose_(true);
+    }
+  }, true);
+</script>

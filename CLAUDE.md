@@ -215,10 +215,14 @@ GAS は src/ 一式（.gs と .html を同居）を clasp で push する。html
   中身は `src/help-*.html`（書き方は `help-shift.html` の冒頭）。**画面の HTML に埋め込まない**
   （押したときに `getHelp` で取り寄せる。埋め込むと画面遷移が重くなる）。画像は `tools/help-shots/` の
   架空データの画面から撮り、**実際の画面のスクショは使わない**（Public のため）。
-- **画面の上に重ねる窓**（詳細・確認など）は `<?!= include('shared-dialog') ?>` の `dialogOpen(窓, 操作先)` /
-  `dialogClose(窓)` で開け閉めする（issue #55）。背景を inert にし、Tab を窓の中で回し、閉じたら元の場所へ戻す。
+- **画面の上に重ねる窓**（詳細・確認など）は `shared-dialog` の `dialogOpen(窓, 操作先)` /
+  `dialogClose(窓)` で開け閉めする（issue #55）。`shared-dialog` は `renderChrome_` が全画面に付けるので、画面で include しない。背景を inert にし、Tab を窓の中で回し、閉じたら元の場所へ戻す。
   窓の要素には `role="dialog"`・`aria-modal="true"`・`aria-labelledby` を付ける。見た目はヘルプのシート
   （`.help-modal` / `.help-sheet`、短い窓は `.fit`）を使うと、スマホは下から・PC は中央に出る
+- **確認・お知らせ・入力はブラウザの窓を使わない**（`confirm()` / `alert()` / `prompt()` は禁止・2026-11-21）。
+  全画面に付いている `shared-ask` の `askConfirm(opts, cb)` / `showNotice(opts)` / `askText(opts, cb)` を使う
+  （答えは関数で受け取る。使い方は `shared-ask.html` の冒頭）。消える操作は `danger: true`。`check-pages.js` が見つけたらエラーにする。
+  例外は再読み込み・タブを閉じるときの確認（`beforeunload`）だけ
 - **画面の一時キャッシュ**（D49）は `<?!= include('shared-cache') ?>` を画面のスクリプトより前に置き、
   `viewCacheLoad` で読み込む。**操作のある画面は `lock: true`**＋操作関数の先頭で `viewCacheLocked()`、
   **書き込んだら `viewCacheClear()` してから読み直す**。`render` は古い内容と最新の内容で2回呼ばれる前提で書く。

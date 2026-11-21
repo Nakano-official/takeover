@@ -278,13 +278,16 @@
     }
 
     function delNoClass(btn) {
-      if (!confirm('この「授業の無い日」を削除しますか？')) return;
-      var t = document.getElementById('ncToast');
-      btn.disabled = true;
-      google.script.run
-        .withSuccessHandler(function () { showToast(t, '削除しました。クォーターの境目も計算し直しました。', true); load(); })
-        .withFailureHandler(function (err) { btn.disabled = false; showToast(t, err.message, false); })
-        .deleteNoClassDay(btn.getAttribute('data-id'));
+      askConfirm({ title: '削除しますか？', message: 'この「授業の無い日」を削除します。クォーターの境目も計算し直します。',
+        ok: '削除する', danger: true }, function (yes) {
+        if (!yes) return;
+        var t = document.getElementById('ncToast');
+        btn.disabled = true;
+        google.script.run
+          .withSuccessHandler(function () { showToast(t, '削除しました。クォーターの境目も計算し直しました。', true); load(); })
+          .withFailureHandler(function (err) { btn.disabled = false; showToast(t, err.message, false); })
+          .deleteNoClassDay(btn.getAttribute('data-id'));
+      });
     }
 
     function saveRow(btn) {
@@ -314,7 +317,9 @@
       var row = btn.closest('.trow');
       var termId = row.getAttribute('data-tid');
       var msg = row.querySelector('.rtoast');
-      if (!confirm(termId + ' を削除しますか？（授業が登録されている学期は削除できません）')) return;
+      askConfirm({ title: termId + ' を削除しますか？', message: '授業が登録されている学期は削除できません。',
+        ok: '削除する', danger: true }, function (yes) {
+      if (!yes) return;
       btn.disabled = true; btn.textContent = '削除中…';
       google.script.run
         .withSuccessHandler(function () {
@@ -326,6 +331,7 @@
           rowMsg(msg, err.message, false);
         })
         .deleteTerm(termId);
+      });
     }
 
     function rowMsg(el, text, ok) {

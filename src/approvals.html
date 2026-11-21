@@ -163,32 +163,44 @@
     function approve(id, btn) {
       var role = document.getElementById('role-' + id).value;
       var skills = pickedSkills(id);
-      if (!confirm('この申請を承認します。\n\n区分: ' + role +
-        '\n対応できる業務: ' + (skills || '（空欄＝全対応扱い）') +
-        '\n\n名簿（staffs・contacts）に行が作られ、本人が全画面を使えるようになります。\nよろしいですか？')) return;
-      disableAll(btn);
-      google.script.run
-        .withSuccessHandler(function (res) {
-          var msg = '承認しました（スタッフID: ' + res.staff_id + '）。';
-          if (res.notify && !res.notify.sent) {
-            msg += '\n\n⚠️ 本人への通知は届きませんでした：' + res.notify.reason +
-              '\n代行依頼も同じ経路なので、本人にマイページから通知先URLを登録してもらってください。';
-          }
-          alert(msg);
-          reload();
-        })
-        .withFailureHandler(function (err) { alert('エラー: ' + err.message); reload(); })
-        .approveRegistration(id, { role: role, skills: skills });
+      askConfirm({
+        title: 'この申請を承認しますか？',
+        message: '区分: ' + role + '\n対応できる業務: ' + (skills || '（空欄＝全対応扱い）') +
+          '\n\n名簿（staffs・contacts）に行が作られ、本人が全画面を使えるようになります。',
+        ok: '承認する',
+      }, function (yes) {
+        if (!yes) return;
+        disableAll(btn);
+        google.script.run
+          .withSuccessHandler(function (res) {
+            var msg = '承認しました（スタッフID: ' + res.staff_id + '）。';
+            if (res.notify && !res.notify.sent) {
+              msg += '\n\n⚠️ 本人への通知は届きませんでした：' + res.notify.reason +
+                '\n代行依頼も同じ経路なので、本人にマイページから通知先URLを登録してもらってください。';
+            }
+            showNotice({ title: '承認しました', message: msg });
+            reload();
+          })
+          .withFailureHandler(function (err) { showNotice({ title: 'エラー', message: err.message, kind: 'err' }); reload(); })
+          .approveRegistration(id, { role: role, skills: skills });
+      });
     }
 
     function reject(id, btn) {
-      var reason = prompt('却下の理由を入力してください（本人の申請画面に表示されます）。');
-      if (reason === null) return;
-      disableAll(btn);
-      google.script.run
-        .withSuccessHandler(reload)
-        .withFailureHandler(function (err) { alert('エラー: ' + err.message); reload(); })
-        .rejectRegistration(id, reason);
+      askText({
+        title: 'この申請を却下しますか？',
+        message: '却下の理由を入力してください（本人の申請画面に表示されます）。',
+        placeholder: '例：在籍が確認できません',
+        ok: '却下する',
+        danger: true,
+      }, function (reason) {
+        if (reason === null) return;
+        disableAll(btn);
+        google.script.run
+          .withSuccessHandler(reload)
+          .withFailureHandler(function (err) { showNotice({ title: 'エラー', message: err.message, kind: 'err' }); reload(); })
+          .rejectRegistration(id, reason);
+      });
     }
 
     // ===== 学生への公開（D56）=====
@@ -207,15 +219,21 @@
 
     function setAccess(open, btn) {
       var msg = open
-        ? '学生に公開します。\n\n学生がシフト確認・欠勤連絡・欠員一覧・代行への回答を使えるようになります。\n（学生への通知は送りません）\n\nよろしいですか？'
-        : '学生への公開を止めて「準備中」にします。\n\n学生はマイページしか使えなくなります（欠勤連絡や代行への回答もできなくなります）。\n\nよろしいですか？';
-      if (!confirm(msg)) return;
-      btn.disabled = true;
-      btn.textContent = '処理中…';
-      google.script.run
-        .withSuccessHandler(renderAccess)
-        .withFailureHandler(function (err) { alert('エラー: ' + err.message); loadAccess(); })
-        .setStudentAccess(open);
+        ? '学生がシフト確認・欠勤連絡・欠員一覧・代行への回答を使えるようになります。\n（学生への通知は送りません）'
+        : '学生はマイページしか使えなくなります（欠勤連絡や代行への回答もできなくなります）。';
+      askConfirm({
+        title: open ? '学生に公開しますか？' : '「準備中」にしますか？',
+        message: msg,
+        ok: open ? '公開する' : '準備中にする',
+      }, function (yes) {
+        if (!yes) return;
+        btn.disabled = true;
+        btn.textContent = '処理中…';
+        google.script.run
+          .withSuccessHandler(renderAccess)
+          .withFailureHandler(function (err) { showNotice({ title: 'エラー', message: err.message, kind: 'err' }); loadAccess(); })
+          .setStudentAccess(open);
+      });
     }
 
     function loadAccess() {

@@ -133,28 +133,33 @@
 
     function claim(vacancyId, btn) {
       if (viewCacheLocked()) return;
-      if (!confirm('この欠員の代行に入ります。先着で確定し、職員と関係者へ通知されます。\n' +
-        'この時間に授業などの予定が無いことを確認しましたか？')) return;
+      askConfirm({
+        title: 'この欠員の代行に入りますか？',
+        message: '先着で確定し、職員と関係者へ通知されます。\nこの時間に授業などの予定が無いことを確かめてから押してください。',
+        ok: '代行に入る',
+      }, function (yes) {
+      if (!yes) return;
       document.querySelectorAll('#content button').forEach(function (b) { b.disabled = true; });
       btn.textContent = '処理中…';
       google.script.run
         .withSuccessHandler(function (res) {
           if (res && res.ok) {
-            alert('代行に入りました。');
+            showNotice({ title: '代行に入りました', message: '代行に入りました。職員と関係者へ知らせました。' });
           } else if (res && res.filled) {
-            alert('ひと足先に、他の人で決まりました。');
+            showNotice({ title: '決まっていました', message: 'ひと足先に、他の人で決まりました。' });
           } else {
-            alert((res && res.message) || 'この欠員には入れませんでした。');
+            showNotice({ title: '入れませんでした', message: (res && res.message) || 'この欠員には入れませんでした。' });
           }
           viewCacheClear();   // 書く前の一覧を一瞬出さないように（D49）
           reload();
         })
         .withFailureHandler(function (err) {
-          alert('エラー: ' + err.message);
+          showNotice({ title: 'エラー', message: err.message, kind: 'err' });
           viewCacheClear();
           reload();
         })
         .claimVacancy(vacancyId);
+      });
     }
 
     function onError(err) {

@@ -13,7 +13,9 @@
  *   - getElementById はどの id にも、値・innerHTML・hidden などを持つ箱を返す（innerHTML の中の要素は作らない）
  *   - <?!= include('x') ?> は include に挙げたものだけ中身を入れる。ほかのテンプレートの値は空になる
  *   - google.script.run は呼び出しを calls に記録するだけ（成功の返事は p.reply(i, 値) で返せる）
- *   - confirm() の答えは p.confirmAnswer で決める（既定は true）。聞かれた文は p.confirms に残る
+ *   - 画面の中の確認（askConfirm・shared-ask）は本物が動く。p.ask() で開いている窓の題名と本文を読み、
+ *     p.answer(true / false) で「OK」「やめる」を押す
+ *   - ブラウザの confirm() は使わない決まりだが、念のため p.confirmAnswer で答えを決められる（既定は true）
  *   - 見た目・レイアウト・フォーカスの実際の動きは確かめられない（ブラウザで確かめる）
  */
 const fs = require('fs');
@@ -45,6 +47,13 @@ function loadPage(file, opts) {
   opts = opts || {};
   const include = opts.include || [];
   let html = fs.readFileSync(path.join(SRC, file + '.html'), 'utf8');
+  // ヘッダー（<?!= chrome ?>）として code.js の renderChrome_ が付ける部品のうち、画面の関数が使うもの
+  // （窓のキーボード操作・画面の中の確認とお知らせ）。本番と同じく、どの画面にも付ける
+  html = html.replace(/<\?!=\s*chrome\s*\?>/, function () {
+    return ['shared-dialog', 'shared-ask'].map(function (n) {
+      return fs.readFileSync(path.join(SRC, n + '.html'), 'utf8');
+    }).join('\n');
+  });
   html = html.replace(/<\?!=\s*include\('([^']+)'\)\s*\?>/g, function (all, name) {
     return include.indexOf(name) !== -1 ? fs.readFileSync(path.join(SRC, name + '.html'), 'utf8') : '';
   });
@@ -65,6 +74,13 @@ function loadPage(file, opts) {
     } });
   }
   page.reply = function (i, value) { const c = page.calls[i]; if (c && c.ok) c.ok(value); };
+  // 画面の中の確認・お知らせの窓（shared-ask）
+  page.ask = function () {
+    const m = els.askModal;
+    if (!m || m.hidden) return null;
+    return { title: els.askTitle ? els.askTitle.textContent : '', text: els.askBody ? (els.askBody.textContent || els.askBody.innerHTML) : '' };
+  };
+  page.answer = function (yes) { page.ctx.askClose_(yes); };
 
   const body = fakeElement('body');
   body.tagName = 'BODY';

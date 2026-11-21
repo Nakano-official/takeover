@@ -112,12 +112,16 @@ h.check(htmlOdd.indexOf('<b>x</b>') === -1 && htmlOdd.indexOf('&lt;b&gt;x&lt;/b&
   '表示する値はエスケープする');
 // 確定の確認に、日時・コマ・代行者の名前を出す
 page.ctx.render(Object.keys(m).map((k) => m[k]));
-page.confirmAnswer = false;
 page.ctx.confirmSub('VA', 'S5', null);
-const q = page.confirms[0] || '';
-h.check(q.indexOf('代行 五郎') !== -1 && q.indexOf(D) !== -1 && q.indexOf('介助') !== -1 && q.indexOf('経済学入門') !== -1,
-  '★代行の確定の確認に、代行者の名前・日付・業務・科目を出す');
-h.check(!page.calls.some((c) => c.name === 'confirmSubstitute'), '「キャンセル」なら確定しない');
+const q = page.ask();
+h.check(!!q && q.text.indexOf('代行 五郎') !== -1 && q.text.indexOf(D) !== -1 && q.text.indexOf('介助') !== -1 && q.text.indexOf('経済学入門') !== -1,
+  '★代行の確定の確認（画面の中の窓）に、代行者の名前・日付・業務・科目を出す');
+h.check(page.confirms.length === 0, '★ブラウザの確認（confirm）は使わない');
+page.answer(false);
+h.check(!page.calls.some((c) => c.name === 'confirmSubstitute') && page.ask() === null, '「やめる」なら確定せず、窓を閉じる');
+page.ctx.confirmSub('VA', 'S5', null);
+page.answer(true);
+h.check(page.calls.filter((c) => c.name === 'confirmSubstitute').length === 1, '「確定する」で確定する');
 
 h.section('4) 代行への回答画面に、判断に要る情報を出す（#53）');
 setup();

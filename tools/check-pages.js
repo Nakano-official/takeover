@@ -31,7 +31,7 @@ const KNOWN_GLOBALS = new Set([
   'Error', 'Promise', 'Set', 'Map', 'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'Uint8Array',
   'encodeURIComponent', 'decodeURIComponent', 'encodeURI', 'decodeURI',
   // ブラウザ
-  'alert', 'confirm', 'prompt', 'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval',
+  'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval',
   'requestAnimationFrame', 'fetch', 'FileReader', 'Blob', 'URL', 'FormData', 'Event',
   'document', 'window', 'console', 'location', 'history', 'navigator', 'localStorage',
   // GAS クライアント
@@ -146,8 +146,13 @@ function serverCalls(code) {
  * 共通部品（shared-cache.html・D49）に置いた関数を、読み込む側の画面で「定義済み」と扱うため。
  * HTML コメントは先に取り除く（部品の説明に書いた include の例を展開しないように）。
  */
+// ヘッダー（<?!= chrome ?>）として code.js の renderChrome_ が全画面に付ける部品。
+// ここに置いた関数（askConfirm など）は、どの画面からも呼べる
+const CHROME_PARTS = ['shared-chrome', 'shared-dialog', 'shared-ask', 'shared-help'];
+
 function expandIncludes(html) {
   const noComments = (s) => s.replace(/<!--[\s\S]*?-->/g, '');
+  html = html.replace(/<\?!=\s*chrome\s*\?>/g, CHROME_PARTS.map((n) => "<?!= include('" + n + "') ?>").join(''));
   return noComments(html).replace(/<\?!=\s*include\(\s*'([\w-]+)'\s*\)\s*\?>/g, (all, name) => {
     const file = path.join(SRC_DIR, name + '.html');
     return fs.existsSync(file) ? noComments(fs.readFileSync(file, 'utf8')) : all;
@@ -189,6 +194,12 @@ pages.forEach((file) => {
   const found = [];
 
   calledNames(code).forEach((name) => {
+    const INSTEAD = { confirm: 'askConfirm', alert: 'showNotice', prompt: 'askText' };
+    if (INSTEAD[name]) {
+      // ブラウザの確認・お知らせ・入力の窓は使わない（見た目が画面と別物になる・2026-11-21）。画面の中の窓を使う
+      found.push('ブラウザの ' + name + '() は使わない（shared-ask の ' + INSTEAD[name] + ' を使う）');
+      return;
+    }
     if (declared.has(name)) return;
     if (KNOWN_GLOBALS.has(name)) return;
     found.push('未定義の関数を呼んでいます: ' + name + '()');

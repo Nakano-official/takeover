@@ -289,7 +289,6 @@
   </div>
 
   <?!= include('shared-cache') ?>
-  <?!= include('shared-dialog') ?>
   <script>
     var DATA = null;          // サーバーから来た全データ
     var VIEW = null;          // 絞り込み後の { courses, days, periods }
@@ -551,29 +550,34 @@
     }
 
     function claimFromTable(vacancyId, btn) {
-      if (!confirm('この欠員の代行に入ります。先着で確定し、職員と関係者へ通知されます。\n' +
-        'この時間に授業などの予定が無いことを確認しましたか？')) return;
+      askConfirm({
+        title: 'この欠員の代行に入りますか？',
+        message: '先着で確定し、職員と関係者へ通知されます。\nこの時間に授業などの予定が無いことを確かめてから押してください。',
+        ok: '代行に入る',
+      }, function (yes) {
+      if (!yes) return;
       btn.disabled = true;
       btn.textContent = '処理中…';
       google.script.run
         .withSuccessHandler(function (res) {
+          closeDetail();   // 詳細の窓を先に閉じてから、結果の窓を出す（窓の重なりを残さない）
           if (res && res.ok) {
-            alert('代行に入りました。');
+            showNotice({ title: '代行に入りました', message: '代行に入りました。職員と関係者へ知らせました。' });
           } else if (res && res.filled) {
-            alert('ひと足先に、他の人で決まりました。');
+            showNotice({ title: '決まっていました', message: 'ひと足先に、他の人で決まりました。' });
           } else {
-            alert((res && res.message) || 'この欠員には入れませんでした。');
+            showNotice({ title: '入れませんでした', message: (res && res.message) || 'この欠員には入れませんでした。' });
           }
-          closeDetail();
           viewCacheClear();   // 書く前の時間割を一瞬出さないように（D49）
           load(null);
         })
         .withFailureHandler(function (err) {
-          alert('エラー: ' + err.message);
+          showNotice({ title: 'エラー', message: err.message, kind: 'err' });
           btn.disabled = false;
           btn.textContent = 'もう一度試す';
         })
         .claimVacancy(vacancyId);
+      });
     }
 
     function openDetail(courseId) {
@@ -668,17 +672,30 @@
     function doCancel(courseId, date, btn) {
       var reason = document.getElementById('cxReason').value.trim();
       var whole = document.getElementById('cxWhole').checked;
-      if (!reason) { alert('休講の理由を入力してください（例：教員の都合・利用学生の欠席）。'); return; }
-      if (!confirm((whole ? 'この利用者の' + date + 'のコマを全部' : date + 'のこのコマを') + '休講にします。\n' +
-        '授業そのものは消えません（その日だけ休みになります）。\n担当と職員スペースに Chat で知らせます。\n\nよろしいですか？')) return;
-      runCancelOp(btn, 'cancelClass', { course_id: courseId, date: date, reason: reason, wholeDay: whole }, '休講にしました');
+      if (!reason) {
+        showNotice({ title: '休講の理由', message: '休講の理由を入力してください（例：教員の都合・利用学生の欠席）。' });
+        return;
+      }
+      askConfirm({
+        title: '休講にしますか？',
+        message: (whole ? 'この利用者の' + date + 'のコマを全部' : date + 'のこのコマを') + '休講にします。\n' +
+          '授業そのものは消えません（その日だけ休みになります）。\n担当と職員スペースに Chat で知らせます。',
+        ok: '休講にする',
+      }, function (yes) {
+        if (yes) runCancelOp(btn, 'cancelClass', { course_id: courseId, date: date, reason: reason, wholeDay: whole }, '休講にしました');
+      });
     }
 
     function doUncancel(courseId, date, btn) {
       var whole = document.getElementById('cxWhole').checked;
-      if (!confirm((whole ? 'この利用者の' + date + 'の休講を全部' : date + 'のこのコマの休講を') + '取り消します。\n' +
-        'いつも通り授業がある扱いに戻ります。担当と職員スペースに Chat で知らせます。\n\nよろしいですか？')) return;
-      runCancelOp(btn, 'uncancelClass', { course_id: courseId, date: date, wholeDay: whole }, '休講を取り消しました');
+      askConfirm({
+        title: '休講を取り消しますか？',
+        message: (whole ? 'この利用者の' + date + 'の休講を全部' : date + 'のこのコマの休講を') + '取り消します。\n' +
+          'いつも通り授業がある扱いに戻ります。担当と職員スペースに Chat で知らせます。',
+        ok: '休講を取り消す',
+      }, function (yes) {
+        if (yes) runCancelOp(btn, 'uncancelClass', { course_id: courseId, date: date, wholeDay: whole }, '休講を取り消しました');
+      });
     }
 
     function runCancelOp(btn, fn, payload, doneText) {
@@ -693,13 +710,13 @@
           var failed = (n.people || []).filter(function (x) { return !x.sent; }).map(function (x) { return x.name; });
           if (n.error) msg += '\n⚠️ Chat の知らせを送れませんでした：' + n.error;
           else if (failed.length) msg += '\n⚠️ Chat が届かなかった人：' + failed.join('・') + '（電話などで伝えてください）';
-          alert(msg);
-          closeDetail();
+          closeDetail();   // 詳細の窓を先に閉じてから、結果の窓を出す
+          showNotice({ title: doneText, message: msg });
           viewCacheClear();   // 書く前の時間割を一瞬出さないように（D49）
           load(null);
         })
         .withFailureHandler(function (err) {
-          alert('エラー: ' + err.message);
+          showNotice({ title: 'エラー', message: err.message, kind: 'err' });
           btn.disabled = false;
           btn.textContent = 'もう一度試す';
         })[fn](payload);

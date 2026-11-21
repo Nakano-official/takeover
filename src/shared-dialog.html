@@ -14,7 +14,7 @@
   inert を知らない古いブラウザのために、Tab / Shift+Tab を窓の中で回す処理も入れてある。
   Escape で閉じる処理は各画面が持つ（閉じるときに画面ごとの後片付けがあるため）。
 
-  使い方：画面のスクリプトより前に <?!= include('shared-dialog') ?> を置く。
+  code.js の renderChrome_ が全画面に付ける（各画面で include しない。2回読むと Tab の処理が二重になる）。
   窓の要素には role="dialog"・aria-modal="true"・aria-labelledby（見出しの id）を付けておく。
 -->
 <script>
@@ -31,6 +31,8 @@
 
   function dialogOpen(container, focusTarget) {
     if (!container) return;
+    // 窓の上に窓を重ねるとき（詳細の上の確認など・shared-ask）、新しい窓は先の窓が inert にしている。先に外す
+    if (container.inert) { container.inert = false; container.removeAttribute('aria-hidden'); }
     var hidden = [];
     Array.prototype.forEach.call(document.body.children, function (el) {
       if (el === container || el.contains(container)) return;
