@@ -59,8 +59,8 @@ h.check(u2.email === 't1@example.jp', 'email も返す');
 h.check(h.cache.get(keyOf('t1@example.jp')).ttl === h.value('IDENTITY_ENTRY_TTL_SEC'),
   '各人の項目は6時間');
 var cached = JSON.parse(h.cache.get(keyOf('t1@example.jp')).value);
-h.check(Object.keys(cached.user).sort().join(',') === 'name,role,staff_id',
-  '★持つのは staff_id・name・role の3つだけ');
+h.check(Object.keys(cached.user).sort().join(',') === 'confirmed,name,role,staff_id',
+  '★持つのは staff_id・name・role と、本人の確認（confirmed・D64）だけ');
 
 // 戻り値を書き換えても次に影響しない
 u2.role = '学生';

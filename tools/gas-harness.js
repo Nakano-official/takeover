@@ -51,7 +51,7 @@ const DEFAULT_HEADERS = {
   terms: ['term_id', 'system', 'start_date', 'end_date'],
   no_class_days: ['no_class_id', 'start_date', 'end_date', 'from_period', 'reason'],
   cancellations: ['cancellation_id', 'course_id', 'date', 'reason', 'created_by', 'created_at'],
-  contacts: ['staff_id', 'name', 'email', 'phone', 'webhook_url'],
+  contacts: ['staff_id', 'name', 'email', 'phone', 'webhook_url', 'confirmed_at'],
   registrations: ['registration_id', 'email', 'name', 'phone', 'webhook_url', 'skills', 'slots',
     'note', 'status', 'applied_at', 'decided_at', 'decided_by', 'staff_id', 'reject_reason', 'assist_slots'],
 };
@@ -116,6 +116,8 @@ class Harness {
   /** 1行追加する。指定しなかった列は空文字で埋まる（本番の appendRow_ と同じ） */
   add(sheet, row) {
     const o = this.blank(sheet);
+    // contacts は、指定しなければ「本人の確認済み」（D64）。今いる人を表す。確認がまだの人は confirmed_at: '' を渡す
+    if (sheet === 'contacts' && !Object.prototype.hasOwnProperty.call(row, 'confirmed_at')) o.confirmed_at = '2026-01-01 00:00:00';
     Object.keys(row).forEach((k) => { o[k] = row[k]; });
     this.db[sheet].push(o);
     return o;

@@ -234,6 +234,7 @@ function buildDummyData_() {
       email: p.id.toLowerCase() + '@example.ryukoku.ac.jp',
       phone: '000-0000-' + ('000' + (i + 1)).slice(-4),
       webhook_url: '',
+      confirmed_at: nowString_(),   // ダミーは確認済み（確認の画面を出さない・D64）
     };
   });
 
@@ -357,6 +358,47 @@ function migrateAddRegistrationAssistSlots() {
   invalidateSheetCache_('registrations'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
   Logger.log('✅ registrations に assist_slots 列を追加しました（D54）。');
   Logger.log('   この列が無いと、申請の介助の空きコマが保存されません。');
+}
+
+/**
+ * 既存の連絡先DBの contacts に confirmed_at（本人の確認・D64）列を足す。GAS エディタから1回実行する。
+ * **今いる全員を確認済みにする**（日時を入れる）。空になるのは、このあと職員が名簿から登録した人だけ。
+ * 列が無いうちは全員が確認済み扱いなので、この関数を実行するまで職員の登録（registerStaff）は止めてある。
+ */
+function migrateAddContactConfirmedAt() {
+  requireEditorRun_();
+  const ss = openContactsDb_();
+  const sheet = ss.getSheetByName('contacts');
+  if (!sheet) { Logger.log('❌ contacts シートが見つかりません。'); return; }
+
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return String(h).trim(); });
+  if (headers.indexOf('confirmed_at') !== -1) {
+    Logger.log('✅ contacts には既に confirmed_at 列があります（追加なし）。');
+    return;
+  }
+  const col = lastCol + 1;
+  sheet.getRange(1, col, 1, 1).setValues([['confirmed_at']]);
+  sheet.getRange(2, col, Math.max(sheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+  // 今いる人（staff_id かメールが入っている行）は確認済みにする
+  const lastRow = sheet.getLastRow();
+  var filled = 0;
+  if (lastRow >= 2) {
+    const idCol = headers.indexOf('staff_id') + 1;
+    const mailCol = headers.indexOf('email') + 1;
+    const ids = sheet.getRange(2, idCol, lastRow - 1, 1).getValues();
+    const mails = sheet.getRange(2, mailCol, lastRow - 1, 1).getValues();
+    const stamp = nowString_();
+    const values = ids.map(function (r, i) {
+      const used = String(r[0]).trim() || String(mails[i][0]).trim();
+      if (used) filled++;
+      return [used ? stamp : ''];
+    });
+    sheet.getRange(2, col, values.length, 1).setValues(values);
+  }
+  invalidateSheetCache_('contacts'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
+  Logger.log('✅ contacts に confirmed_at 列を足し、今いる ' + filled + ' 人を確認済みにしました（D64）。');
+  Logger.log('   これで、スタッフ名簿から職員が登録できるようになります。');
 }
 
 function migrateAddStaffSlotsUpdatedAt() {
@@ -1561,7 +1603,8 @@ function setupContactsDb_(ss, data) {
   // phone 列（C…ではなくD列）は先頭0欠落・数値化を防ぐためテキスト固定。
   // personal_code と同様、空セットアップ後に職員が直接追加する行も保護するため列全体に掛ける。
   contactsSheet.getRange(2, 4, Math.max(contactsSheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
-  writeTable_(contactsSheet, ['staff_id', 'name', 'email', 'phone', 'webhook_url'], data.contacts);
+  // confirmed_at：本人の確認（D64）。空＝職員が登録して本人がまだ確かめていない。最初の職員を手で足すときは日時を入れる
+  writeTable_(contactsSheet, ['staff_id', 'name', 'email', 'phone', 'webhook_url', 'confirmed_at'], data.contacts);
 
   // 利用登録の申請（D28）。未登録者が自分で出し、職員が承認して初めて staffs/contacts に入る。
   // 氏名・電話・Webhook を含むので連絡先DB側（職員のみ）に置く。

@@ -6,7 +6,8 @@
  *
  * ■ 本人が変更できるもの / できないもの（D28 の線引き。ここが本ファイルの肝）
  *
- *   ✅ contacts.phone         … 自分の連絡先。他に影響しない
+ *   ❌ contacts.phone         … 2026-11-21 から職員が名簿から入れて直す（D64）。支援室の名簿が正なので、
+ *                               本人が書き換えると食い違う。番号が変わったら本人は支援室へ伝える（画面では読み取り専用で見せる）
  *   ✅ contacts.webhook_url   … 自分の Chat スペース。形式は isChatWebhook_ で検証する
  *   ✅ staffs.available_slots / assist_slots … 本命。学期ごとの空きコマ更新（業務ごと・D32）
  *   ✅ staffs.skills          … 対応できる業務（テイク / 介助）。D28 では職員管理にしていたが、
@@ -60,8 +61,9 @@ function getMyProfile() {
     name: staff ? String(staff.name || '').trim() : user.name,
     role: String(user.role || '').trim(),
     skills: staff ? String(staff.skills || '').trim() : '',
-    // ── 本人が変更できる項目 ──
+    // 電話番号は職員が管理する（D64）。画面では読み取り専用で見せる
     phone: contact ? String(contact.phone || '').trim() : '',
+    // ── 本人が変更できる項目 ──
     webhook_url: contact ? String(contact.webhook_url || '').trim() : '',
     skillList: staff ? splitSkills_(staff.skills) : [],
     supportTypes: SUPPORT_TYPES.slice(),
@@ -77,34 +79,38 @@ function getMyProfile() {
 }
 
 /**
- * マイページからの更新。受け付けるのは phone / webhook_url / slots / skills の4つだけ
- * （D28 の3つ＋ D31 で skills を追加）。
+ * マイページからの更新。受け付けるのは webhook_url / slots / skills の3つだけ
+ * （D28 の3つ＋ D31 で skills を追加・D64 で phone を職員の管理に移した。送られてきても無視する）。
  *
- * @param {{phone:string, webhook_url:string, slots:Array<string>, skills:Array<string>}} payload
+ * @param {{webhook_url:string, slots:Array<string>, skills:Array<string>}} payload
  * @return {{ok:boolean, slots:string, skills:string, slots_updated_at:string, warnings:Array<string>}}
  */
 function updateMyProfile(payload) {
   const user = getCurrentUser_();
   if (!user) throw new Error('利用登録がありません。');
+  // 本人の確認がまだの人（D64）は、確認の画面で「はい」を押してから
+  if (user.confirmed === false) throw new Error('はじめに、本人の確認をしてください（画面を開き直すと出ます）。');
   const p = payload || {};
   const isStudent = String(user.role).trim() !== ROLE_STAFF;
   const warnings = [];
 
-  const phone = validatePhone_(p.phone);
-  const webhook = String(p.webhook_url || '').trim();
+  // 通知先は、送られてきたときだけ書く。確認の画面の初めての登録（D64）は業務と空きコマだけを送るので、
+  // そこで空にして消さないため
+  if (Object.prototype.hasOwnProperty.call(p, 'webhook_url')) {
+    const webhook = String(p.webhook_url || '').trim();
+    // Webhook は宛先を間違えると他人のスペースへ通知が飛ぶので、形式が合うときだけ受け付ける。
+    // 空は「登録しない」の意思表示として受け付ける（通知が届かなくなる旨は画面で警告する）。
+    if (webhook && !isChatWebhook_(webhook)) {
+      throw new Error('Chat の Webhook URL の形式が違います（https://chat.googleapis.com/ で始まる必要があります）。');
+    }
+    if (!webhook) warnings.push('Webhook URL が未登録です。代行依頼の通知が届きません。');
 
-  // Webhook は宛先を間違えると他人のスペースへ通知が飛ぶので、形式が合うときだけ受け付ける。
-  // 空は「登録しない」の意思表示として受け付ける（通知が届かなくなる旨は画面で警告する）。
-  if (webhook && !isChatWebhook_(webhook)) {
-    throw new Error('Chat の Webhook URL の形式が違います（https://chat.googleapis.com/ で始まる必要があります）。');
+    // 電話番号は書かない（職員の管理・D64）
+    const contactUpdated = updateRow_(SHEET.CONTACTS, 'staff_id', user.staff_id, {
+      webhook_url: webhook,
+    });
+    if (!contactUpdated) throw new Error('連絡先の行が見つかりませんでした。職員にお問い合わせください。');
   }
-  if (!webhook) warnings.push('Webhook URL が未登録です。代行依頼の通知が届きません。');
-  if (!phone) warnings.push('電話番号が未登録です。返信が無いときに職員が連絡できません。');
-
-  const contactUpdated = updateRow_(SHEET.CONTACTS, 'staff_id', user.staff_id, {
-    phone: phone, webhook_url: webhook,
-  });
-  if (!contactUpdated) throw new Error('連絡先の行が見つかりませんでした。職員にお問い合わせください。');
 
   // 空きコマと対応できる業務は学生のみ。職員は代行候補にならない（findCandidates_ が
   // role='学生' で絞る）ので、どちらも職員の行では意味を持たない。
