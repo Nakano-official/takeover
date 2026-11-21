@@ -473,7 +473,7 @@
       if (mode === 'bulk') {
         body = '<p class="hint">支援室の名簿（スプレッドシート）から、<b>メールアドレス・姓・名・電話番号</b>の列をまとめてコピーして貼ってください。' +
           '列の順番は問いません（メールアドレスは「@」で、電話番号は数字で見分けます）。氏名が1つの列なら、姓と名の間に空白を入れてください。' +
-          '見出しの行は無くてもかまいません。区分は「学生」、対応できる業務は「すべて」で登録します（業務は本人がマイページで直せます）。</p>' +
+          '見出しの行は無くてもかまいません。学生スタッフとして、対応できる業務は「すべて」で登録します（業務は本人が直せます）。</p>' +
           '<div class="field"><label for="bulkText">名簿から貼る</label>' +
           '<textarea id="bulkText" placeholder="y240001@example.ac.jp&#9;山田&#9;太郎&#9;090-0000-0000"></textarea></div>' +
           '<button type="button" class="btn sm" onclick="bulkPreview()">読み取って確かめる</button>' +
@@ -489,9 +489,7 @@
             '<input id="sGiven" type="text" placeholder="名" value="' + escapeAttr(nm[1]) + '"></div></div>' +
           phoneFieldHtml(r ? r.phone : '', '名簿にあれば入れてください（返信が無いときに職員から電話するため）。') +
           (mode === 'one'
-            ? '<div class="field"><label for="sRole">区分</label><select id="sRole">' +
-                '<option value="学生">学生スタッフ</option><option value="職員">職員</option></select></div>' +
-              '<div class="field"><label>対応できる業務</label><div class="checks">' +
+            ? '<div class="field"><label>対応できる業務</label><div class="checks">' +
                 '<label><input type="checkbox" name="sSkill" value="テイク" checked>テイク</label>' +
                 '<label><input type="checkbox" name="sSkill" value="介助" checked>介助</label></div>' +
                 '<p class="hint">本人もマイページで直せます。</p></div>'
@@ -587,7 +585,6 @@
           var skills = Array.prototype.filter.call(document.getElementsByName('sSkill'), function (c) { return c.checked; })
             .map(function (c) { return c.value; });
           if (!skills.length) { setDialogMsg('err', '対応できる業務を1つ以上選んでください（どちらも外すと、すべての依頼が届きます）。'); return; }
-          entry.role = document.getElementById('sRole').value;
           entry.skills = skills;
           payload = [entry];
         } else {
@@ -612,7 +609,7 @@
         closeStaffDialog();
         setRosterMsg('ok', mode === 'edit'
           ? '直しました。' + (res && res.reconfirm ? 'メールアドレスを変えたので、本人の確認をやり直します。' : '')
-          : res.registered.length + ' 人を登録しました（' + res.registered.map(function (x) { return x.name; }).join('・') + '）。' +
+          : (res.registered || []).length + ' 人を登録しました（' + (res.registered || []).map(function (x) { return x.name; }).join('・') + '）。' +
             '本人が初めて開いたときに確認が出ます。');
         viewCacheClear();
         load();
