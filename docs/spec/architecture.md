@@ -188,6 +188,8 @@ flowchart LR
 - どの画面を開いても `confirm.html`（「あなたは〇〇さんですか？」）になる（`doGet`）
 - 学生の画面の関数（`getOpenUser_`）も止まり、**通知も送らない**（`buildWebhookMap_`）
 - 「はい」で確認済み。「いいえ」なら職員スペースへ知らせる（`confirmMyIdentity`）
+- 「はい」のあと、同じ画面で**対応できる業務と空きコマ**を登録してもらう（`updateMyProfile`。通知先は送らないので今の値のまま）。
+  入力部品はマイページと共有（`shared-slots.html`）。最後に Google Chat アプリの案内（QR コード・`shared-chat-install.html`）
 
 職員は名簿の画面で氏名・電話・メールを直せる（`updateStaffContact`）。メールを変えたら確認をやり直す。
 

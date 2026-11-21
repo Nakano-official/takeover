@@ -6,14 +6,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <?!= include('shared-styles') ?>
   <style>
-    :root { --main-max: 560px; }
+    :root { --main-max: 720px; }
+    h2 { font-size: 1.05rem; margin: 0 0 8px; }
+    .lead { font-size: .88rem; color: var(--text-muted); margin: 0 0 14px; line-height: 1.7; }
     .who { font-size: 1.25rem; font-weight: 700; margin: 6px 0 14px; overflow-wrap: anywhere; }
     .acct { font-size: .85rem; color: var(--text-muted); margin: 0 0 16px; overflow-wrap: anywhere; }
     .btns { display: flex; gap: 10px; flex-wrap: wrap; }
     .btns .btn { flex: 1 1 140px; }
-    .next h2 { font-size: 1.05rem; margin: 0 0 8px; }
+    .step { font-size: .78rem; font-weight: 700; color: var(--brand-ink); margin: 0 0 4px; }
+    .skipline { text-align: center; margin: 12px 0 0; font-size: .88rem; }
+    .skipline button { border: 0; background: none; color: var(--brand-ink); text-decoration: underline;
+                       cursor: pointer; font: inherit; padding: 4px; }
     .next ol { margin: 0 0 14px; padding-left: 1.3em; line-height: 1.8; }
     .next a.btn { text-decoration: none; }
+    .next .btns { margin-top: 8px; }
     /* Google Chat アプリの案内（shared-chat-install.html） */
     .chat-install { margin: 0 0 16px; padding: 14px 16px; background: var(--surface-alt);
                     border: 1px solid var(--border); border-radius: var(--radius); }
@@ -27,9 +33,13 @@
 </head>
 <body>
   <!--
-    本人の確認（D64・StaffAdmin.gs）。職員が名簿から登録した人が、初めて画面を開いたときに出す。
-    職員がメールアドレスを打ち間違えていると、別の人に業務の連絡が届きうるので、
-    「はい」を押すまでは通知を送らない。「いいえ」なら職員スペースへ知らせる。
+    本人の確認と、初めての登録（D64・StaffAdmin.gs）。職員が名簿から登録した人が、初めて画面を開いたときに出す。
+
+      ① 「あなたは〇〇さんですか？」 … 職員がメールアドレスを打ち間違えていると、別の人に業務の連絡が届きうるので、
+                                       「はい」を押すまでは通知を送らない。「いいえ」なら職員スペースへ知らせる
+      ② 対応できる業務と空きコマ   … 「はい」のあと、その場で登録してもらう（マイページへ移らなくてよいように）。
+                                       入力部品はマイページと同じ（shared-slots.html）。「あとで」も選べる
+      ③ Google Chat アプリの案内   … 代行のお願いは Chat に届くので、スマホにアプリを入れてもらう（QR コード）
   -->
   <?!= chrome ?>
 
@@ -47,15 +57,35 @@
       <div id="msg"></div>
     </div>
 
+    <!-- ② 対応できる業務と空きコマ。中身は getMyProfile のあとで作る -->
+    <div id="setup" hidden>
+      <div class="card">
+        <p class="step">確認できました</p>
+        <h2>続けて、代行に入れる条件を登録してください</h2>
+        <p class="lead">代行のお願いは、ここで選んだ<b>業務</b>と<b>空きコマ</b>に合う人に届きます。あとからマイページでいつでも直せます。</p>
+      </div>
+      <div id="setupBody" class="state">読み込み中…</div>
+      <div id="setupFoot" hidden>
+        <button type="button" class="btn primary block" id="setupSave" onclick="saveSetup()">この内容で登録する</button>
+        <div id="setupMsg"></div>
+        <p class="skipline"><button type="button" onclick="showNext(true)">あとでマイページで登録する</button></p>
+      </div>
+    </div>
+
+    <!-- ③ 最後の案内 -->
     <div class="card next" id="next" hidden>
-      <h2>確認できました</h2>
-      <p>このあと、次の2つをお願いします。</p>
-      <ol>
-        <li>スマホに <b>Google Chat</b> のアプリを入れて、大学のアカウントでログインする（代行のお願いが届きます）</li>
-        <li><b>マイページ</b>で、空いている時間（空きコマ）と通知先を登録する</li>
-      </ol>
+      <h2 id="nextTitle">登録できました</h2>
+      <p class="lead" id="nextLead"></p>
       <?!= include('shared-chat-install') ?>
-      <a class="btn primary block" href="<?= appUrl ?>?page=mypage">マイページを開く</a>
+      <ol>
+        <li>スマホに <b>Google Chat</b> のアプリを入れて、大学のアカウントでログインしてください（代行のお願いが届きます）</li>
+        <!-- 通知を Chat API に替えたら（職員アカウントから DM で送る形）、この行は要らなくなる -->
+        <li><b>マイページ</b>で、Google Chat の<b>通知先URL</b>を登録してください（作り方はマイページの「詳細はこちら」）</li>
+      </ol>
+      <div class="btns">
+        <a class="btn primary" href="<?= appUrl ?>?page=mypage">マイページを開く</a>
+        <a class="btn" href="<?= appUrl ?>?page=home">シフト確認を開く</a>
+      </div>
     </div>
 
     <div class="card" id="wrong" hidden>
@@ -65,7 +95,16 @@
     </div>
   </main>
 
+  <?!= include('shared-slots') ?>
   <script>
+    var P = null;   // getMyProfile の戻り（業務と空きコマの入力部品が使う）
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     function answer(isMe) {
       if (!isMe && !confirm('「違います」で送ります。支援室に、登録を確かめるよう知らせます。よろしいですか？')) return;
       var yes = document.getElementById('yes');
@@ -76,9 +115,7 @@
         .withSuccessHandler(function (res) {
           document.getElementById('ask').hidden = true;
           if (isMe) {
-            document.getElementById('next').hidden = false;
-            var chat = document.getElementById('chatInstall');
-            if (chat) chat.hidden = false;
+            startSetup();
           } else {
             document.getElementById('wrong').hidden = false;
             document.getElementById('wrongNote').textContent = (res && res.notified)
@@ -94,10 +131,65 @@
         .confirmMyIdentity(isMe);
     }
 
-    function escapeHtml(s) {
-      return String(s == null ? '' : s)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    // ② 業務と空きコマ。職員として登録された人には要らないので、すぐ最後の案内へ
+    function startSetup() {
+      document.getElementById('setup').hidden = false;
+      google.script.run
+        .withSuccessHandler(function (p) {
+          P = p;
+          if (!p || !p.isStudent) { showNext(false); return; }
+          var body = document.getElementById('setupBody');
+          body.className = '';
+          body.innerHTML = renderSkills(p) + renderSlots(p);
+          document.getElementById('setupFoot').hidden = false;
+        })
+        .withFailureHandler(function () {
+          // 読み込めなくても、確認は済んでいる。マイページで登録してもらう
+          showNext(true);
+        })
+        .getMyProfile();
+    }
+
+    function saveSetup() {
+      if (!P) return;
+      var skills = pickedSkills();
+      if (!skills.length) {
+        setupMsg('err', '対応できる業務を1つ以上選んでください（すべて外すと、逆にすべての依頼が届きます）。');
+        return;
+      }
+      var slots = pickedSlotsByType(P);
+      var any = Object.keys(slots).some(function (t) { return slots[t].length; });
+      if (!any && !confirm('空きコマが1つも選ばれていません。このままだと代行のお願いは届きません。\nこのまま登録しますか？（あとでマイページから入れられます）')) return;
+      var btn = document.getElementById('setupSave');
+      btn.disabled = true;
+      btn.textContent = '登録しています…';
+      google.script.run
+        .withSuccessHandler(function () { showNext(false); })
+        .withFailureHandler(function (err) {
+          btn.disabled = false;
+          btn.textContent = 'この内容で登録する';
+          setupMsg('err', err.message);
+        })
+        // 通知先（webhook_url）は送らない＝今の値のまま（Profile.gs）。業務と空きコマだけを登録する
+        .updateMyProfile({ skills: skills, slotsByType: slots });
+    }
+
+    function setupMsg(kind, text) {
+      document.getElementById('setupMsg').innerHTML =
+        '<div class="notice ' + kind + '" style="margin-top:12px">' + escapeHtml(text) + '</div>';
+    }
+
+    // ③ 最後の案内。skipped=true は「あとで」（空きコマをまだ入れていない）
+    function showNext(skipped) {
+      document.getElementById('setup').hidden = true;
+      document.getElementById('next').hidden = false;
+      document.getElementById('nextTitle').textContent = skipped ? '確認できました' : '登録できました';
+      document.getElementById('nextLead').textContent = skipped
+        ? '業務と空きコマは、マイページからいつでも登録できます。登録するまで、代行のお願いは届きません。'
+        : 'ありがとうございます。最後に、次の2つをお願いします。';
+      var chat = document.getElementById('chatInstall');
+      if (chat) chat.hidden = false;
+      window.scrollTo(0, 0);
     }
   </script>
 </body>
