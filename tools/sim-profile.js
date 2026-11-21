@@ -97,7 +97,7 @@ let res = G.updateMyProfile({
   available_slots: '月1,月2,月3',
 });
 h.check(res.ok === true, '保存できる');
-h.check(contactRow('S101').phone === '080-2222-2222', '電話が更新される');
+h.check(contactRow('S101').phone !== '080-2222-2222', '★電話番号は送られてきても書き換えない（職員が名簿から入れる・D64）');
 h.check(staffRow('S101').name === '学生 太郎', '★氏名は書き換わらない（機能Bの照合キー・D7③）');
 h.check(staffRow('S101').role === '学生', '★role は書き換わらない（権限昇格を防ぐ）');
 h.check(staffRow('S101').skills === 'テイク,介助', 'skills は本人が更新できる（D31）');
@@ -167,7 +167,7 @@ h.check(typeof before === 'string', '（前回値は文字列）');
 h.section('5b) 職員の保存では空きコマに触らない');
 setup(); asStaff();
 G.updateMyProfile({ phone: '06-1111-2222', webhook_url: OK_HOOK, slots: ['月1'] });
-h.check(contactRow('T1').phone === '06-1111-2222', '職員も連絡先は更新できる');
+h.check(contactRow('T1').phone !== '06-1111-2222' && contactRow('T1').webhook_url === OK_HOOK, '職員も通知先は更新できる（電話番号はマイページでは変わらない・D64）');
 h.check(!staffRow('T1').available_slots, '★職員の available_slots は書かない（意味を持たないため）');
 h.check(!staffRow('T1').slots_updated_at, '職員には更新日時も入らない');
 
@@ -273,9 +273,12 @@ try {
 h.check(rejected, '★テイクの空きコマに移動枠は入れられない（画面を通さない経路でも弾く）');
 h.check(staffRow('S101').assist_slots === '月移動1-2', '★弾いたときは介助ぶんも書き換えない');
 
-h.section('電話番号の形');
+h.section('電話番号はマイページでは扱わない（D64）');
+setup(); asStudent();
+const phoneBefore = contactRow('S101').phone;
 threw = '';
 try { G.updateMyProfile({ phone: '=1+1', webhook_url: OK_HOOK, slots: ['月1'] }); } catch (e) { threw = e.message; }
-h.check(threw.indexOf('電話番号') !== -1, '数字と - 以外の電話番号は保存しない');
+h.check(!threw && contactRow('S101').phone === phoneBefore, '★数式のような電話番号を送られても、無視して書き換えない');
+h.check(G.getMyProfile().phone === phoneBefore, 'マイページには登録済みの電話番号を（読むだけで）出す');
 
 process.exitCode = h.report();

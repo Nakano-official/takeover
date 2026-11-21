@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <?!= include('shared-styles') ?>
+  <style>
+    :root { --main-max: 560px; }
+    .who { font-size: 1.25rem; font-weight: 700; margin: 6px 0 14px; overflow-wrap: anywhere; }
+    .acct { font-size: .85rem; color: var(--text-muted); margin: 0 0 16px; overflow-wrap: anywhere; }
+    .btns { display: flex; gap: 10px; flex-wrap: wrap; }
+    .btns .btn { flex: 1 1 140px; }
+    .next h2 { font-size: 1.05rem; margin: 0 0 8px; }
+    .next ol { margin: 0 0 14px; padding-left: 1.3em; line-height: 1.8; }
+    .next a.btn { text-decoration: none; }
+    /* Google Chat アプリの案内（shared-chat-install.html） */
+    .chat-install { margin: 0 0 16px; padding: 14px 16px; background: var(--surface-alt);
+                    border: 1px solid var(--border); border-radius: var(--radius); }
+    .chat-install[hidden] { display: none; }
+    .chat-stores { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; }
+    .chat-store { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 150px; }
+    .chat-store-name { font-size: .82rem; font-weight: 700; text-align: center; }
+    .chat-qr svg { display: block; width: 150px; height: 150px; background: #fff;
+                   border: 1px solid var(--border); border-radius: var(--radius-sm); }
+  </style>
+</head>
+<body>
+  <!--
+    本人の確認（D64・StaffAdmin.gs）。職員が名簿から登録した人が、初めて画面を開いたときに出す。
+    職員がメールアドレスを打ち間違えていると、別の人に業務の連絡が届きうるので、
+    「はい」を押すまでは通知を送らない。「いいえ」なら職員スペースへ知らせる。
+  -->
+  <?!= chrome ?>
+
+  <main>
+    <div class="card" id="ask">
+      <h2>はじめに確認させてください</h2>
+      <p>支援室シフト管理に、次の名前で登録されています。</p>
+      <div class="who"><?= user.name ?> さん</div>
+      <p class="acct">ログインしているアカウント：<?= user.email ?></p>
+      <p>あなたご本人ですか？</p>
+      <div class="btns">
+        <button type="button" class="btn primary" id="yes" onclick="answer(true)">はい、本人です</button>
+        <button type="button" class="btn" id="no" onclick="answer(false)">いいえ、違います</button>
+      </div>
+      <div id="msg"></div>
+    </div>
+
+    <div class="card next" id="next" hidden>
+      <h2>確認できました</h2>
+      <p>このあと、次の2つをお願いします。</p>
+      <ol>
+        <li>スマホに <b>Google Chat</b> のアプリを入れて、大学のアカウントでログインする（代行のお願いが届きます）</li>
+        <li><b>マイページ</b>で、空いている時間（空きコマ）と通知先を登録する</li>
+      </ol>
+      <?!= include('shared-chat-install') ?>
+      <a class="btn primary block" href="<?= appUrl ?>?page=mypage">マイページを開く</a>
+    </div>
+
+    <div class="card" id="wrong" hidden>
+      <h2>支援室へ連絡してください</h2>
+      <p>登録の内容が違っているようです。お手数ですが、支援室へ連絡してください。</p>
+      <p id="wrongNote" class="hint"></p>
+    </div>
+  </main>
+
+  <script>
+    function answer(isMe) {
+      if (!isMe && !confirm('「違います」で送ります。支援室に、登録を確かめるよう知らせます。よろしいですか？')) return;
+      var yes = document.getElementById('yes');
+      var no = document.getElementById('no');
+      yes.disabled = true; no.disabled = true;
+      document.getElementById('msg').innerHTML = '<p class="hint">送信中…</p>';
+      google.script.run
+        .withSuccessHandler(function (res) {
+          document.getElementById('ask').hidden = true;
+          if (isMe) {
+            document.getElementById('next').hidden = false;
+            var chat = document.getElementById('chatInstall');
+            if (chat) chat.hidden = false;
+          } else {
+            document.getElementById('wrong').hidden = false;
+            document.getElementById('wrongNote').textContent = (res && res.notified)
+              ? '支援室には、登録を確かめるよう知らせました。'
+              : '支援室への自動の知らせは送れませんでした。直接お伝えください。';
+          }
+        })
+        .withFailureHandler(function (err) {
+          yes.disabled = false; no.disabled = false;
+          document.getElementById('msg').innerHTML =
+            '<div class="notice err" style="margin-top:12px">エラー: ' + escapeHtml(err.message) + '</div>';
+        })
+        .confirmMyIdentity(isMe);
+    }
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+  </script>
+</body>
+</html>

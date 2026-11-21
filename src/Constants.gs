@@ -140,3 +140,7 @@ const MSG_SELF_CLAIM_CLOSED =
 // ※ 値を変えたら installTriggers() を再実行してトリガーを作り直すこと
 //   （既存のトリガーは古い間隔のまま動き続ける）。
 const RECRUIT_DEADLINE_CHECK_INTERVAL_MIN = 10;
+
+// 本人の確認（D64）。contacts のこの列が空＝職員が登録して、本人がまだ「あなたは〇〇さんですか？」に答えていない。
+// 列が無い（移行前）・値がある＝確認済み。判定は Util.gs の isUnconfirmedContact_
+const CONFIRMED_COL = 'confirmed_at';

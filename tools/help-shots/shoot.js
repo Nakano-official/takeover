@@ -80,10 +80,11 @@ const SHOTS = [
     clip: ['#modal .sheet'], marks: [{ sel: '#modal .m-act a.btn.danger' }] },
   { id: 'absence-2', page: 'student-absence', device: 'phone',
     clip: ['#form'], marks: [{ sel: '#submit' }] },
+  // 登録の前に確認のシートが出る（issue #54）。確認の「この内容で欠勤を登録」まで押してから撮る
   { id: 'absence-3', page: 'student-absence', device: 'phone',
-    steps: [{ click: '#submit' }], clip: ['#result'], marks: [] },
+    steps: [{ click: '#submit' }, { click: '#absConfirmGo' }], clip: ['#result'], marks: [] },
   { id: 'absence-4', page: 'student-absence-late', device: 'phone',
-    steps: [{ click: '#submit' }], clip: ['#result'], marks: [] },
+    steps: [{ click: '#submit' }, { click: '#absConfirmGo' }], clip: ['#result'], marks: [] },
 
   // ── 代行に入る（スマホ・学生）──
   { id: 'substitute-1', page: 'candidate-respond', device: 'phone',
@@ -121,9 +122,10 @@ const SHOTS = [
     clip: ['[id^="termtag-"] >> nth=0', '[id^="period-"] >> nth=0'],
     marks: [{ sel: '[id^="term-"] >> nth=0', n: 1 }] },
   // ── マイページ（スマホ・学生）──
+  // 電話番号は職員が名簿から入れるので、マイページには通知先だけ（D64）
   { id: 'mypage-1', page: 'student-mypage', device: 'phone',
-    clip: ['.card:has(.phone3)'],
-    marks: [{ sel: '.phone3', n: 1 }, { sel: '#webhookHelp', n: 2 }, { sel: '#webhook', n: 3 }] },
+    clip: ['.card:has(#webhook)'],
+    marks: [{ sel: '#webhookHelp', n: 1 }, { sel: '#webhook', n: 2 }] },
   { id: 'mypage-2', page: 'student-mypage', device: 'phone',
     clip: ['.card:has(.skills)'], marks: [{ sel: '.skills' }] },
   { id: 'mypage-3', page: 'student-mypage', device: 'phone',
@@ -136,6 +138,10 @@ const SHOTS = [
     marks: [{ sel: '#summary', n: 1 }, { sel: '.controls', n: 2 }] },
   { id: 'roster-2', page: 'staff-roster', device: 'pc',
     clip: ['#groups'], marks: [] },
+  // 職員がスタッフを登録する（D64）
+  { id: 'roster-3', page: 'staff-roster', device: 'pc',
+    clip: ['.card:has(.regbar)'],
+    marks: [{ sel: '.regbar .btn.primary', n: 1 }, { sel: '.regbar .btn:not(.primary)', n: 2 }] },
   { id: 'approvals-1', page: 'staff-approvals', device: 'pc',
     clip: ['.rg.pending'],
     marks: [

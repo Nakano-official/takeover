@@ -36,9 +36,10 @@ const STAFFS = [
  *   closed=true  … 今日・今から10分後に開始＝締切（30分前）を過ぎている
  */
 var DAY = 0;
-function setup(closed) {
+// dayOffset … 何日先の欠員にするか（省略時は明日）。日曜は学期の範囲が無いので、日曜を避けたいときに渡す
+function setup(closed, dayOffset) {
   h.reset();
-  DAY = closed ? 0 : 1;
+  DAY = closed ? 0 : (dayOffset || 1);
   const D = T.dayJp(DAY);
   h.add('periods', closed
     ? { period: '3', start_time: T.hhmmIn(10), end_time: T.hhmmIn(100) }
@@ -236,8 +237,9 @@ h.check(tt.vacancy[key].open.length === 0 && tt.vacancy[key].status === '補充�
 
 h.section('9) 学期が違っても、同じ時間に授業がある人は入れない（issue #43）');
 // 後期の欠員 V001（明日の3限）。同じ曜日・3限に 4Q のコマ（S8）と 3Q のコマ（S9）がある。
-// 後期は60日前から始まっているので、明日はもう 4Q（曜日ごとに8回数えた後半）
-setup(false);
+// 後期は60日前から始まっているので、明日はもう 4Q（曜日ごとに8回数えた後半）。
+// 明日が日曜なら明後日にする（日曜は授業の曜日ではないので、学期の範囲が無い＝土曜に回すと落ちていた）
+setup(false, T.dayJp(1) === '日' ? 2 : 1);
 h.add('terms', { term_id: '2026-後期', system: 'semester', start_date: T.dateIn(-60), end_date: T.dateIn(120) });
 h.add('terms', { term_id: '2026-3Q', system: 'quarter', start_date: T.dateIn(-60), end_date: T.dateIn(0) });
 h.add('terms', { term_id: '2026-4Q', system: 'quarter', start_date: T.dateIn(1), end_date: T.dateIn(120) });
