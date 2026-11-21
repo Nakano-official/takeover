@@ -88,24 +88,29 @@ function getMyProfile() {
 function updateMyProfile(payload) {
   const user = getCurrentUser_();
   if (!user) throw new Error('利用登録がありません。');
+  // 本人の確認がまだの人（D64）は、確認の画面で「はい」を押してから
+  if (user.confirmed === false) throw new Error('はじめに、本人の確認をしてください（画面を開き直すと出ます）。');
   const p = payload || {};
   const isStudent = String(user.role).trim() !== ROLE_STAFF;
   const warnings = [];
 
-  const webhook = String(p.webhook_url || '').trim();
+  // 通知先は、送られてきたときだけ書く。確認の画面の初めての登録（D64）は業務と空きコマだけを送るので、
+  // そこで空にして消さないため
+  if (Object.prototype.hasOwnProperty.call(p, 'webhook_url')) {
+    const webhook = String(p.webhook_url || '').trim();
+    // Webhook は宛先を間違えると他人のスペースへ通知が飛ぶので、形式が合うときだけ受け付ける。
+    // 空は「登録しない」の意思表示として受け付ける（通知が届かなくなる旨は画面で警告する）。
+    if (webhook && !isChatWebhook_(webhook)) {
+      throw new Error('Chat の Webhook URL の形式が違います（https://chat.googleapis.com/ で始まる必要があります）。');
+    }
+    if (!webhook) warnings.push('Webhook URL が未登録です。代行依頼の通知が届きません。');
 
-  // Webhook は宛先を間違えると他人のスペースへ通知が飛ぶので、形式が合うときだけ受け付ける。
-  // 空は「登録しない」の意思表示として受け付ける（通知が届かなくなる旨は画面で警告する）。
-  if (webhook && !isChatWebhook_(webhook)) {
-    throw new Error('Chat の Webhook URL の形式が違います（https://chat.googleapis.com/ で始まる必要があります）。');
+    // 電話番号は書かない（職員の管理・D64）
+    const contactUpdated = updateRow_(SHEET.CONTACTS, 'staff_id', user.staff_id, {
+      webhook_url: webhook,
+    });
+    if (!contactUpdated) throw new Error('連絡先の行が見つかりませんでした。職員にお問い合わせください。');
   }
-  if (!webhook) warnings.push('Webhook URL が未登録です。代行依頼の通知が届きません。');
-
-  // 電話番号は書かない（職員の管理・D64）
-  const contactUpdated = updateRow_(SHEET.CONTACTS, 'staff_id', user.staff_id, {
-    webhook_url: webhook,
-  });
-  if (!contactUpdated) throw new Error('連絡先の行が見つかりませんでした。職員にお問い合わせください。');
 
   // 空きコマと対応できる業務は学生のみ。職員は代行候補にならない（findCandidates_ が
   // role='学生' で絞る）ので、どちらも職員の行では意味を持たない。

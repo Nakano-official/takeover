@@ -83,6 +83,7 @@ function loadPage(file, opts) {
   }, opts.globals || {});
   ctx.window = ctx;
   ctx.addEventListener = function () {};
+  ctx.scrollTo = function () {};   // スクロールの位置は確かめない
   vm.createContext(ctx);
   scripts.forEach(function (s, i) { vm.runInContext(s, ctx, { filename: file + '.html#script' + i }); });
   page.ctx = ctx;

@@ -221,4 +221,40 @@ page.el('bulkText').value = '山田\t花子';
 page.ctx.bulkPreview();
 h.check(page.el('staffDialogGo').disabled === true, '直すところがあれば登録を押せない');
 
+h.section('13) 確認の「はい」のあと、その場で業務と空きコマを登録する');
+setup(); asStaff();
+G.registerStaff([ONE]);
+contactOf(ONE.email).webhook_url = HOOK;
+asEmail(ONE.email);
+h.check(/本人の確認/.test(errOf(() => G.updateMyProfile({ skills: ['テイク'], slotsByType: { 'テイク': ['月1'] } }))),
+  '★確認がまだの人は、業務と空きコマを保存できない');
+G.confirmMyIdentity(true);
+const sv = G.updateMyProfile({ skills: ['テイク'], slotsByType: { 'テイク': ['月1'] } });
+const meRow = h.row('staffs', 'staff_id', contactOf(ONE.email).staff_id);
+h.check(sv.ok && meRow.available_slots === '月1' && meRow.skills === 'テイク', '確認のあとは、業務と空きコマを保存できる');
+h.check(contactOf(ONE.email).webhook_url === HOOK, '★通知先を送らなければ、通知先は今のまま（空にしない）');
+h.check(!(sv.warnings || []).some((w) => /Webhook/.test(w)), '通知先を送らなければ、通知先の注意も出さない');
+// 画面：「はい」→ 確認 → 業務と空きコマの入力を出す
+const cp = loadPage('confirm', { include: ['shared-slots', 'shared-chat-install'] });
+cp.ctx.answer(true);
+const confirmCall = cp.calls.filter((c) => c.name === 'confirmMyIdentity')[0];
+h.check(confirmCall && confirmCall.args[0] === true, '「はい」で confirmMyIdentity(true) を呼ぶ');
+cp.reply(cp.calls.indexOf(confirmCall), { ok: true, confirmed: true });
+const profCall = cp.calls.filter((c) => c.name === 'getMyProfile')[0];
+h.check(!!profCall && cp.el('setup').hidden === false, '★確認のあと、その場で登録の画面を出す（マイページの情報を読む）');
+cp.reply(cp.calls.indexOf(profCall), JSON.parse(JSON.stringify(G.getMyProfile())));
+const sb = cp.el('setupBody').innerHTML;
+h.check(sb.indexOf('対応できる業務') !== -1 && sb.indexOf('空きコマ') !== -1 && sb.indexOf('data-slot=') !== -1,
+  '★業務と空きコマ（曜日×時限）の入力を出す（マイページと同じ部品）');
+cp.ctx.saveSetup();   // 業務を1つも選んでいない（この試験の DOM ではチェックが取れない）
+h.check(!cp.calls.some((c) => c.name === 'updateMyProfile') && /1つ以上/.test(cp.el('setupMsg').innerHTML),
+  '業務を1つも選ばなければ送らない');
+cp.ctx.showNext(true);
+h.check(cp.el('next').hidden === false && /あとで|いつでも/.test(cp.el('nextLead').textContent), '「あとで」なら、マイページで登録できると案内する');
+// 職員として登録された人は、業務と空きコマを聞かずに最後の案内へ
+const cp2 = loadPage('confirm', { include: ['shared-slots', 'shared-chat-install'] });
+cp2.ctx.startSetup();
+cp2.reply(0, { isStudent: false });
+h.check(cp2.el('next').hidden === false && cp2.el('setupBody').innerHTML.indexOf('data-slot=') === -1, '職員として登録された人には、業務と空きコマを聞かない');
+
 process.exitCode = h.report();

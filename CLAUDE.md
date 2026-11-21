@@ -222,6 +222,8 @@ GAS は src/ 一式（.gs と .html を同居）を clasp で push する。html
   `dialogClose(窓)` で開け閉めする（issue #55）。背景を inert にし、Tab を窓の中で回し、閉じたら元の場所へ戻す。
   窓の要素には `role="dialog"`・`aria-modal="true"`・`aria-labelledby` を付ける。見た目はヘルプのシート
   （`.help-modal` / `.help-sheet`、短い窓は `.fit`）を使うと、スマホは下から・PC は中央に出る
+- **対応できる業務と空きコマの入力**は `<?!= include('shared-slots') ?>` の `renderSkills(p)` / `renderSlots(p)` /
+  `pickedSkills()` / `pickedSlotsByType(p)` を使う（マイページと、本人の確認のあとの初めての登録で共有・D64）。画面ごとに写さない
 - **画面の一時キャッシュ**（D49）は `<?!= include('shared-cache') ?>` を画面のスクリプトより前に置き、
   `viewCacheLoad` で読み込む。**操作のある画面は `lock: true`**＋操作関数の先頭で `viewCacheLocked()`、
   **書き込んだら `viewCacheClear()` してから読み直す**。`render` は古い内容と最新の内容で2回呼ばれる前提で書く。
