@@ -117,6 +117,11 @@ function seed(h) {
       webhook_url: 'https://chat.googleapis.com/v1/spaces/DEMO' + i + '/messages?key=k&token=t',
     });
   });
+  // 職員が名簿から登録したばかりで、本人がまだ「あなたは〇〇さんですか？」に答えていない学生（D64）。
+  // 確認の画面と、名簿の「確認まだ」を撮るため。空きコマ・通知先はまだ無い
+  h.add('staffs', { staff_id: 'S08', name: '新人 花子', role: '学生', skills: '', available_slots: '', assist_slots: '', slots_updated_at: '' });
+  h.add('contacts', { staff_id: 'S08', name: '新人 花子', email: 'y260108@example.jp', phone: '090-0000-1009',
+    webhook_url: '', confirmed_at: '' });
   COURSES.forEach(function (c) {
     h.add('courses', {
       course_id: c[0], quarter: TERM, day: c[1], period: c[2], support_type: c[3],
@@ -145,7 +150,8 @@ const VIEWERS = {
   student: 'S01',     // 山田 太郎（学生）
   candidate: 'S06',   // 小林 健太（水曜2限の代行候補。代行依頼への回答画面を撮る）
   staff: 'T01',       // 支援室 職員
-  newcomer: null,     // 名簿に無いアカウント（利用登録の申請画面）
+  newcomer: null,     // 名簿に無いアカウント（「まだ登録されていません」の案内）
+  fresh: 'S08',       // 新人 花子（職員が登録したばかり・本人の確認がまだ・D64）
 };
 const NEWCOMER_EMAIL = 'newcomer@example.jp';
 

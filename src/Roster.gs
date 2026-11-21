@@ -13,10 +13,11 @@
  *   - **本人が今学期の空きコマを出し直したか**（slots_updated_at。空＝職員が入れたまま・D28）
  *   - 今学期に何コマ持っているか
  *
- * ■ 読み取り専用
- *   ここでは何も書き換えない。名簿を作るのは承認（approveRegistration）だけ、
- *   本人の連絡先と空きコマを直すのはマイページ（Profile.gs）だけ、という D28 の経路を崩さない。
- *   職員が管理する項目（skills）はシートで直す。
+ * ■ 名簿の登録と修正（2026-11-21・D64）
+ *   ここ（getStaffRoster）は読むだけ。名簿の画面から、職員が学生を登録し（registerStaff）、
+ *   氏名・電話・メールを直す（updateStaffContact）。どちらも StaffAdmin.gs にある。
+ *   空きコマ・通知先・対応できる業務は今まで通り本人がマイページで直す（Profile.gs）。
+ *   以前（D28）は、名簿を作るのは承認だけ・連絡先を直すのはマイページだけとしていた。
  *
  * ■ 個人コード（personal_code）は出さない
  *   機能B（勤怠整合性チェック）を実装しない方針になったため（2026-09-13）、この列を読む相手が
@@ -75,6 +76,9 @@ function getStaffRoster() {
     // 「欠けていること」をコードで返す。文言は画面側に置く（ここはデータだけ返す）。
     const issues = [];
     if (!contact) issues.push('contact');
+    // 職員が登録して、本人がまだ確かめていない（D64）。確かめるまで通知は送らない
+    const unconfirmed = isUnconfirmedContact_(contact);
+    if (unconfirmed) issues.push('unconfirmed');
     if (isStudent) {
       // 空きコマが無い人は、候補抽出のどの経路にも乗らない＝依頼が一生飛ばない。
       // 対応する業務のうち1つでも空なら出す（テイクは埋めたが介助は空、を見逃さない）。
@@ -104,6 +108,7 @@ function getStaffRoster() {
       // URL は**それを知っている人なら誰でも投稿できる**秘密に近い値なので画面に晒さない。
       hasWebhook: !!webhook,
       hasContact: !!contact,
+      confirmed: !!contact && !unconfirmed,
       slotsByType: slotsByType,
       slotCounts: SUPPORT_TYPES.map(function (t) {
         return { type: t, count: slotsByType[t].length, relevant: relevantTypes.indexOf(t) !== -1 };
@@ -208,6 +213,7 @@ function rosterSummary_(rows) {
     slotsStale: count('slotsStale'),
     noWebhook: count('webhook'),
     noPhone: count('phone'),
+    unconfirmed: count('unconfirmed'),
   };
 }
 

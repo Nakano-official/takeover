@@ -55,6 +55,10 @@ const PERSONAS = {
     label: '準備中のときの学生（山田 太郎）', viewer: 'student', closed: true,
     pages: ['closed', 'mypage'],
   },
+  fresh: {
+    label: '登録されたばかりの学生（新人 花子）', viewer: 'fresh',
+    pages: ['confirm'],
+  },
 };
 
 // 一覧（index.html）に並べる画面。[見る人, 画面, URLの後ろ, 説明]
@@ -77,13 +81,16 @@ const INDEX = [
     ['staff', 'terms', '', '学期設定'],
   ]],
   ['そのほか', [
-    ['newcomer', 'signup', '', '利用登録の申請（名簿に無いアカウントで開いたとき）'],
+    ['newcomer', 'signup', '', '登録がありません（名簿に無いアカウントで開いたとき）'],
     ['closed', 'closed', '', '準備中（学生への公開を閉じているとき）'],
+    ['fresh', 'confirm', '', '本人の確認（職員が登録した人が初めて開いたとき）'],
   ]],
 ];
 
 function pageTitle(pageKey) {
-  return pageKey === 'closed' ? h.value('CLOSED_PAGE').title : h.value('PAGES')[pageKey].title;
+  if (pageKey === 'closed') return h.value('CLOSED_PAGE').title;
+  if (pageKey === 'confirm') return h.value('CONFIRM_PAGE').title;
+  return h.value('PAGES')[pageKey].title;
 }
 
 // その人の担当コマ（欠勤連絡で選べるコマ）

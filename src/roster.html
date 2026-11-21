@@ -84,6 +84,27 @@
             border-radius: var(--radius-sm); padding: 1px 8px; font-size: .8rem; }
     .todo { margin: 0; padding-left: 18px; font-size: .84rem; color: var(--warn); line-height: 1.7; }
     .todo li { margin-bottom: 2px; }
+    /* スタッフの登録・修正（D64）。窓の見た目はヘルプのシート（shared-styles の .help-modal / .help-sheet） */
+    .regbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .regbar .hint { margin: 0; flex: 1 1 240px; }
+    .sform .field { margin-bottom: 12px; }
+    .sform input[type=text], .sform input[type=email], .sform select, .sform textarea { width: 100%; font-size: .95rem; padding: 8px 10px; }
+    .sform .name2 { display: flex; gap: 8px; }
+    .sform .name2 input { flex: 1 1 0; min-width: 0; }
+    .sform .checks { display: flex; gap: 14px; flex-wrap: wrap; }
+    .sform .checks label { font-size: .9rem; color: var(--text); display: flex; gap: 6px; align-items: center; }
+    .sform textarea { min-height: 140px; font-family: inherit; }
+    .stabs { display: flex; gap: 6px; margin: 0 0 12px; }
+    .stabs button { flex: 1 1 0; }
+    .stabs button.on { background: var(--brand); color: #fff; border-color: var(--brand); }
+    .ptable { width: 100%; border-collapse: collapse; font-size: .82rem; margin: 8px 0; }
+    .ptable th, .ptable td { border-bottom: 1px solid var(--border); padding: 4px 6px; text-align: left; vertical-align: top; }
+    .ptable td:nth-child(2) { overflow-wrap: anywhere; }   /* メールだけ折り返す */
+    .ptable td:nth-child(3), .ptable td:nth-child(4), .ptable td:nth-child(5) { white-space: nowrap; }   /* 姓・名・電話は1行 */
+    .ptable tr.bad td { background: var(--danger-bg); }
+    .ptable td.why { color: var(--danger); }
+    .smsg:empty { display: none; }
+    .smsg { margin: 8px 0 0; }
   </style>
 </head>
 <body>
@@ -93,6 +114,17 @@
     <div id="top" class="state">読み込み中…</div>
 
     <div id="body" hidden>
+      <!-- スタッフの登録（D64）。支援室の名簿から、職員が登録する -->
+      <div class="card">
+        <h2>スタッフを登録する</h2>
+        <div class="regbar">
+          <button type="button" class="btn primary sm" onclick="openStaffDialog('one')">＋ 1人ずつ登録</button>
+          <button type="button" class="btn sm" onclick="openStaffDialog('bulk')">名簿から貼って登録</button>
+          <p class="hint">登録した人は、初めて開いたときに「あなたは〇〇さんですか？」と確かめます。確かめるまで通知は届きません。</p>
+        </div>
+        <div id="rosterMsg" class="smsg"></div>
+      </div>
+
       <div class="card">
         <h2>学生スタッフの状態</h2>
         <div id="summary" class="summary"></div>
@@ -136,7 +168,24 @@
     </div>
   </main>
 
+  <!-- 登録・修正の窓（D64）。中身は開くたびに作る（電話番号の欄の id が1組しか無いため） -->
+  <div id="staffDialog" class="help-modal" hidden onclick="if (event.target === this) closeStaffDialog()">
+    <div class="help-sheet" role="dialog" aria-modal="true" aria-labelledby="staffDialogTitle">
+      <div class="help-head">
+        <h2 id="staffDialogTitle">スタッフを登録する</h2>
+        <button type="button" class="help-x" onclick="closeStaffDialog()" aria-label="閉じる">×</button>
+      </div>
+      <div class="help-body sform" id="staffDialogBody"></div>
+      <div class="help-foot" style="justify-content:flex-end">
+        <button type="button" class="btn" onclick="closeStaffDialog()">やめる</button>
+        <button type="button" class="btn primary" id="staffDialogGo" onclick="staffDialogGo()">登録する</button>
+      </div>
+    </div>
+  </div>
+
   <?!= include('shared-cache') ?>
+  <?!= include('shared-dialog') ?>
+  <?!= include('shared-contact') ?>
   <script>
     var DATA = null;
     var OPEN_ID = '';       // 詳細を開いている人（1人だけ）
@@ -148,7 +197,8 @@
       slots:      { label: '空きコマが未登録',     why: '対応する業務の空きコマが入っていません。その業務の代行依頼の候補に一度も出てきません。マイページから登録してもらってください。' },
       slotsStale: { label: '本人が更新していない', why: '空きコマは入っていますが、本人がマイページで出し直した記録がありません。学期が変わっていれば古い値のままです。' },
       webhook:    { label: '通知先URLが未登録',    why: '代行依頼の通知が届きません。マイページから登録してもらってください。' },
-      phone:      { label: '電話番号が未登録',     why: '返信が無いときに職員から連絡できません。' }
+      phone:      { label: '電話番号が未登録',     why: '返信が無いときに職員から連絡できません。この画面の「氏名・電話・メールを直す」から入れられます。' },
+      unconfirmed: { label: '本人の確認がまだ',    why: 'まだ一度も開いていないか、「あなたは〇〇さんですか？」に答えていません。確かめるまで通知は届きません。「違う」と答えた場合は、メールアドレスを確かめてください。' }
     };
 
     function escapeHtml(s) {
@@ -179,6 +229,7 @@
       chips.push(chip('webhook', s.noWebhook ? 'warn' : 'zero', '通知先なし ' + s.noWebhook));
       chips.push(chip('phone', s.noPhone ? 'warn' : 'zero', '電話なし ' + s.noPhone));
       if (s.noContact) chips.push(chip('contact', 'warn', 'ログイン不可 ' + s.noContact));
+      if (s.unconfirmed) chips.push(chip('unconfirmed', 'warn', '確認まだ ' + s.unconfirmed));
       document.getElementById('summary').innerHTML = chips.join('');
 
       document.getElementById('scope').innerHTML =
@@ -334,8 +385,9 @@
           slots +
           kv('空きコマ更新', r.slots_updated_at) +
         '</dl>' + todo +
-        '<p class="hint">電話・通知先URL・空きコマ・対応業務は<b>本人がマイページから</b>直せます。' +
-        '氏名と区分は<b>職員が名簿（staffs）で</b>直します。</p>' +
+        '<p><button type="button" class="btn sm" data-edit="' + escapeAttr(r.staff_id) + '">氏名・電話・メールを直す</button></p>' +
+        '<p class="hint">氏名・電話・メールは<b>職員がここで</b>直します。通知先URL・空きコマ・対応業務は<b>本人がマイページから</b>直します。' +
+        '区分は名簿（staffs）で直します。</p>' +
         '</div>';
     }
 
@@ -357,6 +409,8 @@
     // 箱を押すと、そのまとまりの下に詳細を開く（もう一度押すか「閉じる」で閉じる。開くのは1人だけ）
     document.getElementById('groups').addEventListener('click', function (ev) {
       if (ev.target.closest('[data-close]')) { OPEN_ID = ''; render(); return; }
+      var edit = ev.target.closest('[data-edit]');
+      if (edit) { openStaffDialog('edit', edit.getAttribute('data-edit')); return; }
       var box = ev.target.closest('.pc');
       if (!box) return;
       var id = box.getAttribute('data-id');
@@ -383,12 +437,206 @@
       el.addEventListener('change', render);
     });
 
-    // 同じタブで再び開いたときは前回の名簿を先に出す（D49）。読み取り専用なので操作は止めない。
+    // ── スタッフの登録・修正（D64）────────────────────────────
+    //
+    // 1人ずつ（one）・名簿から貼る（bulk）・直す（edit）を、同じ窓で切り替える。
+    // 電話番号の3つの欄（shared-contact）は id が1組だけなので、窓の中身は開くたびに作る。
+    var DIALOG = { mode: '', staffId: '', parsed: [] };
+
+    function setRosterMsg(kind, text) {
+      document.getElementById('rosterMsg').innerHTML =
+        text ? '<div class="notice ' + kind + '">' + escapeHtml(text) + '</div>' : '';
+    }
+    function setDialogMsg(kind, html) {
+      var el = document.getElementById('staffDialogMsg');
+      if (el) el.innerHTML = html ? '<div class="notice ' + kind + '">' + html + '</div>' : '';
+    }
+    function splitName(name) {
+      var s = String(name || '').trim();
+      var i = s.search(/[\s　]/);
+      return i < 0 ? [s, ''] : [s.slice(0, i), s.slice(i).trim()];
+    }
+    function rowById(id) {
+      return ((DATA && DATA.rows) || []).filter(function (r) { return r.staff_id === id; })[0] || null;
+    }
+
+    function openStaffDialog(mode, staffId) {
+      if (viewCacheLocked()) return;
+      DIALOG = { mode: mode, staffId: staffId || '', parsed: [] };
+      var title = mode === 'edit' ? '氏名・電話・メールを直す' : 'スタッフを登録する';
+      var tabs = mode === 'edit' ? '' :
+        '<div class="stabs" role="tablist">' +
+          '<button type="button" class="btn sm' + (mode === 'one' ? ' on' : '') + '" onclick="openStaffDialog(\'one\')">1人ずつ</button>' +
+          '<button type="button" class="btn sm' + (mode === 'bulk' ? ' on' : '') + '" onclick="openStaffDialog(\'bulk\')">名簿から貼る</button>' +
+        '</div>';
+      var body;
+      if (mode === 'bulk') {
+        body = '<p class="hint">支援室の名簿（スプレッドシート）から、<b>メールアドレス・姓・名・電話番号</b>の列をまとめてコピーして貼ってください。' +
+          '列の順番は問いません（メールアドレスは「@」で、電話番号は数字で見分けます）。氏名が1つの列なら、姓と名の間に空白を入れてください。' +
+          '見出しの行は無くてもかまいません。区分は「学生」、対応できる業務は「すべて」で登録します（業務は本人がマイページで直せます）。</p>' +
+          '<div class="field"><label for="bulkText">名簿から貼る</label>' +
+          '<textarea id="bulkText" placeholder="y240001@example.ac.jp&#9;山田&#9;太郎&#9;090-0000-0000"></textarea></div>' +
+          '<button type="button" class="btn sm" onclick="bulkPreview()">読み取って確かめる</button>' +
+          '<div id="bulkPreview"></div>';
+      } else {
+        var r = mode === 'edit' ? rowById(staffId) : null;
+        var nm = splitName(r && r.name);
+        body = '<div class="field"><label for="sEmail">大学のメールアドレス</label>' +
+            '<input id="sEmail" type="email" autocomplete="off" value="' + escapeAttr(r ? r.email : '') + '">' +
+            (mode === 'edit' ? '<p class="hint">変えると、本人の確認（「あなたは〇〇さんですか？」）をやり直します。</p>' : '') + '</div>' +
+          '<div class="field"><label for="sFamily">氏名（姓と名）</label><div class="name2">' +
+            '<input id="sFamily" type="text" placeholder="姓" value="' + escapeAttr(nm[0]) + '">' +
+            '<input id="sGiven" type="text" placeholder="名" value="' + escapeAttr(nm[1]) + '"></div></div>' +
+          phoneFieldHtml(r ? r.phone : '', '名簿にあれば入れてください（返信が無いときに職員から電話するため）。') +
+          (mode === 'one'
+            ? '<div class="field"><label for="sRole">区分</label><select id="sRole">' +
+                '<option value="学生">学生スタッフ</option><option value="職員">職員</option></select></div>' +
+              '<div class="field"><label>対応できる業務</label><div class="checks">' +
+                '<label><input type="checkbox" name="sSkill" value="テイク" checked>テイク</label>' +
+                '<label><input type="checkbox" name="sSkill" value="介助" checked>介助</label></div>' +
+                '<p class="hint">本人もマイページで直せます。</p></div>'
+            : '');
+      }
+      document.getElementById('staffDialogTitle').textContent = title;
+      document.getElementById('staffDialogBody').innerHTML = tabs + body + '<div id="staffDialogMsg" class="smsg"></div>';
+      var go = document.getElementById('staffDialogGo');
+      go.textContent = mode === 'edit' ? '直す' : '登録する';
+      go.disabled = mode === 'bulk';   // 貼った内容は「読み取って確かめる」のあとで登録できる
+      var modal = document.getElementById('staffDialog');
+      var wasOpen = !modal.hidden;
+      modal.hidden = false;
+      document.body.classList.add('help-open');
+      var first = document.getElementById(mode === 'bulk' ? 'bulkText' : 'sEmail');
+      if (wasOpen) { if (first) first.focus(); } else dialogOpen(modal, first);
+    }
+
+    function closeStaffDialog() {
+      var modal = document.getElementById('staffDialog');
+      if (modal.hidden) return;
+      modal.hidden = true;
+      document.body.classList.remove('help-open');
+      dialogClose(modal);
+    }
+
+    // ── 名簿から貼った内容を読む。メールは「@」、電話は数字、残りが氏名 ──
+    function bulkDigits(c) {
+      return String(c).replace(/[０-９]/g, function (x) { return String.fromCharCode(x.charCodeAt(0) - 0xFEE0); }).replace(/\D/g, '');
+    }
+    function parseBulk(text) {
+      var lines = String(text || '').split(/\r?\n/);
+      var out = [];
+      lines.forEach(function (line, i) {
+        if (!line.trim()) return;
+        var cells = line.indexOf('\t') !== -1 ? line.split('\t') : line.split(',');
+        cells = cells.map(function (c) { return c.trim(); }).filter(function (c) { return c; });
+        var email = cells.filter(function (c) { return c.indexOf('@') !== -1; })[0] || '';
+        if (!email && !out.length && i === 0) return;   // 1行目にメールが無ければ見出しの行とみなす
+        var rest = cells.filter(function (c) { return c !== email; });
+        var phone = rest.filter(function (c) {
+          return /^[\d０-９\-－ー‐−()（）\s]+$/.test(c) && bulkDigits(c).length >= 10;
+        })[0] || '';
+        var names = rest.filter(function (c) { return c !== phone; });
+        var family = names[0] || '';
+        var given = names[1] || '';
+        if (names.length === 1) { var nm = splitName(names[0]); family = nm[0]; given = nm[1]; }
+        var why = !email ? 'メールアドレス（@ を含む列）がありません'
+          : (!family || !given) ? '姓と名が分けられません（姓と名の間に空白を入れるか、別の列にしてください）' : '';
+        out.push({ line: i + 1, email: email, family_name: family, given_name: given, phone: phone, why: why });
+      });
+      return out;
+    }
+
+    function bulkPreview() {
+      var rows = parseBulk(document.getElementById('bulkText').value);
+      DIALOG.parsed = rows;
+      var bad = rows.filter(function (r) { return r.why; }).length;
+      var table = rows.length
+        ? '<table class="ptable"><thead><tr><th>行</th><th>メール</th><th>姓</th><th>名</th><th>電話</th><th></th></tr></thead><tbody>' +
+          rows.map(function (r) {
+            return '<tr' + (r.why ? ' class="bad"' : '') + '><td>' + r.line + '</td><td>' + escapeHtml(r.email) + '</td>' +
+              '<td>' + escapeHtml(r.family_name) + '</td><td>' + escapeHtml(r.given_name) + '</td>' +
+              '<td>' + escapeHtml(r.phone) + '</td><td class="why">' + escapeHtml(r.why) + '</td></tr>';
+          }).join('') + '</tbody></table>'
+        : '';
+      document.getElementById('bulkPreview').innerHTML = table +
+        '<p class="hint">' + (rows.length ? rows.length + ' 人を読み取りました。' : '読み取れる行がありません。') +
+        (bad ? ' <b>赤い行を直してから、もう一度「読み取って確かめる」を押してください。</b>' : '') + '</p>';
+      document.getElementById('staffDialogGo').disabled = !rows.length || bad > 0;
+      setDialogMsg('', '');
+    }
+
+    function staffDialogGo() {
+      if (viewCacheLocked()) return;
+      var mode = DIALOG.mode;
+      var go = document.getElementById('staffDialogGo');
+      var payload;
+      if (mode === 'bulk') {
+        payload = DIALOG.parsed.map(function (r) {
+          return { email: r.email, family_name: r.family_name, given_name: r.given_name, phone: r.phone };
+        });
+      } else {
+        var err = phoneError();
+        if (err) { setDialogMsg('err', escapeHtml(err)); return; }
+        var entry = {
+          email: document.getElementById('sEmail').value.trim(),
+          family_name: document.getElementById('sFamily').value.trim(),
+          given_name: document.getElementById('sGiven').value.trim(),
+          phone: phoneValue(),
+        };
+        if (mode === 'one') {
+          var skills = Array.prototype.filter.call(document.getElementsByName('sSkill'), function (c) { return c.checked; })
+            .map(function (c) { return c.value; });
+          if (!skills.length) { setDialogMsg('err', '対応できる業務を1つ以上選んでください（どちらも外すと、すべての依頼が届きます）。'); return; }
+          entry.role = document.getElementById('sRole').value;
+          entry.skills = skills;
+          payload = [entry];
+        } else {
+          entry.staff_id = DIALOG.staffId;
+          payload = entry;
+        }
+      }
+      var label = mode === 'edit' ? '直す' : '登録する';
+      go.disabled = true;
+      go.textContent = mode === 'edit' ? '直しています…' : '登録しています…';
+      var done = function (res) {
+        go.textContent = label;
+        if (mode !== 'edit' && res && res.ok === false) {
+          // 1人でも直すところがあれば、誰も登録していない。何行目の何かを出す
+          var lineOf = function (i) { return mode === 'bulk' && DIALOG.parsed[i - 1] ? DIALOG.parsed[i - 1].line : i; };
+          setDialogMsg('err', 'まだ誰も登録していません。次を直してください：<br>' + res.errors.map(function (e) {
+            return (mode === 'bulk' ? lineOf(e.line) + '行目 ' : '') + escapeHtml(e.email ? e.email + '：' : '') + escapeHtml(e.message);
+          }).join('<br>'));
+          go.disabled = false;
+          return;
+        }
+        closeStaffDialog();
+        setRosterMsg('ok', mode === 'edit'
+          ? '直しました。' + (res && res.reconfirm ? 'メールアドレスを変えたので、本人の確認をやり直します。' : '')
+          : res.registered.length + ' 人を登録しました（' + res.registered.map(function (x) { return x.name; }).join('・') + '）。' +
+            '本人が初めて開いたときに確認が出ます。');
+        viewCacheClear();
+        load();
+      };
+      google.script.run
+        .withSuccessHandler(done)
+        .withFailureHandler(function (e) {
+          go.disabled = false;
+          go.textContent = label;
+          setDialogMsg('err', escapeHtml(e.message));
+        })[mode === 'edit' ? 'updateStaffContact' : 'registerStaff'](payload);
+    }
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeStaffDialog();
+    });
+
+    // 同じタブで再び開いたときは前回の名簿を先に出す（D49）。登録・修正があるので、前回の表示の間は操作を止める（lock）。
     function load() {
       viewCacheLoad({
         owner: '<?= user.staff_id ?>',
         key: 'getStaffRoster',
         rootId: 'body',
+        lock: true,   // 登録・修正をするので、前回の表示の間は操作させない（D49）
         run: function (ok, ng) {
           google.script.run.withSuccessHandler(ok).withFailureHandler(ng).getStaffRoster();
         },

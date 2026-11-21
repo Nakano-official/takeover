@@ -126,6 +126,9 @@ function getStaffSpaceWebhookOrEmpty_() {
 function buildWebhookMap_() {
   const map = {};
   readRows_(SHEET.CONTACTS).forEach(function (c) {
+    // 本人の確認がまだの人には送らない（D64）。職員がメールアドレスを打ち間違えていると、
+    // 別の人に業務の連絡が届くため。送り先が無い扱い（「Webhook 未登録」）になる
+    if (isUnconfirmedContact_(c)) return;
     map[String(c.staff_id).trim()] = String(c.webhook_url || '').trim();
   });
   return map;

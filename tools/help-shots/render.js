@@ -64,7 +64,7 @@ h.stub({
     },
   },
 });
-h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Access.gs', 'ClassCalendar.gs', 'Cancellation.gs', 'Input.gs', 'Profile.gs', 'Registration.gs', 'Roster.gs',
+h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Access.gs', 'ClassCalendar.gs', 'Cancellation.gs', 'Input.gs', 'Profile.gs', 'Registration.gs', 'Roster.gs', 'StaffAdmin.gs',
   'Setup.js', 'code.js', 'Identity.gs']);
 const G = h.G;
 
@@ -100,7 +100,6 @@ function precompute(pages, params, opts) {
   out['setStudentAccess|true'] = { open: true };
   out['setStudentAccess|false'] = { open: false };
   tryPut('getTermsAdmin', function () { return G.getTermsAdmin(); });
-  tryPut('getSignupContext', function () { return G.getSignupContext(); });
   if (params.vacancy) {
     tryPut('getVacancyForRespond|' + params.vacancy, function () { return G.getVacancyForRespond(params.vacancy); });
   }
@@ -186,7 +185,8 @@ function renderPage(viewerKey, pageKey, params, opts) {
   h.props.STUDENT_ACCESS = (params && params.closed) ? 'closed' : null;
   const user = viewAs(DEMO.VIEWERS[viewerKey]);
   // 準備中の画面（closed）は PAGES に無い（?page= では開けない）ので別に引く
-  const config = pageKey === 'closed' ? h.value('CLOSED_PAGE') : h.value('PAGES')[pageKey];
+  const config = pageKey === 'closed' ? h.value('CLOSED_PAGE')
+    : pageKey === 'confirm' ? h.value('CONFIRM_PAGE') : h.value('PAGES')[pageKey];
   const html = evaluate(fs.readFileSync(path.join(SRC, config.file + '.html'), 'utf8'), {
     user: user,
     params: params || {},
@@ -217,6 +217,7 @@ const SHOTS = {
   'staff-roster': ['staff', 'roster', {}],
   'staff-approvals': ['staff', 'approvals', { closed: true }],   // 準備中のスイッチも写す（D56）
   'student-closed': ['student', 'closed', { closed: true }],       // 準備中に学生が開いたとき
+  'fresh-confirm': ['fresh', 'confirm', {}],                        // 職員が登録した人が初めて開いたとき（D64）
   'staff-terms': ['staff', 'terms', {}],
 };
 

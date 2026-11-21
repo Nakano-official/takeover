@@ -108,14 +108,15 @@
           ro('氏名', p.name) +
           ro('区分', p.role) +
           ro('メール', p.email) +
+          // 電話番号は支援室の名簿から職員が入れる（D64）。変わったら支援室へ伝えてもらう
+          ro('電話番号', p.phone || '（未登録）') +
         '</dl></div>';
 
       // ── 連絡先（本人が変更できる）──
       var contact =
         '<div class="card">' +
-        '<h2>連絡先</h2>' +
-        '<p class="lead">この2つは自分で変更できます。</p>' +
-        phoneFieldHtml(p.phone, '返信が無いときに職員から連絡することがあります。') +
+        '<h2>通知先</h2>' +
+        '<p class="lead">これは自分で変更できます。</p>' +
         '<div class="field"><label for="webhook">Google Chat の通知先URL</label>' +
           webhookHelpButton() +
           '<input id="webhook" type="url" placeholder="https://chat.googleapis.com/..." value="'
@@ -291,8 +292,6 @@
         showToast('対応できる業務を1つ以上選んでください（すべて外すと、逆にすべての依頼が届きます）。', false);
         return;
       }
-      var phoneErr = phoneError();
-      if (phoneErr) { showToast(phoneErr, false); return; }
       var btn = document.getElementById('save');
       btn.disabled = true;
       btn.textContent = '保存中…';
@@ -304,7 +303,6 @@
           showToast(err.message, false);
         })
         .updateMyProfile({
-          phone: phoneValue(),
           webhook_url: val('webhook'),
           skills: pickedSkills(),
           slotsByType: pickedSlotsByType(P),

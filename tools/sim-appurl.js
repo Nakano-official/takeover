@@ -84,10 +84,9 @@ h.section('2) /dev から操作しても、Chat には /exec のリンクを入�
 CUR = DEV;   // 職員が /dev から操作している
 h.check(G.getPublicAppUrl_() === EXEC, '★Chat に使う URL は覚えた /exec');
 h.check(G.getAppUrl_() === DEV, '画面の中のリンク（ナビ）は今まで通り、開いている /dev');
-// 承認の Chat
-h.setEmail('newcomer@example.ac.jp');
-G.submitRegistration({ family_name: '新人', given_name: '太郎', phone: '090-0000-3333', webhook_url: HOOK,
-  skills: 'テイク', slotsByType: { 'テイク': [DAY + '1'] }, note: '' });
+// 承認の Chat（すでに出ていた申請を承認する。新しい申請は D64 で受け付けなくなった）
+h.add('registrations', { registration_id: 'R001', email: 'newcomer@example.ac.jp', name: '新人 太郎', phone: '090-0000-3333',
+  webhook_url: HOOK, skills: 'テイク', slots: DAY + '1', assist_slots: '', note: '', status: '申請中', applied_at: '2026-11-01 10:00:00' });
 asStaff();
 posted.length = 0;
 const ap = G.approveRegistration(h.db.registrations[0].registration_id);

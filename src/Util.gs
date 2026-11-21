@@ -119,3 +119,13 @@ function jstMinutes_(d) {
   const hm = Utilities.formatDate(d, 'Asia/Tokyo', 'HH:mm');
   return hhmmToMin_(hm);
 }
+
+/**
+ * contacts の行が「本人の確認がまだ」か（D64・StaffAdmin.gs）。
+ * 列が無い（移行前）か値が入っていれば確認済み。**空になるのは職員が新しく登録した人だけ**。
+ * 確認がまだの人には通知を送らない（buildWebhookMap_）・学生の画面の関数も止める（getOpenUser_）。
+ */
+function isUnconfirmedContact_(contact) {
+  if (!contact || !Object.prototype.hasOwnProperty.call(contact, CONFIRMED_COL)) return false;
+  return !String(contact[CONFIRMED_COL] == null ? '' : contact[CONFIRMED_COL]).trim();
+}

@@ -30,13 +30,14 @@ const PAGES = {
   // マイページ（D28）。本人が自分の連絡先と空きコマを直す画面なので、職員・学生とも入れる。
   // 編集できる項目はサーバー側（Profile.gs）で固定してあり、画面からは増やせない。
   mypage:  { file: 'mypage',  title: 'マイページ',         staffOnly: false },
-  // 登録済みスタッフの一覧（職員限定）。連絡先を含むので staffOnly。読み取り専用で、
-  // 名簿を作るのは承認（approvals）だけ・本人の情報を直すのはマイページだけ、という経路は崩さない。
+  // 登録済みスタッフの一覧（職員限定）。連絡先を含むので staffOnly。
+  // 2026-11-21 から、職員がここで学生を登録し、氏名・電話・メールを直す（D64・StaffAdmin.gs）。
+  // 空きコマ・通知先は今まで通り本人がマイページで直す。
   roster:  { file: 'roster',  title: 'スタッフ名簿',       staffOnly: true  },
-  // 利用登録の申請（D28）。**名簿（contacts）に無いアカウントでも開ける唯一の画面**。
-  // doGet が未登録者をここへ回す。ナビには出さない（登録済みの人には用が無いため）。
-  signup:  { file: 'signup',  title: '利用登録の申請',     staffOnly: false, helpOnly: ['webhook'] },
-  // 申請の承認（D28）。ここが staffs / contacts に行を作る唯一の経路。
+  // 名簿（contacts）に無いアカウントで開いたときの案内。**名簿に無くても開ける唯一の画面**。
+  // doGet が未登録者をここへ回す。以前は利用登録の申請画面だったが、職員が登録する形にしたので案内だけ（D64）。
+  signup:  { file: 'signup',  title: '登録がありません',   staffOnly: false, noHelp: true },
+  // 申請の承認（D28）。2026-11-21 から新しい申請は来ない（D64）。すでに出ていた申請の片付けと、学生への公開のスイッチ（D56）。
   approvals: { file: 'approvals', title: '利用登録の承認', staffOnly: true },
   // M5Stack への USB 中継用（別担当）。職員がログイン済みのPCでこの画面を開いたままにし、
   // PC側の中継プログラムが window.readShiftUsbSummary() を読んで USB で端末へ送る。
@@ -67,6 +68,8 @@ const SIGNUP_PAGE = 'signup';
 const MYPAGE_PAGE = 'mypage';
 // 学生への公開が「準備中」のときに学生へ出す画面（D56）。PAGES には入れない（?page= では開けない）
 const CLOSED_PAGE = { file: 'closed', title: '準備中', staffOnly: false };
+// 職員が登録した人が初めて開いたときの「あなたは〇〇さんですか？」（D64）。PAGES には入れない（?page= では開けない）
+const CONFIRM_PAGE = { file: 'confirm', title: 'はじめに', staffOnly: false, noHelp: true };
 
 // ナビに並べる画面（この順で表示する）。
 // respond は通知リンクから ?vacancy= 付きで開く画面なので、ナビには出さない。
@@ -108,6 +111,11 @@ function doGet(e) {
     return renderPage_(PAGES[SIGNUP_PAGE], SIGNUP_PAGE, null, params);
   }
 
+  // 職員が登録して、本人がまだ確かめていない人は、どの画面を開いても確認の画面を出す（D64）
+  if (user.confirmed === false) {
+    return renderPage_(CONFIRM_PAGE, 'confirm', user, params);
+  }
+
   // 登録済みの人に申請画面は用が無いので既定画面へ送る
   if (pageKey === SIGNUP_PAGE) {
     return renderPage_(PAGES[DEFAULT_PAGE], DEFAULT_PAGE, user, params);
@@ -147,7 +155,8 @@ function getCurrentUser_() {
 
   const who = cachedIdentity_(email, function () { return lookupIdentity_(email); });
   if (!who) return null;
-  return { email: email, staff_id: who.staff_id, name: who.name, role: who.role };
+  // confirmed：本人の確認（D64）。false のときだけ「まだ」。キャッシュに無い古い値（undefined）は確認済みとして扱う
+  return { email: email, staff_id: who.staff_id, name: who.name, role: who.role, confirmed: who.confirmed !== false };
 }
 
 // シートから本人を引く（キャッシュに無いときだけ呼ばれる）
@@ -162,6 +171,7 @@ function lookupIdentity_(email) {
     staff_id: String(contact.staff_id).trim(),
     name: staff ? staff.name : contact.name,
     role: staff ? String(staff.role).trim() : '',
+    confirmed: !isUnconfirmedContact_(contact),   // 職員が登録して、本人がまだ確かめていなければ false（D64）
   };
 }
 
@@ -237,7 +247,7 @@ function renderChrome_(config, pageKey, user) {
   // 未登録者（申請画面）にはナビを出さない。行ける画面がまだ無いので、
   // リンクを並べても押した先で弾かれるだけになる。
   // 準備中の学生にも出さない。行ける画面がマイページだけで、それは右上から入れる（D56）
-  const visible = (!user || isClosedFor_(user)) ? [] : NAV_PAGES.filter(function (key) {
+  const visible = (!user || isClosedFor_(user) || user.confirmed === false) ? [] : NAV_PAGES.filter(function (key) {
     const p = PAGES[key];
     if (!p) return false;
     if (p.staffOnly && !isStaff) return false;       // 職員限定画面は学生に出さない

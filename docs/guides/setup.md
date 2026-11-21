@@ -67,7 +67,9 @@ Web App は `executeAs: USER_DEPLOYING`＝**最後にデプロイした人とし
 ### 1.4 最初の職員を登録
 空のDBには誰もいないので、まず1人入れる。
 - メインDB `staffs`：`staff_id`／`name`／`role`＝**職員**
-- 連絡先DB `contacts`：同じ `staff_id`／`name`／`email`＝その職員の大学アドレス
+- 連絡先DB `contacts`：同じ `staff_id`／`name`／`email`＝その職員の大学アドレス／`confirmed_at`＝今の日時（例 `2026-04-01 09:00:00`）
+  - `confirmed_at` が空だと、初めて開いたときに「あなたは〇〇さんですか？」が出る（「はい」を押せば使える・D64）
+- 2人目からは、職員が**スタッフ名簿**の画面で登録する（学生も職員も・D64）
 
 ### 1.5 Web アプリをデプロイ
 「デプロイ → 新しいデプロイ → ウェブアプリ」：
@@ -200,7 +202,7 @@ Web App は `executeAs: USER_DEPLOYING`＝**最後にデプロイした人とし
 
 ---
 
-## 2.7 2026-11 以降に足したシート・列（D53〜D60）
+## 2.7 2026-11 以降に足したシート・列（D53〜D64）
 
 既存DBを使っている場合だけ必要（新規 `setupSpreadsheetsEmpty()` なら最初から入っている）。
 いずれも **`clasp push` を済ませてから** GASエディタで1回実行する。何度実行しても安全。
@@ -211,6 +213,7 @@ Web App は `executeAs: USER_DEPLOYING`＝**最後にデプロイした人とし
 | `migrateAddRegistrationAssistSlots()` | 連絡先DBの `registrations` に `assist_slots` 列を足す。無いと申請の介助の空きコマが保存されない | D54 |
 | `migrateMoveCoursesToFlags()` | `courses` に `move_before` / `move_after` 列を足し、移動の枠のコマを介助のコマの印へ移し替える | D58 |
 | `migrateAddCancellationsSheet()` | メインDBに `cancellations`（その日だけの休講）シートを足す | D60 |
+| `migrateAddContactConfirmedAt()` | 連絡先DBの `contacts` に `confirmed_at`（本人の確認）列を足し、**今いる全員を確認済みにする**。実行するまで、名簿の画面からの登録は止まる | D64 |
 
 既存の利用者名の空白を揃えるとき（D59）は、先に `previewUserStudentNames()` で何が変わるかを確かめてから
 `fixUserStudentNames()` を実行する。
