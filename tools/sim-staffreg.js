@@ -74,6 +74,10 @@ h.check(c1 && c1.phone === '090-0000-0002', '電話番号は 3-4-4 にそろえ�
 h.check(c1 && c1.confirmed_at === '', '★本人の確認がまだ（confirmed_at が空）');
 h.check(s1 && s1.available_slots === '' && s1.slots_updated_at === '', '空きコマは空（本人がマイページで出す）');
 h.check(c1 && c1.webhook_url === '', '通知先は空');
+setup(); asStaff();
+G.registerStaff([Object.assign({}, ONE, { role: '職員' })]);
+h.check(h.row('staffs', 'staff_id', contactOf(ONE.email).staff_id).role === '学生',
+  '★区分は受け取らない。「職員」を送られても学生で登録する（職員のアカウントは共用の1つだけ）');
 
 h.section('2) 形の確認（以前の申請と同じ決まり）');
 const regErr = (over) => {

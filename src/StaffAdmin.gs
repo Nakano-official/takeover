@@ -16,6 +16,11 @@
  *   confirmed_at の列が無い（移行前）か、値が入っていれば確認済み。移行（migrateAddContactConfirmedAt）は
  *   列を足し、今いる全員に移行の日時を入れる。**空になるのは、ここで職員が新しく登録した人だけ**。
  *
+ * ■ 登録するのは学生スタッフだけ
+ *   職員のアカウントは支援室の共用アカウント1つだけで、増えない（構築のときに手で入れる・setup.md 1.4）。
+ *   画面から区分を選べる入口を残すと、学生を誤って職員にしたときに連絡先DB全体が見える画面に入れてしまうので、
+ *   区分は受け取らず、いつも「学生」で作る。
+ *
  * ■ 職員が直せるもの
  *   氏名・電話番号・メールアドレス（updateStaffContact）。メールアドレスを変えたら確認をやり直す。
  *   空きコマ・通知先は今まで通り本人がマイページで直す。
@@ -52,7 +57,7 @@ function normalizeStaffEmail_(value) {
 
 /**
  * 1人分の入力をそろえる（登録・修正で共通）。
- * @param {{email, family_name, given_name, phone, role, skills}} raw
+ * @param {{email, family_name, given_name, phone, skills}} raw   区分（role）は受け取らない（いつも学生）
  */
 function normalizeStaffEntry_(raw) {
   const p = raw || {};
@@ -63,7 +68,6 @@ function normalizeStaffEntry_(raw) {
     email: normalizeStaffEmail_(p.email),
     name: validatePersonName_('氏名', family + ' ' + given),   // 「姓 名」（半角スペース1つ・D54）
     phone: validatePhone_(p.phone),                              // 空なら空（名簿に無い人もいる）
-    role: String(p.role || '').trim() === ROLE_STAFF ? ROLE_STAFF : '学生',
     // 空＝全対応（D9）。選んだものは業務の名前だけを残す
     skills: p.skills === undefined || p.skills === '' || (Array.isArray(p.skills) && !p.skills.length)
       ? '' : normalizeSkills_(p.skills),
@@ -76,7 +80,7 @@ function normalizeStaffEntry_(raw) {
  * **1人でも直す必要があれば、誰も登録しない**（何行目の何がおかしいかを返す）。
  * 途中まで登録された状態を作らず、直して丸ごと貼り直せばよい形にするため。
  *
- * @param {Array<Object>|Object} items normalizeStaffEntry_ の入力（email・family_name・given_name・phone・role・skills）
+ * @param {Array<Object>|Object} items normalizeStaffEntry_ の入力（email・family_name・given_name・phone・skills）
  * @return {{ok:true, registered:Array<{staff_id,name,email}>}|{ok:false, errors:Array<{line,email,message}>}}
  */
 function registerStaff(items) {
@@ -107,7 +111,7 @@ function registerStaff(items) {
   entries.forEach(function (e) {
     // staffs を先に作り、その staff_id で contacts を作る（承認と同じ順・2つのスプレッドシートをまたぐ）
     const staffId = appendRowWithId_(SHEET.STAFFS, 'staff_id', 'S', {
-      name: e.name, role: e.role, skills: e.skills,
+      name: e.name, role: '学生', skills: e.skills,   // 職員は増えない（上の「登録するのは学生スタッフだけ」）
       available_slots: '', assist_slots: '', personal_code: '',
       slots_updated_at: '',   // 空きコマは本人がマイページで出す（名簿では「未提出」）
     });
