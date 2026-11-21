@@ -61,7 +61,6 @@
     </div>
   </div>
 
-  <?!= include('shared-dialog') ?>
 
   <script>
     function escapeHtml(s) {
@@ -271,7 +270,7 @@
       if (SENDING) return;
       var courseId = document.getElementById('course').value;
       var date = document.getElementById('date').value;
-      if (!date) { alert('欠勤日を選んでください。'); return; }
+      if (!date) { showNotice({ title: '欠勤日', message: '欠勤日を選んでください。' }); return; }
       var box = document.getElementById('attachBox');
       var withAttached = !(box && box.style.display !== 'none')
         ? false : document.getElementById('withAttached').checked;
@@ -402,7 +401,7 @@
 
     function onFail(err) {
       SENDING = false;   // 送れなかったので、もう一度押せるように戻す
-      alert('エラー: ' + err.message);
+      showNotice({ title: 'エラー', message: err.message, kind: 'err' });
       var btn = document.getElementById('submit');
       btn.disabled = false;
       btn.textContent = '欠勤を登録して代行候補を探す';

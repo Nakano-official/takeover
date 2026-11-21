@@ -302,20 +302,27 @@
     });
 
     // ナビ・マイページなど画面の中のリンク。ブラウザの確認より先に、何が消えるかを言葉で確かめる。
-    // 画面のほかのクリック処理より先に受ける（window の捕捉段階）
+    // 画面のほかのクリック処理より先に受ける（window の捕捉段階）。いったん止めて画面の中の窓で聞き、
+    // 「移動する」なら同じリンクをもう一度押す（LEAVING を立てているので、次は止めない）
     window.addEventListener('click', function (e) {
-      if (!hasUnsaved()) return;
+      if (!hasUnsaved() || LEAVING) return;
       var a = e.target && e.target.closest && e.target.closest('a[href]');
       if (!a) return;
       var href = a.getAttribute('href') || '';
       if (!href || href.charAt(0) === '#' || /^javascript:/i.test(href)) return;
-      if (confirm('まだ登録していない入力があります。この画面を離れると、入力は失われます。\n\n' +
-          '移動しますか？（「キャンセル」で入力に戻ります）')) {
-        LEAVING = true;
-        return;
-      }
       e.preventDefault();
       e.stopImmediatePropagation();
+      askConfirm({
+        title: 'この画面を離れますか？',
+        message: 'まだ登録していない入力があります。この画面を離れると、入力は失われます。',
+        ok: '入力を捨てて移動する',
+        cancel: '入力に戻る',
+        danger: true,
+      }, function (yes) {
+        if (!yes) return;
+        LEAVING = true;
+        a.click();
+      });
     }, true);
 
     function buildForm() {
@@ -847,7 +854,8 @@
       var file = input.files && input.files[0];
       input.value = '';    // 同じファイルをもう一度選んでも反応するように
       if (!file) return;
-      if (!confirmReplaceCards()) return;
+      confirmReplaceCards(function (yes) {
+      if (!yes) return;
       setPdfBusy(true);
       pdfNotice('info', '読み取り中…（PDFはこの端末の中だけで読み取ります）');
       tpdfReadFile(file).then(function (parsed) {
@@ -860,6 +868,7 @@
       }).catch(function (e) {
         setPdfBusy(false);
         pdfNotice('err', 'PDFを読み取れませんでした：' + (e && e.message ? e.message : e));
+      });
       });
     }
 
@@ -972,15 +981,14 @@
     }
 
     // 入力済みのカードがあれば、置き換えてよいか聞く
-    function confirmReplaceCards() {
+    function confirmReplaceCards(cb) {
       var touched = CARDS.some(function (n) {
         return userValue(n) || v(n, 'subject').trim() || v(n, 'instructor').trim()
           || v(n, 'room').trim() || v(n, 'note').trim();
       });
-      if (touched) {
-        return confirm('入力中のカードを、PDFの内容で置き換えます。よろしいですか？');
-      }
-      return true;
+      if (!touched) { cb(true); return; }
+      askConfirm({ title: '入力中のカードを置き換えますか？', message: '入力中のカードを、PDFの内容で置き換えます。',
+        ok: '置き換える', danger: true }, cb);
     }
 
     function setPdfBusy(on) {
@@ -1062,8 +1070,16 @@
 
     // force … 保存・削除が済んだあとなど、変更を確かめずに閉じる
     function closeEdit(force) {
-      if (!force && EDIT_DIRTY &&
-          !confirm('編集した内容は、まだ「更新する」していません。閉じると変更は失われます。\n\n閉じますか？')) return;
+      if (!force && EDIT_DIRTY) {
+        askConfirm({
+          title: '編集をやめますか？',
+          message: '編集した内容は、まだ「更新する」していません。閉じると変更は失われます。',
+          ok: '変更を捨てて閉じる',
+          cancel: '編集に戻る',
+          danger: true,
+        }, function (yes) { if (yes) closeEdit(true); });
+        return;
+      }
       EDIT_DIRTY = false;
       document.getElementById('editModal').hidden = true;
       document.body.classList.remove('edit-open');
@@ -1141,8 +1157,14 @@
       if (!c) { showListToast('対象のコマが見つかりません。画面を読み込み直してください。', false); return; }
       var label = (c.date ? dateLabel(c.date) : c.day) + (c.periodLabel || (c.period + '限'))
         + ' ' + c.support_type + ' ' + (c.user_student || '');
-      if (!confirm(label + '\nこのコマを削除します。学期のすべての週から消えます。\n\n' +
-        '1日だけ授業が無いときは削除せず、シフト確認でそのコマを押して「この日だけ休講にする」を使ってください。\n\n削除しますか？')) return;
+      askConfirm({
+        title: 'このコマを削除しますか？',
+        message: label + '\n\nこのコマを削除します。学期のすべての週から消えます。\n\n' +
+          '1日だけ授業が無いときは削除せず、シフト確認でそのコマを押して「この日だけ休講にする」を使ってください。',
+        ok: '削除する',
+        danger: true,
+      }, function (yes) {
+      if (!yes) return;
       google.script.run
         .withSuccessHandler(function () {
           if (EDIT_ID === id) closeEdit(true);   // 消したコマの変更は、もう保存先が無い
@@ -1153,6 +1175,7 @@
           if (EDIT_ID === id) editMsg(err.message, false); else showListToast(err.message, false);
         })
         .deleteCourse(id);
+      });
     }
 
     // ===== 登録済みのコマ＝学期ごとの時間割（D57）=====

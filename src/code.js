@@ -271,6 +271,8 @@ function renderChrome_(config, pageKey, user) {
       (links ? '<nav class="appnav' + few + '">' + links + '</nav>' : '') +
     '</div>' +
     include('shared-chrome') +
+    // 窓のキーボード操作（shared-dialog）と、画面の中の確認・お知らせ（shared-ask）。ブラウザの confirm / alert は使わない
+    include('shared-dialog') + include('shared-ask') +
     help.body;
 }
 

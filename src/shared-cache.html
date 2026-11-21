@@ -77,7 +77,7 @@
 
   /** 古い内容を表示中で、操作を止めているか（操作関数の先頭で見る） */
   function viewCacheLocked() {
-    if (VIEW_CACHE_LOCKED) alert('最新の内容を読み込み中です。表示が更新されてから操作してください。');
+    if (VIEW_CACHE_LOCKED) window.showNotice({ title: '少しお待ちください', message: '最新の内容を読み込み中です。表示が更新されてから操作してください。' });
     return VIEW_CACHE_LOCKED;
   }
 

@@ -211,37 +211,54 @@
         (v.date || '') + ' ' + (v.day || '') + (v.periodLabel || '') + (v.time ? '（' + v.time + '）' : ''),
         (v.support_type || '') + (v.user_student ? '・' + v.user_student : '') + (v.subject ? '・' + v.subject : ''),
       ].filter(function (x) { return x.trim(); }).join('\n');
-      if (!confirm('次の欠員の代行者を「' + (cand.name || staffId) + '」さんに確定します。\n\n' + what +
-        '\n\n確定すると、代行の人・ほかの候補・職員スペースへ Chat で知らせます。よろしいですか？')) return;
-      disableAll(btn);
-      google.script.run
-        .withSuccessHandler(reloadAfterWrite)
-        .withFailureHandler(function (err) { alert('エラー: ' + err.message); reloadAfterWrite(); })
-        .confirmSubstitute(vacancyId, staffId);
+      askConfirm({
+        title: '代行者を確定しますか？',
+        message: '次の欠員の代行者を「' + (cand.name || staffId) + '」さんに確定します。\n\n' + what +
+          '\n\n確定すると、代行の人・ほかの候補・職員スペースへ Chat で知らせます。',
+        ok: '確定する',
+      }, function (yes) {
+        if (!yes) return;
+        disableAll(btn);
+        google.script.run
+          .withSuccessHandler(reloadAfterWrite)
+          .withFailureHandler(function (err) { showNotice({ title: 'エラー', message: err.message, kind: 'err' }); reloadAfterWrite(); })
+          .confirmSubstitute(vacancyId, staffId);
+      });
     }
 
     function setResult(vacancyId, result, btn) {
       if (viewCacheLocked()) return;
-      if (!confirm('この欠員を「' + result + '」として決着させます。よろしいですか？')) return;
-      disableAll(btn);
-      google.script.run
-        .withSuccessHandler(reloadAfterWrite)
-        .withFailureHandler(function (err) { alert('エラー: ' + err.message); reloadAfterWrite(); })
-        .setVacancyResult(vacancyId, result);
+      askConfirm({
+        title: '「' + result + '」で決着させますか？',
+        message: 'この欠員を「' + result + '」として決着させます。',
+        ok: result + 'にする',
+      }, function (yes) {
+        if (!yes) return;
+        disableAll(btn);
+        google.script.run
+          .withSuccessHandler(reloadAfterWrite)
+          .withFailureHandler(function (err) { showNotice({ title: 'エラー', message: err.message, kind: 'err' }); reloadAfterWrite(); })
+          .setVacancyResult(vacancyId, result);
+      });
     }
 
     function reopen(vacancyId, btn) {
       if (viewCacheLocked()) return;
       // 締切後の再オープンでは再募集は走らない（候補は回答できないため・D22）。
       // 「送られるつもりで押したのに送られない」を防ぐため、確認文でその条件を明示する。
-      if (!confirm('この欠員を未確定に戻します。代行者の充て直しや結果の変更ができます。\n'
-        + '締切（授業開始<?= RECRUIT_DEADLINE_MIN_BEFORE ?>分前）より前なら候補者へ代行を再募集します。過ぎている場合は再募集せず、職員の決着待ちに戻ります。\n'
-        + 'よろしいですか？')) return;
-      disableAll(btn);
-      google.script.run
-        .withSuccessHandler(reloadAfterWrite)
-        .withFailureHandler(function (err) { alert('エラー: ' + err.message); reloadAfterWrite(); })
-        .reopenVacancy(vacancyId);
+      askConfirm({
+        title: '未確定に戻しますか？',
+        message: 'この欠員を未確定に戻します。代行者の充て直しや結果の変更ができます。\n'
+          + '締切（授業開始<?= RECRUIT_DEADLINE_MIN_BEFORE ?>分前）より前なら候補者へ代行を再募集します。過ぎている場合は再募集せず、職員の決着待ちに戻ります。',
+        ok: '未確定に戻す',
+      }, function (yes) {
+        if (!yes) return;
+        disableAll(btn);
+        google.script.run
+          .withSuccessHandler(reloadAfterWrite)
+          .withFailureHandler(function (err) { showNotice({ title: 'エラー', message: err.message, kind: 'err' }); reloadAfterWrite(); })
+          .reopenVacancy(vacancyId);
+      });
     }
 
     function disableAll(btn) {

@@ -143,26 +143,33 @@
     // 承諾も辞退も、押した時点で確定して取り消しが効かない。どちらもワンクッション置く。
     //  - 承諾 … 先着順なので、押した瞬間にそのシフトに入ることが決まる
     //  - 辞退 … あとから承諾に変えられず、職員の電話フォローの対象からも外れる（D25）
-    function confirmAnswer(ans) {
+    function confirmAnswer(ans, cb) {
       var slot = slotText();
       if (ans === '承諾') {
-        return confirm(
-          'この代行を「承諾」で回答します。\n\n'
-          + (slot ? slot + '\n' : '')
-          + 'このコマに、あなたが代行として入ります。\n'
-          + '先着順です。あなたが最初なら、この時点で確定します。\n\n'
-          + 'よろしいですか？');
+        askConfirm({
+          title: '「承諾」で回答しますか？',
+          message: (slot ? slot + '\n\n' : '')
+            + 'このコマに、あなたが代行として入ります。\n'
+            + '先着順です。あなたが最初なら、この時点で確定します。',
+          ok: '承諾する',
+        }, cb);
+        return;
       }
-      return confirm(
-        'この代行依頼を「辞退」で回答します。\n\n'
-        + (slot ? slot + '\n' : '')
-        + '辞退はあとから取り消せません（承諾に変更できません）。\n'
-        + '気が変わって対応できるようになった場合は、職員へ直接ご連絡ください。\n\n'
-        + 'よろしいですか？');
+      askConfirm({
+        title: '「辞退」で回答しますか？',
+        message: (slot ? slot + '\n\n' : '')
+          + '辞退はあとから取り消せません（承諾に変更できません）。\n'
+          + '気が変わって対応できるようになった場合は、職員へ直接ご連絡ください。',
+        ok: '辞退する',
+        danger: true,
+      }, cb);
     }
 
     function answer(ans) {
-      if (!confirmAnswer(ans)) return;
+      confirmAnswer(ans, function (yes) { if (yes) sendAnswer(ans); });
+    }
+
+    function sendAnswer(ans) {
 
       var buttons = document.querySelectorAll('.btns button');
       buttons.forEach(function (b) { b.disabled = true; });
