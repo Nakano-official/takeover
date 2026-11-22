@@ -99,6 +99,9 @@ h.section('4) シフト入力：別タブで開く操作は止めない（#64）
     const e = click({ [k]: true });
     h.check(!e.defaultPrevented && !p.ask(), '★' + k + ' を押しながらのクリックは止めない（ブラウザが別タブ・別窓で開く）');
   });
+  const alt = click({ altKey: true });
+  h.check(alt.defaultPrevented && !!p.ask(), '★Alt＋クリックは止めて、画面の中の窓で確かめる（ブラウザで動きが違うため）');
+  p.answer(false);
   link.target = '_blank';
   const blank = click({});
   h.check(!blank.defaultPrevented && !p.ask(), '別タブで開くリンク（target=_blank）は止めない');
