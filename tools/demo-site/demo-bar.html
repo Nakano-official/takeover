@@ -35,6 +35,8 @@
   .demo-toast.on { opacity: 1; }
   /* ヘルプや欠勤連絡の確認のシートが開いている間は隠す（シートの下のボタンに重なるため） */
   body.help-open .demo-bar { display: none; }
+  /* シート（スマホは下から出る）が開いている間は、知らせを上に出す。下に出すと結果の本文に重なる */
+  body.help-open .demo-toast { top: 16px; bottom: auto; }
   @media (max-width: 520px) {
     .demo-bar { flex-wrap: nowrap; gap: 8px; padding-left: 12px; padding-right: 12px; }
     .demo-bar .note, .demo-bar .grow { display: none; }
@@ -93,6 +95,9 @@
     var href = a.getAttribute('href');
     if (href.indexOf(C.appUrl) !== 0) return;
     e.preventDefault();
+    // Alt＋クリックは、本番ではリンク先のダウンロードになり、このタブは移らない。デモでは何もしない
+    // （シフト入力は Alt＋クリックを止めずに通すので、ここで移ると下書きが消える）
+    if (e.altKey) return;
     var q = new URLSearchParams(href.slice(C.appUrl.length).replace(/^\?/, ''));
     var page = q.get('page') || 'home';
     q.delete('page');
