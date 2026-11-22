@@ -101,7 +101,10 @@
       return;
     }
     var rest = q.toString();
-    location.href = page + '.html' + (rest ? '?' + rest : '');
+    var to = page + '.html' + (rest ? '?' + rest : '');
+    // 本番のリンクと同じく、Ctrl・⌘・Shift を押しながらなら別タブで開く（このタブはそのまま）
+    if (e.ctrlKey || e.metaKey || e.shiftKey) { window.open(to, '_blank'); return; }
+    location.href = to;
   }, true);
 })();
 </script>

@@ -15,6 +15,8 @@
  *   - google.script.run は呼び出しを calls に記録するだけ（成功の返事は p.reply(i, 値) で返せる）
  *   - 画面の中の確認（askConfirm・shared-ask）は本物が動く。p.ask() で開いている窓の題名と本文を読み、
  *     p.answer(true / false) で「OK」「やめる」を押す
+ *   - document / window に登録された処理（keydown・click など）は p.fire('document' | 'window', 種類, イベント) で送れる。
+ *     戻り値で preventDefault / stopImmediatePropagation が呼ばれたかを見られる
  *   - ブラウザの confirm() は使わない決まりだが、念のため p.confirmAnswer で答えを決められる（既定は true）
  *   - 見た目・レイアウト・フォーカスの実際の動きは確かめられない（ブラウザで確かめる）
  */
@@ -81,12 +83,22 @@ function loadPage(file, opts) {
     return { title: els.askTitle ? els.askTitle.textContent : '', text: els.askBody ? (els.askBody.textContent || els.askBody.innerHTML) : '' };
   };
   page.answer = function (yes) { page.ctx.askClose_(yes); };
+  const listeners = { document: {}, window: {} };
+  const listen = (where) => function (type, fn) { (listeners[where][type] = listeners[where][type] || []).push(fn); };
+  page.fire = function (where, type, ev) {
+    const e = Object.assign({ key: '', target: null, defaultPrevented: false, stopped: false }, ev || {});
+    e.preventDefault = function () { e.defaultPrevented = true; };
+    e.stopImmediatePropagation = function () { e.stopped = true; };
+    e.stopPropagation = function () { e.stopped = true; };
+    for (const fn of (listeners[where][type] || [])) { fn(e); if (e.stopped) break; }
+    return e;
+  };
 
   const body = fakeElement('body');
   body.tagName = 'BODY';
   const document = {
     getElementById: el, body: body, activeElement: body,
-    addEventListener() {}, querySelector() { return null; }, querySelectorAll() { return []; },
+    addEventListener: listen('document'), querySelector() { return null; }, querySelectorAll() { return []; },
     createElement() { return fakeElement(''); },
   };
   const ctx = Object.assign({
@@ -98,7 +110,7 @@ function loadPage(file, opts) {
     location: { search: '', href: '' },
   }, opts.globals || {});
   ctx.window = ctx;
-  ctx.addEventListener = function () {};
+  ctx.addEventListener = listen('window');
   vm.createContext(ctx);
   scripts.forEach(function (s, i) { vm.runInContext(s, ctx, { filename: file + '.html#script' + i }); });
   page.ctx = ctx;
