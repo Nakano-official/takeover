@@ -310,6 +310,12 @@
       if (!a) return;
       var href = a.getAttribute('href') || '';
       if (!href || href.charAt(0) === '#' || /^javascript:/i.test(href)) return;
+      // Ctrl・⌘・Shift を押しながら・別タブで開くリンクは、このタブを離れない。入力は残るので止めない（issue #64）。
+      // 止めて窓で聞くと、あとの a.click() には Ctrl が付かず、このタブで移動して入力が消えていた。
+      // Alt＋クリックは止める：Chrome・Edge ではダウンロードになるが、Firefox は設定によってこのタブで移る。
+      // ブラウザで動きが違うので、ふつうのクリックと同じく画面の中の窓で確かめる
+      if (e.ctrlKey || e.metaKey || e.shiftKey || (e.button && e.button !== 0)) return;
+      if (a.target && a.target !== '_self') return;
       e.preventDefault();
       e.stopImmediatePropagation();
       askConfirm({

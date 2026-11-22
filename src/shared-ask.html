@@ -19,10 +19,19 @@
       if (text === null) return;   // 「やめる」
     });
 
+  入力の窓は、Enter（Shift＋Enter も）では実行しない。ボタンを押したときだけ実行する（2026-11-22）。
+  Enter で実行すると、日本語の変換を確定する Enter や、改行のつもりの Shift＋Enter で却下などが実行されてしまった（issue #61）。
+  日本語の変換中は Escape でも閉じない（変換の取り消しだけにする）。
+
+  この窓は、ヘルプ・詳細・編集の窓より必ず上に出す（z-index）。結果を待つ間にヘルプを開くと、
+  結果の窓がヘルプの裏に隠れ、どちらも閉じられなくなった（issue #63）。
+
   message は文字として扱う（HTML にしない）。太字などが要るときだけ html を渡す（必ず escape 済みの値で組み立てる）。
   danger: true … 取り消せない・消える操作。OK を赤くし、最初の操作先を「やめる」にする（Enter で消さないように）。
 -->
 <style>
+  /* ヘルプ（.help-modal・100）・詳細（50）・シフト入力の編集（90）より上 */
+  #askModal.help-modal { z-index: 200; }
   .ask-sheet .help-head h2 { font-size: 1rem; }
   .ask-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; font-size: .95rem; }
   .ask-body.html { white-space: normal; }
@@ -31,6 +40,8 @@
   .ask-input[hidden] { display: none; }
   .ask-foot { justify-content: flex-end; }
   .ask-foot .btn { min-width: 96px; }
+  /* .btn の display が hidden 属性に勝つので、明示して隠す（お知らせの窓に「やめる」が出ていた） */
+  .ask-foot .btn[hidden] { display: none; }
 </style>
 <div id="askModal" class="help-modal" hidden onclick="if (event.target === this) askClose_(false)">
   <div class="help-sheet fit ask-sheet" role="dialog" aria-modal="true" aria-labelledby="askTitle" aria-describedby="askBody">
@@ -107,12 +118,12 @@
 
   document.addEventListener('keydown', function (e) {
     if (!ASK_STATE_) return;
+    // 日本語の変換中のキーは、変換の確定・取り消しのためのもの。窓の操作にしない（issue #61）
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'Escape') {
       e.stopImmediatePropagation();   // 後ろの窓（詳細など）まで一緒に閉じない
       askClose_(false);
-    } else if (e.key === 'Enter' && ASK_STATE_.mode === 'text' && e.target && e.target.id === 'askInput') {
-      e.preventDefault();
-      askClose_(true);
     }
+    // Enter では実行しない（ボタンを押したときだけ）。入力欄は1行なので、Enter で何かが起きることもない
   }, true);
 </script>

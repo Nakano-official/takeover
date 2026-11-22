@@ -144,7 +144,11 @@
       google.script.run
         .withSuccessHandler(function (res) {
           if (res && res.ok) {
-            showNotice({ title: '代行に入りました', message: '代行に入りました。職員と関係者へ知らせました。' });
+            // 確定と Chat の送信は別々に成否が返る。送れていないのに「知らせました」と言わない（issue #62）
+            showNotice(res.notify && res.notify.staff
+              ? { title: '代行に入りました', message: '代行に入りました。職員スペースへ Chat で知らせました。' }
+              : { title: '代行に入りました', kind: 'err', message: '代行は確定しています。\n' +
+                  'ただし、職員スペースへ Chat で知らせられませんでした。代行に入ったことを、職員へ直接伝えてください。' });
           } else if (res && res.filled) {
             showNotice({ title: '決まっていました', message: 'ひと足先に、他の人で決まりました。' });
           } else {
