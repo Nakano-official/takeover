@@ -106,7 +106,18 @@
     }
 
     function answer(isMe) {
-      if (!isMe && !confirm('「違います」で送ります。支援室に、登録を確かめるよう知らせます。よろしいですか？')) return;
+      if (!isMe) {
+        askConfirm({
+          title: '「違います」で送りますか？',
+          message: '支援室に、登録を確かめるよう知らせます。',
+          ok: '「違います」で送る', cancel: '戻る',
+        }, function (yes) { if (yes) sendAnswer(false); });
+        return;
+      }
+      sendAnswer(true);
+    }
+
+    function sendAnswer(isMe) {
       var yes = document.getElementById('yes');
       var no = document.getElementById('no');
       yes.disabled = true; no.disabled = true;
@@ -159,7 +170,18 @@
       }
       var slots = pickedSlotsByType(P);
       var any = Object.keys(slots).some(function (t) { return slots[t].length; });
-      if (!any && !confirm('空きコマが1つも選ばれていません。このままだと代行のお願いは届きません。\nこのまま登録しますか？（あとでマイページから入れられます）')) return;
+      if (!any) {
+        askConfirm({
+          title: '空きコマが選ばれていません',
+          message: 'このままだと、代行のお願いは届きません。\nこのまま登録しますか？（あとでマイページから入れられます）',
+          ok: 'このまま登録する', cancel: '空きコマを選ぶ',
+        }, function (yes) { if (yes) sendSetup(skills, slots); });
+        return;
+      }
+      sendSetup(skills, slots);
+    }
+
+    function sendSetup(skills, slots) {
       var btn = document.getElementById('setupSave');
       btn.disabled = true;
       btn.textContent = '登録しています…';
