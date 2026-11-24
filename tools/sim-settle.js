@@ -32,7 +32,7 @@ function setup() {
   h.add('periods', { period: '1', start_time: '09:15', end_time: '10:45' });
   h.add('periods', { period: '2', start_time: '11:00', end_time: '12:30' });
   [['S1', '学生 一郎'], ['S2', '学生 二郎'], ['S3', '学生 三郎'], ['S4', '学生 四郎'], ['S5', '代行 五郎']].forEach(function (s) {
-    h.add('staffs', { staff_id: s[0], name: s[1], role: '学生', skills: '',
+    h.add('staffs', { staff_id: s[0], name: s[1], role: '学生', skills: 'テイク,介助',   // 空欄はどの依頼も届かない（D65）
       available_slots: s[0] === 'S5' ? DAY + '1' : '', assist_slots: s[0] === 'S5' ? DAY + '2' : '' });
     h.add('contacts', { staff_id: s[0], name: s[1], email: s[0].toLowerCase() + '@mail.ryukoku.ac.jp', phone: '090-0000-000' + s[0].slice(1) });
   });

@@ -93,7 +93,7 @@ h.check(blockerFor('V001', 'S5').indexOf('対応できる業務') !== -1, '★�
 h.check(blockerFor('V001', 'S6') === 'この時間は、あなたの別の担当か代行が入っています。',
   '★同じ時限に別のコマを担当している人は入れない（二重起用）');
 h.check(blockerFor('V001', 'T1') === '代行に入れるのは学生スタッフだけです。', '★職員は入れない');
-h.check(blockerFor('V001', 'S7') === '', 'skills 空欄（全対応・D9）は入れる');
+h.check(blockerFor('V001', 'S7').indexOf('対応できる業務') !== -1, '★skills 空欄（まだ選んでいない・D65）は入れない（以前は全対応・D9）');
 as('S5');
 r = G.claimVacancy('V001');
 h.check(!r.ok && r.message.indexOf('対応できる業務') !== -1, 'claimVacancy も同じ理由を返す');

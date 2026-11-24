@@ -12,8 +12,8 @@
  *   ✅ staffs.available_slots / assist_slots … 本命。学期ごとの空きコマ更新（業務ごと・D32）
  *   ✅ staffs.skills          … 対応できる業務（テイク / 介助）。D28 では職員管理にしていたが、
  *                               承認後に直す画面が無く職員がシートを開くしかなかったため開放した（D31）。
- *                               **両方外した保存は受け付けない**。skills 空欄は D9 で「全対応」扱いのため、
- *                               「どちらもできません」のつもりが**全依頼を受ける**側に倒れてしまう。
+ *                               **両方外した保存は受け付けない**。skills 空欄は「まだ選んでいない」で
+ *                               どの依頼も届かない（D65）。選び直しの途中で外したつもりが、依頼が止まったままになる。
  *
  *   ❌ staffs.name           … 表示と突合に使う。本人が変えると職員側の照合がずれる
  *   ❌ staffs.role           … 自分を職員にできてしまう＝連絡先DB全体が見える画面に入れる
@@ -142,7 +142,7 @@ function updateMyProfile(payload) {
     });
 
     // skills は**送られてきたときだけ**触る（D31）。古い画面が開きっぱなしで
-    // skills を含まない保存が飛んできても、黙って全対応に倒すより現状維持のほうが安全。
+    // skills を含まない保存が飛んできても、黙って空（どの依頼も届かない）にするより現状維持のほうが安全。
     // 逆に「空配列で送ってきた＝全部外した」は意思表示なので normalizeSkills_ が弾く。
     if (p.skills !== undefined) {
       skillsCsv = normalizeSkills_(p.skills);
@@ -247,8 +247,8 @@ function normalizeSlots_(slots, supportType) {
 /**
  * 対応できる業務の入力（['テイク','介助'] 形式）を検証して 'テイク,介助' の保存形へ正規化する。
  *
- * **1つも選ばれていない保存は受け付けない。** skills 空欄は D9 で「全対応」扱いなので、
- * 「どちらもできません」のつもりで両方外すと、**逆に全部の依頼が飛ぶ**側に倒れる。
+ * **1つも選ばれていない保存は受け付けない。** skills 空欄は「まだ選んでいない」でどの依頼も届かない（D65。
+ * 以前は D9 で「全対応」だった）。両方外して保存させると、本人が気づかないまま依頼が止まる。
  * 画面でも止めているが、ここで止めないと画面を通さない経路で同じことが起きる。
  */
 function normalizeSkills_(skills) {
@@ -271,7 +271,7 @@ function normalizeSkills_(skills) {
  */
 function droppedSkillWarning_(staffId, staff, skillsCsv) {
   const before = splitSkills_(staff && staff.skills);
-  if (!before.length) return [];                       // 元が全対応なら「外れた」判定はできない
+  if (!before.length) return [];                       // 元が未選択なら「外れた」判定はできない
   const after = splitSkills_(skillsCsv);
   const dropped = before.filter(function (x) { return after.indexOf(x) === -1; });
   if (!dropped.length) return [];
@@ -291,7 +291,7 @@ function droppedSkillWarning_(staffId, staff, skillsCsv) {
   });
 }
 
-/** 'テイク,介助' 形式を配列へ（既知の値だけ・空欄＝全対応はそのまま空配列） */
+/** 'テイク,介助' 形式を配列へ（既知の値だけ・空欄＝未選択はそのまま空配列） */
 function splitSkills_(csv) {
   const raw = String(csv || '').split(',').map(function (x) { return x.trim(); });
   return SUPPORT_TYPES.filter(function (name) { return raw.indexOf(name) !== -1; });

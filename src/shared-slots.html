@@ -62,12 +62,10 @@
     function renderSkills(p) {
       var chosen = {};
       (p.skillList || []).forEach(function (x) { chosen[x] = true; });
-      // 保存済みが空欄＝D9 の「全対応」。初めて開いた人が何も選ばれていない画面を見て
-      // そのまま保存すると弾かれるので、全対応は「両方にチェック」として見せる。
-      var allRound = (p.skillList || []).length === 0;
-
+      // 保存済みが空欄＝まだ選んでいない（どの依頼も届かない・D65）。何もチェックを入れずに見せ、本人に選んでもらう。
+      // 以前は空欄を「全対応」として両方にチェックを入れて見せていたので、外し忘れると、できない業務の依頼まで届いた
       var boxes = (p.supportTypes || []).map(function (name) {
-        var on = allRound || chosen[name];
+        var on = !!chosen[name];
         return '<label class="skill"><input type="checkbox" data-skill="' + slotsEsc_(name) + '"'
           + (on ? ' checked' : '') + '>' + slotsEsc_(name) + '</label>';
       }).join('');
@@ -77,7 +75,7 @@
         '<b>ここで選んだ内容の代行依頼だけが届きます。</b></p>' +
         '<div class="skills">' + boxes + '</div>' +
         '<p class="hint">研修を受けて対応できる業務が増えたときは、ここにチェックを足してください。' +
-        '<b>1つ以上は選ぶ必要があります</b>（すべて外すと、逆にすべての依頼が届く扱いになるためです）。</p>' +
+        '<b>1つ以上は選ぶ必要があります</b>（選んでいないと、どの代行依頼も届きません）。</p>' +
         '</div>';
     }
 

@@ -542,6 +542,33 @@ h.check(/学籍番号が変わりました/.test(errC) && contactOf('Y250009').c
 asEmail('y250009@mail.ryukoku.ac.jp');
 h.check(G.confirmMyIdentity(true).confirmed === true && !!contactOf('Y250009').confirmed_at, '新しいアカウントからなら確認できる');
 
+h.section('18) 業務を選んでいない人（skills が空欄）には、どの依頼も届かない（D65・D9 を改めた）');
+h.check(G.hasSkillFor_({ skills: '' }, 'テイク') === false && G.hasSkillFor_({ skills: '' }, '介助') === false,
+  '★業務が空欄なら、テイクにも介助にも対応しない（以前は全対応）');
+h.check(G.hasSkillFor_({ skills: 'テイク' }, 'テイク') === true && G.hasSkillFor_({ skills: 'テイク' }, '介助') === false &&
+  G.hasSkillFor_({ skills: 'テイク,介助' }, '介助') === true, '選んだ業務だけに対応する');
+setup(); asStaff();
+h.add('courses', { course_id: 'C1', quarter: '2026-後期', day: '月', period: '1', support_type: 'テイク', staff_a_id: 'S1' });
+h.add('staffs', { staff_id: 'S5', name: '未選択 花子', role: '学生', skills: '', available_slots: '月1' });
+h.add('staffs', { staff_id: 'S6', name: '選択済 次郎', role: '学生', skills: 'テイク', available_slots: '月1' });
+const cands = G.findCandidates_(h.row('courses', 'course_id', 'C1'), ['S1'], '2026-11-30').map((c) => c.staff_id);
+h.check(cands.indexOf('S5') === -1 && cands.indexOf('S6') !== -1,
+  '★空きコマが合っていても、業務が空欄の人は代行の候補にならない（業務を選んだ人はなる）');
+// 名簿：業務が空欄の学生に「業務が未選択」を付ける
+h.add('contacts', { staff_id: 'S5', name: '未選択 花子', account: 'Y250005', phone: '090-0000-0005', webhook_url: HOOK });
+const rs = JSON.parse(JSON.stringify(G.getStaffRoster()));
+const r5 = rs.rows.filter((x) => x.staff_id === 'S5')[0];
+h.check(r5 && r5.issues.indexOf('skills') !== -1 && r5.issues.indexOf('slots') === -1 && rs.summary.noSkills >= 1,
+  '★名簿で「業務が未選択」を出す（空きコマの問題は重ねない）。上の集計にも出る');
+// 確認の画面・マイページの入力部品：業務が空欄の人には、何もチェックを入れずに見せる
+{
+  const sp = loadPage('confirm', { include: ['shared-slots', 'shared-chat-install'] });
+  const empty = sp.ctx.renderSkills({ supportTypes: ['テイク', '介助'], skillList: [] });
+  const one = sp.ctx.renderSkills({ supportTypes: ['テイク', '介助'], skillList: ['テイク'] });
+  h.check(empty.indexOf('checked') === -1, '★業務が空欄の人には、どのチェックも入れずに見せる（外し忘れで、できない業務の依頼が届かない）');
+  h.check((one.match(/checked/g) || []).length === 1, '選んだ業務だけにチェックを入れる');
+}
+
 h.section('17) ロック：入れ子にしても、一番外側でだけ取って外す（Sheets.gs の withLock_）');
 {
   const vm = require('vm');

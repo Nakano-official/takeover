@@ -1178,7 +1178,7 @@ function migrateAddVacancyCloseNotifiedAt() {
 /**
  * 既存の staffs シートに skills 列（対応可能な内容：テイク/介助）を追加する（D9）。
  * 既存運用シートを壊さず、無ければ末尾に1列足す（冪等）。GASエディタから1回実行する。
- * skills 未設定の行は findCandidates_ で「全対応扱い」となるため、運用前に入力すること。
+ * skills 未設定の行は「未選択」で、代行の候補にならない（D65）。運用前に入力すること。
  */
 function migrateStaffsColumns() {
   requireEditorRun_();
@@ -1199,7 +1199,7 @@ function migrateStaffsColumns() {
   invalidateSheetCache_('staffs'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
   Logger.log('✅ staffs に skills 列を追加しました。');
   Logger.log('   各学生に「テイク」「介助」「テイク,介助」のいずれかを入力してください。');
-  Logger.log('   空欄は当面「全対応」として候補に出ます（運用前に入力推奨）。');
+  Logger.log('   空欄は「未選択」で、代行の候補になりません（本人がマイページで選びます）。');
 }
 
 /**

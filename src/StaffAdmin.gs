@@ -71,7 +71,7 @@ function normalizeStaffEntry_(raw, opts) {
     account: account,
     name: validatePersonName_('氏名', family + ' ' + given),   // 「姓 名」（半角スペース1つ・D54）
     phone: validatePhone_(p.phone),                              // 空なら空（名簿に無い人もいる）
-    // 空＝全対応（D9）。選んだものは業務の名前だけを残す
+    // 空＝未選択（どの依頼も届かない・D65）。名簿から貼った人は空で始まり、本人が選ぶ。選んだものは業務の名前だけを残す
     skills: p.skills === undefined || p.skills === '' || (Array.isArray(p.skills) && !p.skills.length)
       ? '' : normalizeSkills_(p.skills),
   };

@@ -195,6 +195,7 @@
     // issue コード → 画面の文言。「何が起きるか」まで書く（項目名だけだと重さが伝わらない）
     var ISSUES = {
       contact:    { label: '連絡先DBに行が無い',   why: 'この人はログインできません。承認の途中で片側だけ作られた可能性があります。' },
+      skills:     { label: '業務が未選択',         why: '対応できる業務を本人がまだ選んでいません。選ぶまで、どの代行依頼も届きません。マイページから選んでもらってください。' },
       slots:      { label: '空きコマが未登録',     why: '対応する業務の空きコマが入っていません。その業務の代行依頼の候補に一度も出てきません。マイページから登録してもらってください。' },
       slotsStale: { label: '本人が更新していない', why: '空きコマは入っていますが、本人がマイページで出し直した記録がありません。学期が変わっていれば古い値のままです。' },
       webhook:    { label: '通知先URLが未登録',    why: '代行依頼の通知が届きません。マイページから登録してもらってください。' },
@@ -225,6 +226,7 @@
       } else {
         chips.push(chip('*', 'warn', '要対応 ' + s.needsAction + ' 人'));
       }
+      chips.push(chip('skills', s.noSkills ? 'warn' : 'zero', '業務未選択 ' + s.noSkills));
       chips.push(chip('slots', s.noSlots ? 'warn' : 'zero', '空きコマ未登録 ' + s.noSlots));
       chips.push(chip('slotsStale', s.slotsStale ? 'warn' : 'zero', '本人未更新 ' + s.slotsStale));
       chips.push(chip('webhook', s.noWebhook ? 'warn' : 'zero', '通知先なし ' + s.noWebhook));
@@ -329,7 +331,7 @@
         : (r.isStudent ? '<span class="stale">未更新</span>' : '<span class="na">—</span>');
       var kv = function (k, v) { return '<span>' + k + '</span><span>' + v + '</span>'; };
       var body = '<div class="kv">' +
-        kv('業務', escapeHtml(r.skills || '全対応')) +
+        kv('業務', r.skills ? escapeHtml(r.skills) : '<span class="no">未選択</span>') +
         (r.isStudent ? kv('空きコマ', slotCells(r) + '<span class="na">（テイク/介助）</span>') : '') +
         (r.isStudent ? kv('更新', updated) : '') +
         kv('担当', r.courseCount + ' コマ') +
