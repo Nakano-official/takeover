@@ -242,9 +242,19 @@ function confirmMyIdentity(isMe) {
   if (user.confirmed !== false) return { ok: true, already: true };
 
   if (isMe === true) {
-    const updates = {};
-    updates[CONFIRMED_COL] = nowString_();
-    updateRow_(SHEET.CONTACTS, 'staff_id', user.staff_id, updates);
+    // 行を読み直し、今の学籍番号がログインしているアカウントと同じときだけ確認済みにする（PR #59 のレビュー）。
+    // 職員が学籍番号を直したのと同時に、前のアカウントから「はい」を押すと、直したときに空にした確認が
+    // また埋まり、新しいアカウントでの確認が飛んでしまうため。名簿の修正と同じロックの中で行う
+    const me = accountOfEmail_(user.email);
+    withLock_(function () {
+      const contact = findRow_(SHEET.CONTACTS, 'staff_id', user.staff_id);
+      if (!contact || !me || contactAccount_(contact) !== me) {
+        throw new Error('登録の学籍番号が変わりました。画面を開き直してください。');
+      }
+      const updates = {};
+      updates[CONFIRMED_COL] = nowString_();
+      updateRow_(SHEET.CONTACTS, 'staff_id', user.staff_id, updates);
+    });
     advanceIdentityGen_();
     return { ok: true, confirmed: true };
   }

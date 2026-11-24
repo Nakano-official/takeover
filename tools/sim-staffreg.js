@@ -403,6 +403,8 @@ function fakeContacts(grid) {
   return sheet;
 }
 const col = (sh, name) => sh.grid[0].indexOf(name);
+let flushed = 0;
+h.context.SpreadsheetApp = { flush() { flushed++; } };
 const logs = [];
 h.context.Logger = { log: (m) => logs.push(String(m)) };
 h.setUser({ staff_id: 'T1', name: '職員', role: '職員', email: STAFF_MAIL });
@@ -467,8 +469,13 @@ sh = fakeContacts([
   ['S8', '新人 花子', '', '', '', '', 'Y250002'],                                        // この版で登録して、確認がまだ
   ['T1', '移行前 行', 'old@mail.ryukoku.ac.jp', '', '', '2026-01-01', ''],               // account が空
 ]);
+h.cache.set('identity:gen', { value: 'G-OLD', ttl: 3600 });
+flushed = 0;
 G.restoreContactEmailsForRollback();
 const em = (r) => sh.grid[r][2];
+const genNow = h.cache.get('identity:gen');
+h.check(flushed >= 1 && (!genNow || genNow.value !== 'G-OLD'),
+  '★書き込みを確定し、本人の特定のキャッシュを捨てる（前の版がキャッシュに残った「確認がまだ」の人を入れないように・PR #59 のレビュー）');
 h.check(em(1) === 'y240001@mail.ryukoku.ac.jp' && em(4) === 'y250001@mail.ryukoku.ac.jp',
   '★確認済みの人は、今の学籍番号から作ったメールにする（この版で登録した人も前の版で入れる）');
 h.check(em(2) === 'y240012@mail.ryukoku.ac.jp',
@@ -537,6 +544,23 @@ h.check(contactOf('Y240009').confirmed_at === '2026-11-25 10:00' && contactOf('Y
   const c = pg.calls.filter((x) => x.name === 'updateStaffContact')[0];
   h.check(c && c.args[0].account_before === 'Y240001' && c.args[0].account === 'Y240001', '★直す窓は、開いたときの学籍番号（account_before）も送る');
 }
+
+h.section('16c) 学籍番号が直されたのと同時の「はい」では、確認済みにしない');
+setup(); asStaff();
+G.registerStaff([ONE]);
+asEmail(ONE_MAIL);
+const stale = G.getCurrentUser_();   // 前のアカウントでログインしたときの本人（確認がまだ）
+asStaff();
+G.updateStaffContact({ staff_id: stale.staff_id, account: 'Y250009', account_before: 'Y250001', family_name: '新人', given_name: '太郎', phone: '' });
+// 前のアカウントの画面で、古い本人のまま「はい」が届いた（キャッシュの古い項目など）
+const realGet = h.context.getCurrentUser_;
+h.context.getCurrentUser_ = function () { return Object.assign({}, stale); };
+const errC = errOf(() => G.confirmMyIdentity(true));
+h.context.getCurrentUser_ = realGet;
+h.check(/学籍番号が変わりました/.test(errC) && contactOf('Y250009').confirmed_at === '',
+  '★今の学籍番号がログインのアカウントと違えば、確認済みにしない（新しいアカウントでの確認が飛ばない・PR #59 のレビュー）');
+asEmail('y250009@mail.ryukoku.ac.jp');
+h.check(G.confirmMyIdentity(true).confirmed === true && !!contactOf('Y250009').confirmed_at, '新しいアカウントからなら確認できる');
 
 h.section('17) ロック：入れ子にしても、一番外側でだけ取って外す（Sheets.gs の withLock_）');
 {
