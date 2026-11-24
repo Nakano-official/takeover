@@ -486,8 +486,13 @@ function migrateContactsToAccount() {
 
 /**
  * 前の版（email で本人を引く版）へ戻す前に実行する（D65 の戻し方）。GAS エディタから実行する。
- * account があって email が空の行（この版で名簿から登録した人）に、学籍番号から作ったメールを入れる。
- * これをしないと、前の版に戻したときに、その人たちが入れなくなる。何度実行してもよい。
+ *
+ * 前の版は email で本人を引き、本人の確認（confirmed_at）を読まない。そこで email 列を、今の状態に合わせて作り直す
+ * （PR #59 のレビュー）：
+ *  - 確認済みで account がある行 … account から作ったメールにする（学籍番号を直した人の、直す前のメールを残さない）
+ *  - 確認がまだの行 … email を空にする（前の版では、確認していない人をスタッフとして扱わない＝入れない）
+ *  - account が空の行 … email はそのまま（移行の前からある行など）
+ * 何度実行してもよい。
  */
 function restoreContactEmailsForRollback() {
   requireEditorRun_();
@@ -498,22 +503,28 @@ function restoreContactEmailsForRollback() {
   const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return String(h).trim(); });
   const mailIdx = headers.indexOf('email');
   const accIdx = headers.indexOf(ACCOUNT_COL);
+  const confIdx = headers.indexOf(CONFIRMED_COL);
   if (mailIdx === -1 || accIdx === -1) { Logger.log('❌ email 列か account 列がありません。前の版へは、この関数では戻せません。'); return; }
   const n = Math.max(sheet.getLastRow() - 1, 0);
   if (!n) { Logger.log('✅ 行がありません。'); return; }
   const mails = sheet.getRange(2, mailIdx + 1, n, 1).getValues();
   const accs = sheet.getRange(2, accIdx + 1, n, 1).getValues();
-  var filled = 0;
+  const confs = confIdx !== -1 ? sheet.getRange(2, confIdx + 1, n, 1).getValues() : null;
+  var made = 0, blanked = 0;
   const values = mails.map(function (r, i) {
     const mail = String(r[0] == null ? '' : r[0]).trim();
-    if (mail) return [mail];
-    const made = emailOfAccount_(String(accs[i][0] == null ? '' : accs[i][0]).trim());
-    if (made) filled++;
-    return [made];
+    const acc = String(accs[i][0] == null ? '' : accs[i][0]).trim();
+    if (!acc) return [mail];
+    const confirmed = !confs || String(confs[i][0] == null ? '' : confs[i][0]).trim() !== '';
+    if (!confirmed) { if (mail) blanked++; return ['']; }
+    const want = emailOfAccount_(acc);
+    if (want.toLowerCase() !== mail.toLowerCase()) made++;
+    return [want];
   });
-  if (filled) sheet.getRange(2, mailIdx + 1, n, 1).setValues(values);
+  sheet.getRange(2, mailIdx + 1, n, 1).setValues(values);
   invalidateSheetCache_('contacts');
-  Logger.log('✅ email が空だった ' + filled + ' 人に、学籍番号から作ったメールを入れました。前の版のデプロイに戻せます。');
+  Logger.log('✅ email を今の学籍番号に合わせました：作り直し ' + made + ' 人・確認がまだで空にした ' + blanked + ' 人。');
+  Logger.log('   確認がまだの人は、前の版では入れません（「まだ登録されていません」になります）。前の版のデプロイに戻せます。');
 }
 
 function migrateAddStaffSlotsUpdatedAt() {

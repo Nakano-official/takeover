@@ -182,7 +182,8 @@ function registerScreened_(normalized) {
  * 職員がスタッフの氏名・電話番号・学籍番号を直す。
  * 学籍番号を変えたら、本人の確認をやり直す（別の人の番号に替わった可能性があるため）。
  * **学生スタッフでない行（職員など）の学籍番号は変えられない**。ログインの識別子なので、変えると権限が別のアカウントへ移る。
- * @param {{staff_id, account, family_name, given_name, phone}} p
+ * @param {{staff_id, account, account_before, family_name, given_name, phone}} p
+ *   account_before … 画面を開いたときの学籍番号。今の値と違えば止める（ほかの画面の訂正を書き戻さない）
  */
 function updateStaffContact(p) {
   requireStaff_();
@@ -191,37 +192,43 @@ function updateStaffContact(p) {
   const staffId = String(q.staff_id || '').trim();
   const staff = findRow_(SHEET.STAFFS, 'staff_id', staffId);
   if (!staff) throw new Error('対象のスタッフが見つかりません。');
-  const contact = findRow_(SHEET.CONTACTS, 'staff_id', staffId);
-  if (!contact) throw new Error('このスタッフの連絡先の行がありません。連絡先DBを確かめてください。');
-
-  const current = String(contact[ACCOUNT_COL] || '').trim().toUpperCase();
   const isStudent = String(staff.role || '').trim() === '学生';
-  const e = normalizeStaffEntry_({ account: q.account, family_name: q.family_name, given_name: q.given_name, phone: q.phone },
-    { keepAccount: current });
-  const accountChanged = e.account !== current;
-  if (accountChanged && !isStudent) {
-    throw new Error('学生スタッフでない人（' + String(staff.role || '').trim() + '）の学籍番号は、名簿の画面から変えられません。');
-  }
+  // 画面を開いたときの学籍番号（画面が送ってくる）。今の値と違えば、ほかの画面で直されたので止める
+  const before = q.account_before === undefined ? null : String(q.account_before || '').trim().toUpperCase();
 
-  const updates = { name: e.name, phone: e.phone };
-  updates[ACCOUNT_COL] = e.account;
-  if (accountChanged) {
-    if (hasConfirmedColumn_()) updates[CONFIRMED_COL] = '';   // 確認をやり直す
-    // 覚えていた DM の宛先は、前の学籍番号の人との DM。そのままだと直したあとも前の人に届くので消す（PR #59 のレビュー）
-    const heads = getHeaders_(SHEET.CONTACTS).map(function (x) { return String(x).trim(); });
-    DM_COLS.forEach(function (c) { if (heads.indexOf(c) !== -1) updates[c] = ''; });
-  }
-  // 重複の確認と書き込みを同じロックの中で（別のタブで同じ学籍番号に直しても、2行が同じにならないように）
-  withLock_(function () {
+  // 今の学籍番号の読み取り・変わったかどうかの判定・重複の確認・書き込みを、全部同じロックの中で行う（PR #59 のレビュー）。
+  // ロックの外で判定すると、氏名だけの修正と学籍番号の訂正が重なったときに、古い番号を書き戻したり、
+  // 確認のやり直しや DM の宛先の消去を飛ばしたりしうる
+  const done = withLock_(function () {
+    const contact = findRow_(SHEET.CONTACTS, 'staff_id', staffId);
+    if (!contact) throw new Error('このスタッフの連絡先の行がありません。連絡先DBを確かめてください。');
+    const current = String(contact[ACCOUNT_COL] || '').trim().toUpperCase();
+    if (before !== null && before !== current) {
+      throw new Error('この人の学籍番号は、ほかの画面で ' + current + ' に直されています。画面を読み直してから、もう一度直してください。');
+    }
+    const e = normalizeStaffEntry_({ account: q.account, family_name: q.family_name, given_name: q.given_name, phone: q.phone },
+      { keepAccount: current });
+    const accountChanged = e.account !== current;
+    const updates = { name: e.name, phone: e.phone };
     if (accountChanged) {
+      if (!isStudent) {
+        throw new Error('学生スタッフでない人（' + String(staff.role || '').trim() + '）の学籍番号は、名簿の画面から変えられません。');
+      }
       const other = findRowCI_(SHEET.CONTACTS, ACCOUNT_COL, e.account);
       if (other && String(other.staff_id).trim() !== staffId) throw new Error('この学籍番号は、ほかの人の登録に使われています。');
+      // 学籍番号は、変えるときだけ書く（変えないときは書かない＝ほかの画面の訂正を書き戻さない）
+      updates[ACCOUNT_COL] = e.account;
+      if (hasConfirmedColumn_()) updates[CONFIRMED_COL] = '';   // 確認をやり直す
+      // 覚えていた DM の宛先は、前の学籍番号の人との DM。そのままだと直したあとも前の人に届くので消す（PR #59 のレビュー）
+      const heads = getHeaders_(SHEET.CONTACTS).map(function (x) { return String(x).trim(); });
+      DM_COLS.forEach(function (c) { if (heads.indexOf(c) !== -1) updates[c] = ''; });
     }
     updateRow_(SHEET.CONTACTS, 'staff_id', staffId, updates);
+    return { name: e.name, accountChanged: accountChanged };
   });
-  updateRow_(SHEET.STAFFS, 'staff_id', staffId, { name: e.name });
+  updateRow_(SHEET.STAFFS, 'staff_id', staffId, { name: done.name });
   advanceIdentityGen_();   // 氏名・学籍番号が変わったので、本人確認のキャッシュを捨てる（D48）
-  return { ok: true, reconfirm: accountChanged };
+  return { ok: true, reconfirm: done.accountChanged };
 }
 
 /**

@@ -486,6 +486,8 @@ function withLock_(fn) {
   } finally {
     invalidateSheetCache_();
     LOCK_DEPTH_ = 0;
+    // 書き込みをシートに反映してからロックを外す（外したあとに読む実行が、古い値を見ないように・PR #59 のレビュー）
+    if (typeof SpreadsheetApp !== 'undefined') SpreadsheetApp.flush();
     lock.releaseLock();
   }
 }

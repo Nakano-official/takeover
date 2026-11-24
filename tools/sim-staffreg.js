@@ -457,15 +457,25 @@ h.deployerEmail = 'deployer@mail.ryukoku.ac.jp';
 h.check(/スクリプトエディタ/.test(errOf(() => G.migrateContactsToAccount())), '★画面からは実行できない（GAS エディタから実行する）');
 h.deployerEmail = '';
 
-h.section('14b) 前の版へ戻すとき：学籍番号から email を入れる（restoreContactEmailsForRollback）');
+h.section('14b) 前の版へ戻すとき：email を今の学籍番号に合わせる（restoreContactEmailsForRollback）');
 sh = fakeContacts([
   ['staff_id', 'name', 'email', 'phone', 'webhook_url', 'confirmed_at', 'account'],
-  ['S1', '既存 学生', 'y240001@mail.ryukoku.ac.jp', '', '', '2026-01-01', 'Y240001'],
-  ['S9', '新人 太郎', '', '', '', '', 'Y250001'],
+  ['S1', '既存 学生', 'y240001@mail.ryukoku.ac.jp', '', '', '2026-01-01', 'Y240001'],   // そのまま
+  ['S2', '訂正 花子', 'y240002@mail.ryukoku.ac.jp', '', '', '2026-11-25', 'Y240012'],   // 学籍番号を直して、確認し直した
+  ['S3', '訂正中 次郎', 'y240003@mail.ryukoku.ac.jp', '', '', '', 'Y240013'],          // 学籍番号を直して、まだ確認していない
+  ['S9', '新人 太郎', '', '', '', '2026-11-25', 'Y250001'],                              // この版で登録して、確認済み
+  ['S8', '新人 花子', '', '', '', '', 'Y250002'],                                        // この版で登録して、確認がまだ
+  ['T1', '移行前 行', 'old@mail.ryukoku.ac.jp', '', '', '2026-01-01', ''],               // account が空
 ]);
 G.restoreContactEmailsForRollback();
-h.check(sh.grid[2][2] === 'y250001@mail.ryukoku.ac.jp' && sh.grid[1][2] === 'y240001@mail.ryukoku.ac.jp',
-  '★この版で登録した人（email が空）に、学籍番号から作ったメールを入れる（前の版でも入れるように）。今ある email はそのまま');
+const em = (r) => sh.grid[r][2];
+h.check(em(1) === 'y240001@mail.ryukoku.ac.jp' && em(4) === 'y250001@mail.ryukoku.ac.jp',
+  '★確認済みの人は、今の学籍番号から作ったメールにする（この版で登録した人も前の版で入れる）');
+h.check(em(2) === 'y240012@mail.ryukoku.ac.jp',
+  '★学籍番号を直した人は、直す前のメールを残さない（前の版で前の人がその行として入れない・PR #59 のレビュー）');
+h.check(em(3) === '' && em(5) === '',
+  '★確認がまだの人は email を空にする（前の版は確認を読まないので、確認していない人をスタッフとして扱わない）');
+h.check(em(6) === 'old@mail.ryukoku.ac.jp', 'account が空の行は、email をそのまま');
 
 h.section('14c) confirmed_at の移行：見出しと値を1回で書く（migrateAddContactConfirmedAt）');
 sh = fakeContacts([
@@ -502,6 +512,31 @@ G.updateStaffContact({ staff_id: 'S1', account: 'Y240009', family_name: '既存'
 const moved = contactOf('Y240009');
 h.check(moved.dm_space === '' && moved.dm_error === '' && moved.dm_error_at === '' && moved.confirmed_at === '',
   '★学籍番号を変えたら、DM の宛先と送れなかった記録を消し、確認もやり直す（前の人に届き続けない・PR #59 のレビュー）');
+
+h.section('16b) 同時に直したとき：ほかの画面の学籍番号の訂正を書き戻さない');
+setup(); asStaff();
+// 画面Aは Y240001 の名簿を開いたまま。そのあいだに画面Bが学籍番号を Y240009 に直した
+G.updateStaffContact({ staff_id: 'S1', account: 'Y240009', account_before: 'Y240001', family_name: '既存', given_name: '学生', phone: '' });
+const okB = contactOf('Y240009');
+h.check(!!okB && okB.confirmed_at === '', '画面Bの訂正は通り、確認をやり直す');
+// 画面Aが氏名だけを直して保存する（開いたときの学籍番号 Y240001 のまま送る）
+const errA = errOf(() => G.updateStaffContact({ staff_id: 'S1', account: 'Y240001', account_before: 'Y240001', family_name: '既存', given_name: '次郎', phone: '' }));
+h.check(/ほかの画面で Y240009 に直されています/.test(errA) && contactOf('Y240009') && !contactOf('Y240001') && h.row('staffs', 'staff_id', 'S1').name === '既存 学生',
+  '★開いたときの学籍番号が今と違えば止め、古い番号を書き戻さない（氏名も書かない・PR #59 のレビュー）');
+okB.confirmed_at = '2026-11-25 10:00'; okB.dm_space = 'spaces/NEW';
+G.updateStaffContact({ staff_id: 'S1', account: 'Y240009', account_before: 'Y240009', family_name: '既存', given_name: '次郎', phone: '' });
+h.check(contactOf('Y240009').confirmed_at === '2026-11-25 10:00' && contactOf('Y240009').dm_space === 'spaces/NEW' && h.row('staffs', 'staff_id', 'S1').name === '既存 次郎',
+  '読み直してから氏名だけを直せば、確認と DM の宛先はそのまま');
+// 画面：直す窓は、開いたときの学籍番号を送る
+{
+  const pg = loadPage('roster', { include: ['shared-contact'], globals: { viewCacheLoad() {}, viewCacheLocked() { return false; }, viewCacheClear() {} } });
+  pg.ctx.DATA = { rows: [{ staff_id: 'S1', account: 'Y240001', name: '既存 学生', isStudent: true, phone: '' }] };
+  pg.ctx.openStaffDialog('edit', 'S1');
+  pg.el('sAccount').value = 'Y240001'; pg.el('sFamily').value = '既存'; pg.el('sGiven').value = '次郎';   // この試験の DOM は value 属性を読まないので入れる
+  pg.ctx.staffDialogGo();
+  const c = pg.calls.filter((x) => x.name === 'updateStaffContact')[0];
+  h.check(c && c.args[0].account_before === 'Y240001' && c.args[0].account === 'Y240001', '★直す窓は、開いたときの学籍番号（account_before）も送る');
+}
 
 h.section('17) ロック：入れ子にしても、一番外側でだけ取って外す（Sheets.gs の withLock_）');
 {

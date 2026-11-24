@@ -667,6 +667,8 @@
           payload = [entry];
         } else {
           entry.staff_id = DIALOG.staffId;
+          var cur = rowById(DIALOG.staffId);
+          entry.account_before = cur ? cur.account : '';   // ほかの画面で学籍番号が直されていたら、サーバーが止める
           payload = entry;
         }
       }
