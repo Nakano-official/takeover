@@ -95,9 +95,12 @@ function approveRegistration(registrationId, opts) {
   const email = String(reg.email || '').trim();
   const account = accountOfEmail_(email);
   if (!account) throw new Error('大学のアカウント（@' + UNIVERSITY_MAIL_DOMAIN + '）からの申請ではないため、承認できません。申請を却下してください。');
-  if (findRowCI_(SHEET.CONTACTS, ACCOUNT_COL, account)) {
-    throw new Error('この学籍番号は既に名簿にあります（二重登録の防止）。申請を却下してください。');
-  }
+  const alreadyIn = function () {
+    if (findRowCI_(SHEET.CONTACTS, ACCOUNT_COL, account)) {
+      throw new Error('この学籍番号は既に名簿にあります（二重登録の防止）。申請を却下してください。');
+    }
+  };
+  alreadyIn();   // 先に一度（ロックを待たずに、よくある場合を早く返す）
 
   // 申請の時点の確認と同じものを、名簿へ写す前にもう一度通す（申請はシートを直接直されることもある）
   const name = validatePersonName_('申請の氏名', reg.name);
@@ -111,37 +114,46 @@ function approveRegistration(registrationId, opts) {
   // 2つのスプレッドシートをまたぐので原子的にはできない。staffs を先に作るのは、
   // staff_id の採番元がそちらだから。contacts 側で失敗したら staff_id を名指しで返し、
   // 職員が手で直せるようにする（黙って片側だけ残さない）。
-  const staffId = appendRowWithId_(SHEET.STAFFS, 'staff_id', 'S', {
-    name: name,
-    role: role,
-    skills: skills,
-    available_slots: String(reg.slots || '').trim(),
-    assist_slots: String(reg.assist_slots || '').trim(),   // 業務ごとに申請してもらう（D54）
-    personal_code: '',              // 列は残っているが使わない（機能Bを実装しないため・2026-09-13）
-    slots_updated_at: nowString_(), // 本人の申告なので「本人が出した」扱いにする（D28）
-  });
-
-  try {
-    appendRow_(SHEET.CONTACTS, {
-      staff_id: staffId,
+  // 重複の確認と書き込みを同じロックの中で行う（PR #59 のレビュー。2つのタブで同時に承認しても、同じ学籍番号の行を2つ作らない）
+  const staffId = withLock_(function () {
+    alreadyIn();
+    const now = findRow_(SHEET.REGISTRATIONS, 'registration_id', registrationId);
+    if (!now || String(now.status).trim() !== REGISTRATION_STATUS.PENDING) {
+      throw new Error('この申請は、ほかの画面で先に処理されました。画面を更新してください。');
+    }
+    const staffId = appendRowWithId_(SHEET.STAFFS, 'staff_id', 'S', {
       name: name,
-      account: account,
-      phone: phone,
-      webhook_url: String(reg.webhook_url || '').trim(),
-      // 申請は本人が自分のアカウントでログインして出したものなので、メールアドレスは本人のもの。確認済みにする（D64）
-      confirmed_at: nowString_(),
+      role: role,
+      skills: skills,
+      available_slots: String(reg.slots || '').trim(),
+      assist_slots: String(reg.assist_slots || '').trim(),   // 業務ごとに申請してもらう（D54）
+      personal_code: '',              // 列は残っているが使わない（機能Bを実装しないため・2026-09-13）
+      slots_updated_at: nowString_(), // 本人の申告なので「本人が出した」扱いにする（D28）
     });
-  } catch (e) {
-    throw new Error('名簿（staffs）に ' + staffId + ' を作りましたが、連絡先の作成に失敗しました：'
-      + e.message + '　連絡先DBに手で行を足すか、staffs の ' + staffId + ' を消してやり直してください。');
-  }
 
-  updateRow_(SHEET.REGISTRATIONS, 'registration_id', registrationId, {
-    status: REGISTRATION_STATUS.APPROVED,
-    decided_at: nowString_(),
-    decided_by: me.staff_id,
-    staff_id: staffId,
-    reject_reason: '',
+    try {
+      appendRow_(SHEET.CONTACTS, {
+        staff_id: staffId,
+        name: name,
+        account: account,
+        phone: phone,
+        webhook_url: String(reg.webhook_url || '').trim(),
+        // 申請は本人が自分のアカウントでログインして出したものなので、メールアドレスは本人のもの。確認済みにする（D64）
+        confirmed_at: nowString_(),
+      });
+    } catch (e) {
+      throw new Error('名簿（staffs）に ' + staffId + ' を作りましたが、連絡先の作成に失敗しました：'
+        + e.message + '　連絡先DBに手で行を足すか、staffs の ' + staffId + ' を消してやり直してください。');
+    }
+
+    updateRow_(SHEET.REGISTRATIONS, 'registration_id', registrationId, {
+      status: REGISTRATION_STATUS.APPROVED,
+      decided_at: nowString_(),
+      decided_by: me.staff_id,
+      staff_id: staffId,
+      reject_reason: '',
+    });
+    return staffId;
   });
 
   // 承認をChatで知らせる。挨拶が目的ではなく、**申請された Webhook URL が本当に届くかを

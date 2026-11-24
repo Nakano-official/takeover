@@ -458,15 +458,34 @@ function isEmptyRow_(row) {
  *    ロック内の読み取り（nextId_ の採番・CAS の現在値検証）は必ず実データを読み直す。
  *    これが無いと、ロック外で読んだ古い vacancies から採番して**同じIDを二重発行**しうる。
  *  - 解放直前に捨てる … 自分の書き込みを、以降の読み取りに必ず反映させる。
+ *
+ * **入れ子にしてよい**（2026-11-24）。ロックの中で appendRow_ などを呼ぶと withLock_ が入れ子になる。
+ * 内側でも releaseLock() を呼ぶと、外側の処理の途中でロックが外れ、ほかの実行が割り込める
+ * （「確かめてから書く」の間に別の登録が入り、同じ学籍番号の行が2つできうる・PR #59 のレビュー）。
+ * そこで、ロックを取って外すのは一番外側だけにする。内側はキャッシュを捨てるだけ。
  */
+var LOCK_DEPTH_ = 0;   // この実行で withLock_ の中にいる深さ（GAS の実行は1本なので、実行ごとに 0 から）
+
 function withLock_(fn) {
+  if (LOCK_DEPTH_ > 0) {
+    LOCK_DEPTH_++;
+    invalidateSheetCache_();
+    try {
+      return fn();
+    } finally {
+      invalidateSheetCache_();
+      LOCK_DEPTH_--;
+    }
+  }
   const lock = LockService.getScriptLock();
   lock.waitLock(LOCK_TIMEOUT_MS);
+  LOCK_DEPTH_ = 1;
   invalidateSheetCache_();
   try {
     return fn();
   } finally {
     invalidateSheetCache_();
+    LOCK_DEPTH_ = 0;
     lock.releaseLock();
   }
 }

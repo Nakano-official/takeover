@@ -529,9 +529,6 @@
     // 登録済みかどうかは、いま表示している名簿（DATA）で先に印を付ける（最後はサーバーが学籍番号で見分ける）。
     var STUDENT_NO_RE = /^[A-Za-z]{0,3}\d{2}(\d{3,}|[A-Za-z][A-Za-z0-9]{1,})$/;   // Util.gs の studentNoOfEmail_ と同じ形
     var MAIL_DOMAIN = '@mail.ryukoku.ac.jp';
-    function bulkDigits(c) {
-      return String(c).replace(/[０-９]/g, function (x) { return String.fromCharCode(x.charCodeAt(0) - 0xFEE0); }).replace(/\D/g, '');
-    }
     function toAccount(c) {
       var v = String(c || '').trim().replace(/[０-９Ａ-Ｚａ-ｚ＠．]/g, function (x) { return String.fromCharCode(x.charCodeAt(0) - 0xFEE0); });
       if (v.indexOf('@') !== -1) {
@@ -539,9 +536,6 @@
         v = v.slice(0, v.indexOf('@'));
       }
       return STUDENT_NO_RE.test(v) ? v.toUpperCase() : '';
-    }
-    function isPhoneCell(c) {
-      return /^[\d０-９\-－ー‐−()（）\s]+$/.test(c) && bulkDigits(c).length >= 10;
     }
     function headerIndex(cells, words) {
       for (var i = 0; i < cells.length; i++) {
@@ -557,32 +551,37 @@
         if (!line.trim()) return;
         var cells = (line.indexOf('\t') !== -1 ? line.split('\t') : line.split(',')).map(function (c) { return c.trim(); });
         if (!out.length && !head) {
-          var hAcc = headerIndex(cells, ['学籍', '学生番号']);
+          var hAcc = headerIndex(cells, ['学籍', '学生番号', '学生証']);
           var hName = headerIndex(cells, ['氏名', '名前']);
           if (hAcc !== -1 && hName !== -1) { head = { acc: hAcc, name: hName, phone: headerIndex(cells, ['電話']) }; return; }
         }
-        var acc = '', rawAcc = '', name = '', phone = '';
+        var acc = '', rawAcc = '', name = '', phone = '', noAcc = false;
         if (head) {
           rawAcc = cells[head.acc] || '';
           acc = toAccount(rawAcc);
           name = cells[head.name] || '';
           phone = head.phone !== -1 ? (cells[head.phone] || '') : '';
         } else {
+          // 見出しの行が無い（または読めない）とき：学籍番号の形のセルと、その右のセルを氏名として読む。
+          // どの行も捨てない（1行目を見出しとみなして黙って捨てると、おかしい1行目に気づけない・PR #59 のレビュー）。
+          // 電話は読まない（備考の数字を電話と取り違えるため。電話の列は見出しで「電話」と書いたときだけ読む）
           var ai = -1;
           for (var j = 0; j < cells.length; j++) if (toAccount(cells[j])) { ai = j; break; }
-          if (ai === -1 && !out.length) return;   // 1行目に学籍番号が無ければ、見出しの行とみなす
           if (ai !== -1) {
             rawAcc = cells[ai]; acc = toAccount(rawAcc);
-            for (var k = ai + 1; k < cells.length; k++) if (cells[k] && !isPhoneCell(cells[k])) { name = cells[k]; break; }
+            for (var k = ai + 1; k < cells.length; k++) if (cells[k]) { name = cells[k]; break; }
+          } else {
+            noAcc = true;
           }
-          phone = cells.filter(isPhoneCell)[0] || '';
         }
         var nm = splitName(name.replace(/　/g, ' '));
-        var why = !rawAcc && !acc ? '学籍番号がありません'
+        var why = noAcc ? '学籍番号が見つかりません（見出しの行なら「学籍」と「氏名」の列があるか確かめてください）'
+          : !rawAcc && !acc ? '学籍番号がありません'
           : !acc ? '学籍番号の形が違います（' + rawAcc + '）'
           : !name ? '氏名がありません'
           : (!nm[0] || !nm[1]) ? '姓と名が分けられません（姓と名の間に空白を入れてください）' : '';
-        out.push({ line: i + 1, account: acc || rawAcc, family_name: nm[0], given_name: nm[1], phone: phone, why: why });
+        out.push({ line: i + 1, account: acc || rawAcc || (noAcc ? cells.filter(Boolean)[0] || '' : ''),
+          family_name: nm[0], given_name: nm[1], phone: phone, why: why });
       });
       // 登録済み・同じ貼り付けの中で2回目、の印（サーバーでも同じように見分ける）
       var known = {};

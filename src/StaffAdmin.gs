@@ -96,7 +96,27 @@ function registerStaff(items) {
   if (!list.length) throw new Error('登録する人がいません。');
   if (list.length > STAFF_REGISTER_MAX) throw new Error('1回に読めるのは ' + STAFF_REGISTER_MAX + ' 人までです。名簿を分けて貼ってください。');
 
-  // 今の名簿（学籍番号 → 行）。1回だけ読む
+  // 1. 形の確認（シートを読まない）。1行でもおかしければ誰も登録しない
+  const normalized = [];
+  const errors = [];
+  list.forEach(function (raw, i) {
+    try {
+      normalized.push(normalizeStaffEntry_(raw));
+    } catch (err) {
+      normalized.push(null);
+      errors.push({ line: i + 1, account: String((raw && raw.account) || '').trim(), message: err.message });
+    }
+  });
+  if (errors.length) return { ok: false, errors: errors };
+
+  // 2. 登録済みかの確認と書き込みを、同じロックの中で行う（PR #59 のレビュー）。
+  //    別のタブで同じ人を同時に登録しても、同じ学籍番号の行が2つできないように
+  return withLock_(function () { return registerScreened_(normalized); });
+}
+
+/** registerStaff の後半（withLock_ の中で呼ぶ）。登録済みの人を飛ばし、新しい人だけを書く */
+function registerScreened_(normalized) {
+  // 今の名簿（学籍番号 → 行）。ロックを取ってから読む
   const existing = {};
   readRows_(SHEET.CONTACTS).forEach(function (c) {
     const acc = String(c[ACCOUNT_COL] || '').trim().toUpperCase();
@@ -107,10 +127,9 @@ function registerStaff(items) {
   const entries = [];
   const skipped = [];
   const errors = [];
-  list.forEach(function (raw, i) {
+  normalized.forEach(function (e, i) {
     const line = i + 1;
     try {
-      const e = normalizeStaffEntry_(raw);
       const now = existing[e.account];
       if (now) {
         const current = String(now.name || '').trim();
@@ -130,7 +149,7 @@ function registerStaff(items) {
       e.line = line;
       entries.push(e);
     } catch (err) {
-      errors.push({ line: line, account: String((raw && raw.account) || '').trim(), message: err.message });
+      errors.push({ line: line, account: e.account, message: err.message });
     }
   });
   if (errors.length) return { ok: false, errors: errors };
@@ -180,17 +199,27 @@ function updateStaffContact(p) {
   const e = normalizeStaffEntry_({ account: q.account, family_name: q.family_name, given_name: q.given_name, phone: q.phone },
     { keepAccount: current });
   const accountChanged = e.account !== current;
-  if (accountChanged) {
-    if (!isStudent) throw new Error('学生スタッフでない人（' + String(staff.role || '').trim() + '）の学籍番号は、名簿の画面から変えられません。');
-    const other = findRowCI_(SHEET.CONTACTS, ACCOUNT_COL, e.account);
-    if (other && String(other.staff_id).trim() !== staffId) throw new Error('この学籍番号は、ほかの人の登録に使われています。');
+  if (accountChanged && !isStudent) {
+    throw new Error('学生スタッフでない人（' + String(staff.role || '').trim() + '）の学籍番号は、名簿の画面から変えられません。');
   }
 
-  updateRow_(SHEET.STAFFS, 'staff_id', staffId, { name: e.name });
   const updates = { name: e.name, phone: e.phone };
   updates[ACCOUNT_COL] = e.account;
-  if (accountChanged && hasConfirmedColumn_()) updates[CONFIRMED_COL] = '';   // 確認をやり直す
-  updateRow_(SHEET.CONTACTS, 'staff_id', staffId, updates);
+  if (accountChanged) {
+    if (hasConfirmedColumn_()) updates[CONFIRMED_COL] = '';   // 確認をやり直す
+    // 覚えていた DM の宛先は、前の学籍番号の人との DM。そのままだと直したあとも前の人に届くので消す（PR #59 のレビュー）
+    const heads = getHeaders_(SHEET.CONTACTS).map(function (x) { return String(x).trim(); });
+    DM_COLS.forEach(function (c) { if (heads.indexOf(c) !== -1) updates[c] = ''; });
+  }
+  // 重複の確認と書き込みを同じロックの中で（別のタブで同じ学籍番号に直しても、2行が同じにならないように）
+  withLock_(function () {
+    if (accountChanged) {
+      const other = findRowCI_(SHEET.CONTACTS, ACCOUNT_COL, e.account);
+      if (other && String(other.staff_id).trim() !== staffId) throw new Error('この学籍番号は、ほかの人の登録に使われています。');
+    }
+    updateRow_(SHEET.CONTACTS, 'staff_id', staffId, updates);
+  });
+  updateRow_(SHEET.STAFFS, 'staff_id', staffId, { name: e.name });
   advanceIdentityGen_();   // 氏名・学籍番号が変わったので、本人確認のキャッシュを捨てる（D48）
   return { ok: true, reconfirm: accountChanged };
 }

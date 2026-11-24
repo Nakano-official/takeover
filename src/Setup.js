@@ -364,6 +364,9 @@ function migrateAddRegistrationAssistSlots() {
  * 既存の連絡先DBの contacts に confirmed_at（本人の確認・D64）列を足す。GAS エディタから1回実行する。
  * **今いる全員を確認済みにする**（日時を入れる）。空になるのは、このあと職員が名簿から登録した人だけ。
  * 列が無いうちは全員が確認済み扱いなので、この関数を実行するまで職員の登録（registerStaff）は止めてある。
+ *
+ * **見出しと値を1回の書き込みで入れる**（PR #59 のレビュー）。見出しだけ書いて値の書き込みに失敗すると、
+ * 今いる人が「確認がまだ」になって通知から外れ、しかも見出しがあるので再実行しても直らないため。
  */
 function migrateAddContactConfirmedAt() {
   requireEditorRun_();
@@ -378,42 +381,40 @@ function migrateAddContactConfirmedAt() {
     return;
   }
   const col = lastCol + 1;
-  sheet.getRange(1, col, 1, 1).setValues([['confirmed_at']]);
-  sheet.getRange(2, col, Math.max(sheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
-  // 今いる人（staff_id かメールが入っている行）は確認済みにする
+  // 今いる人（staff_id か識別子が入っている行）は確認済みにする。識別子は D65 の移行の前後どちらでも読む
   const lastRow = sheet.getLastRow();
+  const idCol = headers.indexOf('staff_id') + 1;
+  const keyCols = ['email', ACCOUNT_COL].map(function (h) { return headers.indexOf(h) + 1; }).filter(function (c) { return c > 0; });
+  const n = Math.max(lastRow - 1, 0);
+  const ids = n ? sheet.getRange(2, idCol, n, 1).getValues() : [];
+  const keys = keyCols.map(function (c) { return n ? sheet.getRange(2, c, n, 1).getValues() : []; });
+  const stamp = nowString_();
   var filled = 0;
-  if (lastRow >= 2) {
-    const idCol = headers.indexOf('staff_id') + 1;
-    // 識別子の列は、D65 の移行の前は email、後は account
-    const mailCol = (headers.indexOf('email') !== -1 ? headers.indexOf('email') : headers.indexOf(ACCOUNT_COL)) + 1;
-    const ids = sheet.getRange(2, idCol, lastRow - 1, 1).getValues();
-    const mails = sheet.getRange(2, mailCol, lastRow - 1, 1).getValues();
-    const stamp = nowString_();
-    const values = ids.map(function (r, i) {
-      const used = String(r[0]).trim() || String(mails[i][0]).trim();
-      if (used) filled++;
-      return [used ? stamp : ''];
-    });
-    sheet.getRange(2, col, values.length, 1).setValues(values);
-  }
+  const column = [['confirmed_at']].concat(ids.map(function (r, i) {
+    const used = String(r[0]).trim() || keys.some(function (k) { return String(k[i][0]).trim(); });
+    if (used) filled++;
+    return [used ? stamp : ''];
+  }));
+  sheet.getRange(2, col, Math.max(sheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+  sheet.getRange(1, col, column.length, 1).setValues(column);   // 見出しと値を1回で
   invalidateSheetCache_('contacts'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
   Logger.log('✅ contacts に confirmed_at 列を足し、今いる ' + filled + ' 人を確認済みにしました（D64）。');
   Logger.log('   これで、スタッフ名簿から職員が登録できるようになります。');
 }
 
-/** 新しく作る連絡先DBの contacts の列（D65 の移行のあとと同じ並び） */
+/** 新しく作る連絡先DBの contacts の列（D65 の移行のあとと同じ並び。email は持たない） */
 const CONTACT_HEADERS = ['staff_id', 'name', 'account', 'phone', 'webhook_url', 'confirmed_at'].concat(DM_COLS);
 
 /**
- * 既存の連絡先DBの contacts を、メールアドレスから学籍番号（account）で持つ形に替える（D65）。GAS エディタから1回実行する。
+ * 既存の連絡先DBの contacts に、学籍番号（account）の列と DM の列を足す（D65）。GAS エディタから1回実行する。
  *
- *  1. email 列の値を「@より前」の大文字に書き換え、見出しを account にする（大学のメールは全員 学籍番号＠mail.ryukoku.ac.jp）
- *  2. DM の列（dm_space・dm_error・dm_error_at）を足す
+ *  - **email 列は書き換えず、そのまま残す**。account は新しい列に作る（PR #59 のレビュー）。
+ *    今の版（email で本人を引く）がそのまま動き続け、DM で困ったときに前の版へ戻しても誰もが入れる。
+ *    email 列は、DM がうまく回りだしてから webhook_url と一緒に消す（backlog 16）
+ *  - **全部の行を確かめてから、見出しと値を1回の書き込みで入れる**。大学のメール（@mail.ryukoku.ac.jp）でない行や、
+ *    同じ学籍番号になる行が1つでもあれば、何も書かずに止まる（直してからもう一度実行する）
+ *  - 2回目以降は、account が空で email がある行（前の版に戻していた間に登録された人など）だけを埋める。DM の列も足りなければ足す
  *
- * **1行でも大学のメール（@mail.ryukoku.ac.jp）でない行や、書き換えると同じ値になる行があれば、何も書き換えずに止まる**
- * （途中まで書き換わった状態を作らない）。止まったら、出てきた行を直してからもう一度実行する。
- * 2回目以降は、足りない列だけを足す（何度実行してもよい）。
  * この関数を実行するまで、名簿からの登録・修正は止めてある（本人の特定は email 列のまま動く）。
  */
 function migrateContactsToAccount() {
@@ -426,51 +427,93 @@ function migrateContactsToAccount() {
   var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return String(h).trim(); });
   const mailIdx = headers.indexOf('email');
   const accIdx = headers.indexOf(ACCOUNT_COL);
+  if (mailIdx === -1 && accIdx === -1) { Logger.log('❌ contacts に email 列も account 列もありません。見出しの行を確かめてください。'); return; }
+
+  const lastRow = sheet.getLastRow();
+  const n = Math.max(lastRow - 1, 0);
+  const mails = mailIdx !== -1 && n ? sheet.getRange(2, mailIdx + 1, n, 1).getValues() : [];
+  const accs = accIdx !== -1 && n ? sheet.getRange(2, accIdx + 1, n, 1).getValues() : [];
+  const bad = [];
+  const seen = {};   // 学籍番号 → 行番号
+  var filled = 0;
+  const values = [];
+  for (var i = 0; i < n; i++) {
+    const row = i + 2;
+    const have = accs.length ? String(accs[i][0] == null ? '' : accs[i][0]).trim().toUpperCase() : '';
+    const mail = mails.length ? String(mails[i][0] == null ? '' : mails[i][0]).trim() : '';
+    var acc = have;
+    if (!acc && mail) {
+      acc = accountOfEmail_(mail);
+      if (!acc) { bad.push(row + '行目：大学のメールではありません（' + mail + '）'); values.push(['']); continue; }
+      filled++;
+    }
+    if (acc && seen[acc]) bad.push(row + '行目：' + seen[acc] + '行目と同じ学籍番号（' + acc + '）になります');
+    if (acc) seen[acc] = row;
+    values.push([acc]);
+  }
+  if (bad.length) {
+    Logger.log('❌ 何も書き換えていません。次の行を直してから、もう一度実行してください：');
+    bad.forEach(function (b) { Logger.log('   ' + b); });
+    return;
+  }
 
   if (accIdx === -1) {
-    if (mailIdx === -1) { Logger.log('❌ contacts に email 列も account 列もありません。見出しの行を確かめてください。'); return; }
-    const lastRow = sheet.getLastRow();
-    const n = Math.max(lastRow - 1, 0);
-    const mails = n ? sheet.getRange(2, mailIdx + 1, n, 1).getValues() : [];
-    const bad = [];
-    const seen = {};
-    const values = mails.map(function (r, i) {
-      const mail = String(r[0] == null ? '' : r[0]).trim();
-      if (!mail) return [''];
-      const acc = accountOfEmail_(mail);
-      if (!acc) { bad.push((i + 2) + '行目：大学のメールではありません（' + mail + '）'); return [mail]; }
-      if (seen[acc]) { bad.push((i + 2) + '行目：' + seen[acc] + '行目と同じ学籍番号（' + acc + '）になります'); return [mail]; }
-      seen[acc] = i + 2;
-      return [acc];
-    });
-    if (bad.length) {
-      Logger.log('❌ 何も書き換えていません。次の行を直してから、もう一度実行してください：');
-      bad.forEach(function (b) { Logger.log('   ' + b); });
-      return;
-    }
-    // 学籍番号を数値や日付に変えられないよう、先に列をテキストにしてから書く
-    sheet.getRange(2, mailIdx + 1, Math.max(sheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
-    if (n) sheet.getRange(2, mailIdx + 1, n, 1).setValues(values);
-    sheet.getRange(1, mailIdx + 1, 1, 1).setValues([[ACCOUNT_COL]]);
-    headers[mailIdx] = ACCOUNT_COL;
-    Logger.log('✅ email 列を account 列（学籍番号）に替えました：' + Object.keys(seen).length + ' 人（D65）。');
+    // 新しい列に、見出しと値を1回で書く（学籍番号を数値や日付に変えられないよう、先に列をテキストにする）
+    const col = lastCol + 1;
+    sheet.getRange(2, col, Math.max(sheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+    sheet.getRange(1, col, n + 1, 1).setValues([[ACCOUNT_COL]].concat(values));
+    headers.push(ACCOUNT_COL);
+    lastCol = col;
+    Logger.log('✅ account 列（学籍番号）を足しました：' + Object.keys(seen).length + ' 人（D65）。email 列はそのまま残しています。');
+  } else if (filled) {
+    sheet.getRange(2, accIdx + 1, n, 1).setValues(values);
+    Logger.log('✅ account が空だった ' + filled + ' 人を、email から埋めました（D65）。');
   } else {
-    Logger.log('✅ contacts には既に account 列があります（書き換えなし）。');
+    Logger.log('✅ contacts には既に account 列があり、埋める行もありません（書き換えなし）。');
   }
 
   // DM の列を足す（無いものだけ）
   const missing = DM_COLS.filter(function (c) { return headers.indexOf(c) === -1; });
   if (missing.length) {
-    lastCol = sheet.getLastColumn();
-    sheet.getRange(1, lastCol + 1, 1, missing.length).setValues([missing]);
     sheet.getRange(2, lastCol + 1, Math.max(sheet.getMaxRows() - 1, 1), missing.length).setNumberFormat('@');
+    sheet.getRange(1, lastCol + 1, 1, missing.length).setValues([missing]);
     Logger.log('✅ DM の列を足しました：' + missing.join('・') + '（D65）。');
-  } else {
-    Logger.log('✅ DM の列は既にあります（追加なし）。');
   }
   invalidateSheetCache_('contacts'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
   advanceIdentityGen_();             // 本人の特定の引き方が変わったので、キャッシュを捨てる（D48）
   Logger.log('   これで、スタッフ名簿から学籍番号で登録・修正できるようになります。');
+}
+
+/**
+ * 前の版（email で本人を引く版）へ戻す前に実行する（D65 の戻し方）。GAS エディタから実行する。
+ * account があって email が空の行（この版で名簿から登録した人）に、学籍番号から作ったメールを入れる。
+ * これをしないと、前の版に戻したときに、その人たちが入れなくなる。何度実行してもよい。
+ */
+function restoreContactEmailsForRollback() {
+  requireEditorRun_();
+  const ss = openContactsDb_();
+  const sheet = ss.getSheetByName('contacts');
+  if (!sheet) { Logger.log('❌ contacts シートが見つかりません。'); return; }
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return String(h).trim(); });
+  const mailIdx = headers.indexOf('email');
+  const accIdx = headers.indexOf(ACCOUNT_COL);
+  if (mailIdx === -1 || accIdx === -1) { Logger.log('❌ email 列か account 列がありません。前の版へは、この関数では戻せません。'); return; }
+  const n = Math.max(sheet.getLastRow() - 1, 0);
+  if (!n) { Logger.log('✅ 行がありません。'); return; }
+  const mails = sheet.getRange(2, mailIdx + 1, n, 1).getValues();
+  const accs = sheet.getRange(2, accIdx + 1, n, 1).getValues();
+  var filled = 0;
+  const values = mails.map(function (r, i) {
+    const mail = String(r[0] == null ? '' : r[0]).trim();
+    if (mail) return [mail];
+    const made = emailOfAccount_(String(accs[i][0] == null ? '' : accs[i][0]).trim());
+    if (made) filled++;
+    return [made];
+  });
+  if (filled) sheet.getRange(2, mailIdx + 1, n, 1).setValues(values);
+  invalidateSheetCache_('contacts');
+  Logger.log('✅ email が空だった ' + filled + ' 人に、学籍番号から作ったメールを入れました。前の版のデプロイに戻せます。');
 }
 
 function migrateAddStaffSlotsUpdatedAt() {

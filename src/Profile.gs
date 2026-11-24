@@ -32,6 +32,9 @@
 function getMyProfile() {
   const user = getCurrentUser_();
   if (!user) throw new Error('利用登録がありません。');
+  // 本人の確認がまだ（D64）なら返さない。学籍番号の打ち間違いで別の人がこのアカウントに当たっていると、
+  // その人に電話番号・通知先・空きコマが見えてしまう（PR #59 のレビュー）。確認の画面は「はい」のあとで読む
+  if (user.confirmed === false) throw new Error('本人の確認がまだです。画面を開き直して、「あなたは〇〇さんですか？」に答えてください。');
 
   const staff = findRow_(SHEET.STAFFS, 'staff_id', user.staff_id);
   const contact = findRow_(SHEET.CONTACTS, 'staff_id', user.staff_id);

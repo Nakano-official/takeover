@@ -289,6 +289,13 @@ p = parse('理工学部\tY250001\t新人　太郎\t備考');
 h.check(p.length === 1 && p[0].account === 'Y250001' && p[0].given_name === '太郎', '見出しの行が無くても、学籍番号の形のセルと、その右の氏名を読む');
 p = parse('Y250001\t新人　太郎\nY250002');
 h.check(!p[0].why && /氏名がありません/.test(p[1].why), '学籍と氏名の2列だけでもよい。氏名が無い行を見分ける');
+p = parse('Y25-0001\t新人　太郎\nY250002\t新人　次郎');
+h.check(p.length === 2 && /学籍番号が見つかりません/.test(p[0].why) && !p[1].why,
+  '★見出しの無い名簿で1行目の学籍番号がおかしくても、その行を捨てずに赤くする（黙って2行目だけ登録しない・PR #59 のレビュー）');
+p = parse('Y250001\t新人　太郎\t090-1234-5678');
+h.check(p[0].phone === '' && p[0].given_name === '太郎', '見出しの無い名簿では電話を読まない（備考の数字を電話と取り違えない）');
+p = parse('番号\t名前\nY250001\t新人　太郎');
+h.check(/学籍番号が見つかりません/.test(p[0].why) && !p[1].why, '読めない見出しの行は、赤い行として出す（直してもらう）');
 p = parse('学籍\t氏名\nABC\t新人　太郎\nY250003\t新人三郎\n\t新人　四郎');
 h.check(/学籍番号の形/.test(p[0].why) && /姓と名/.test(p[1].why) && /学籍番号がありません/.test(p[2].why),
   '直すところのある行を見分ける（学籍番号の形・姓と名が分けられない・学籍番号が無い）');
@@ -367,11 +374,13 @@ cp2.ctx.startSetup();
 cp2.reply(0, { isStudent: false });
 h.check(cp2.el('next').hidden === false && cp2.el('setupBody').innerHTML.indexOf('data-slot=') === -1, '職員として登録された人には、業務と空きコマを聞かない');
 
-h.section('14) 移行：email を学籍番号（account）に替え、DM の列を足す（migrateContactsToAccount）');
+h.section('14) 移行：account 列を足し、DM の列を足す（migrateContactsToAccount）。email はそのまま残す');
 // 連絡先DBの contacts を、行列のまま持つ偽のシートで表す（移行は Sheets.gs を通らず、直接セルを書き換えるため）
 function fakeContacts(grid) {
   const sheet = {
     grid: grid,
+    writes: 0,
+    failOnWrite: 0,   // n 回目の書き込みで失敗させる（途中で止まったときを試す）
     getLastColumn() { return grid[0].length; },
     getLastRow() { return grid.length; },
     getMaxRows() { return grid.length + 50; },
@@ -379,18 +388,21 @@ function fakeContacts(grid) {
       return {
         getValues() { return grid.slice(r - 1, r - 1 + nr).map((row) => row.slice(c - 1, c - 1 + nc).map((v) => (v === undefined ? '' : v))); },
         setValues(vals) {
+          sheet.writes++;
+          if (sheet.failOnWrite && sheet.writes === sheet.failOnWrite) throw new Error('書き込みに失敗（試験）');
           vals.forEach((vrow, i) => {
             while (grid.length < r + i) grid.push(new Array(grid[0].length).fill(''));
             vrow.forEach((v, j) => { grid[r - 1 + i][c - 1 + j] = v; });
           });
         },
-        setNumberFormat() { sheet.formatted = (sheet.formatted || 0) + 1; },
+        setNumberFormat() {},
       };
     },
   };
   h.context.openContactsDb_ = function () { return { getSheetByName: (n) => (n === 'contacts' ? sheet : null) }; };
   return sheet;
 }
+const col = (sh, name) => sh.grid[0].indexOf(name);
 const logs = [];
 h.context.Logger = { log: (m) => logs.push(String(m)) };
 h.setUser({ staff_id: 'T1', name: '職員', role: '職員', email: STAFF_MAIL });
@@ -401,13 +413,23 @@ let sh = fakeContacts([
   ['', '', '', '', '', ''],
 ]);
 G.migrateContactsToAccount();
-h.check(sh.grid[0][2] === 'account' && sh.grid[1][2] === 'SHIENSHITSU' && sh.grid[2][2] === 'Y240001' && sh.grid[3][2] === '',
-  '★email 列を account 列に替え、「@より前」の大文字にする（空行は空のまま）');
-h.check(sh.grid[0].slice(6).join() === 'dm_space,dm_error,dm_error_at', '★DM の列を足す');
+const ac = col(sh, 'account');
+h.check(ac === 6 && sh.grid[1][ac] === 'SHIENSHITSU' && sh.grid[2][ac] === 'Y240001' && sh.grid[3][ac] === '',
+  '★account 列を新しく足し、「@より前」の大文字を入れる（空行は空のまま）');
+h.check(sh.grid[0][2] === 'email' && sh.grid[2][2] === 'Y240001@Mail.Ryukoku.ac.jp',
+  '★email 列は書き換えない（前の版がそのまま動き、前の版へ戻しても入れる・PR #59 のレビュー）');
+h.check(sh.grid[0].slice(7).join() === 'dm_space,dm_error,dm_error_at', '★DM の列を足す');
 h.check(sh.grid[2][4] === HOOK && sh.grid[2][3] === '090-0000-0001', 'ほかの列（電話・通知先）はそのまま');
+// 2回目：前の版に戻していた間に email だけで登録された人がいれば、その行だけ埋める
+sh.grid.push(['S2', '戻し中 太郎', 'y240002@mail.ryukoku.ac.jp', '', '', '2026-01-02', '', '', '', '']);
 logs.length = 0;
 G.migrateContactsToAccount();
-h.check(sh.grid[0].length === 9 && sh.grid[2][2] === 'Y240001' && logs.some((m) => /既に account/.test(m)), 'もう一度実行しても何も変わらない');
+h.check(sh.grid[0].length === 10 && sh.grid[4][ac] === 'Y240002' && sh.grid[2][ac] === 'Y240001',
+  '★もう一度実行すると、account が空で email がある行だけを埋める（列は増やさない）');
+logs.length = 0;
+G.migrateContactsToAccount();
+h.check(logs.some((m) => /埋める行もありません/.test(m)), 'もう埋める行が無ければ、何も書き換えない');
+// おかしい行があれば、何も書かない
 sh = fakeContacts([
   ['staff_id', 'name', 'email', 'phone', 'webhook_url', 'confirmed_at'],
   ['S1', '既存 学生', 'y240001@mail.ryukoku.ac.jp', '', '', ''],
@@ -416,12 +438,91 @@ sh = fakeContacts([
 ]);
 logs.length = 0;
 G.migrateContactsToAccount();
-h.check(sh.grid[0][2] === 'email' && sh.grid[1][2] === 'y240001@mail.ryukoku.ac.jp' && sh.grid[0].length === 6,
-  '★大学のメールでない行・同じ学籍番号になる行があれば、何も書き換えない（DM の列も足さない）');
+h.check(sh.grid[0].length === 6 && sh.writes === 0,
+  '★大学のメールでない行・同じ学籍番号になる行があれば、何も書かない（account も DM の列も足さない）');
 h.check(logs.some((m) => /3行目.*大学のメールではありません/.test(m)) && logs.some((m) => /4行目.*2行目と同じ学籍番号/.test(m)),
   '直す行を、何行目か・なぜかで出す');
+// 見出しと値は1回の書き込みで入る：書き込みに失敗しても、見出しだけの列が残らない
+sh = fakeContacts([
+  ['staff_id', 'name', 'email', 'phone', 'webhook_url', 'confirmed_at'],
+  ['S1', '既存 学生', 'y240001@mail.ryukoku.ac.jp', '', '', ''],
+]);
+sh.failOnWrite = 1;
+h.check(/失敗/.test(errOf(() => G.migrateContactsToAccount())) && sh.grid[0].indexOf('account') === -1,
+  '★account の見出しと値を1回で書く（失敗しても、見出しだけ・値だけの列が残らない）');
+sh.failOnWrite = 0;
+G.migrateContactsToAccount();
+h.check(sh.grid[1][col(sh, 'account')] === 'Y240001', '失敗のあと、もう一度実行すればそのまま移行できる');
 h.deployerEmail = 'deployer@mail.ryukoku.ac.jp';
 h.check(/スクリプトエディタ/.test(errOf(() => G.migrateContactsToAccount())), '★画面からは実行できない（GAS エディタから実行する）');
 h.deployerEmail = '';
+
+h.section('14b) 前の版へ戻すとき：学籍番号から email を入れる（restoreContactEmailsForRollback）');
+sh = fakeContacts([
+  ['staff_id', 'name', 'email', 'phone', 'webhook_url', 'confirmed_at', 'account'],
+  ['S1', '既存 学生', 'y240001@mail.ryukoku.ac.jp', '', '', '2026-01-01', 'Y240001'],
+  ['S9', '新人 太郎', '', '', '', '', 'Y250001'],
+]);
+G.restoreContactEmailsForRollback();
+h.check(sh.grid[2][2] === 'y250001@mail.ryukoku.ac.jp' && sh.grid[1][2] === 'y240001@mail.ryukoku.ac.jp',
+  '★この版で登録した人（email が空）に、学籍番号から作ったメールを入れる（前の版でも入れるように）。今ある email はそのまま');
+
+h.section('14c) confirmed_at の移行：見出しと値を1回で書く（migrateAddContactConfirmedAt）');
+sh = fakeContacts([
+  ['staff_id', 'name', 'account', 'phone', 'webhook_url'],
+  ['T1', '職員 花子', 'SHIENSHITSU', '', ''],
+  ['', '', '', '', ''],
+  ['S1', '既存 学生', 'Y240001', '', ''],
+]);
+sh.failOnWrite = 1;
+h.check(/失敗/.test(errOf(() => G.migrateAddContactConfirmedAt())) && sh.grid[0].indexOf('confirmed_at') === -1,
+  '★書き込みに失敗しても、見出しだけの列が残らない（今いる人が「確認がまだ」になって通知から外れない・PR #59 のレビュー）');
+sh.failOnWrite = 0;
+G.migrateAddContactConfirmedAt();
+const cc = col(sh, 'confirmed_at');
+h.check(!!sh.grid[1][cc] && sh.grid[2][cc] === '' && !!sh.grid[3][cc], 'もう一度実行すれば、今いる全員を確認済みにする（空行は空）');
+sh.grid.push(['S9', '新人 太郎', 'Y250001', '', '', '']);   // 移行のあとで職員が登録した人（確認がまだ）
+G.migrateAddContactConfirmedAt();
+h.check(sh.grid[4][cc] === '', '★移行のあとに登録された、確認がまだの人を確認済みにしない（2回目は何もしない）');
+
+h.section('15) 確認がまだの人には、マイページの中身も返さない');
+setup(); asStaff();
+G.registerStaff([ONE]);
+asEmail(ONE_MAIL);
+h.check(/本人の確認/.test(errOf(() => G.getMyProfile())), '★確認がまだなら getMyProfile は電話・通知先・空きコマを返さない（PR #59 のレビュー）');
+G.confirmMyIdentity(true);
+h.check(G.getMyProfile().isStudent === true, '確認のあとは今まで通り返す');
+
+h.section('16) 学籍番号を直したら、覚えていた DM の宛先も消す');
+setup(); asStaff();
+Object.assign(contactOf('Y240001'), { dm_space: 'spaces/OLD', dm_error: '前の失敗', dm_error_at: '2026-11-01 10:00' });
+G.updateStaffContact({ staff_id: 'S1', account: 'Y240001', family_name: '既存', given_name: '学生', phone: '' });
+h.check(contactOf('Y240001').dm_space === 'spaces/OLD', '学籍番号を変えなければ、DM の宛先はそのまま');
+G.updateStaffContact({ staff_id: 'S1', account: 'Y240009', family_name: '既存', given_name: '学生', phone: '' });
+const moved = contactOf('Y240009');
+h.check(moved.dm_space === '' && moved.dm_error === '' && moved.dm_error_at === '' && moved.confirmed_at === '',
+  '★学籍番号を変えたら、DM の宛先と送れなかった記録を消し、確認もやり直す（前の人に届き続けない・PR #59 のレビュー）');
+
+h.section('17) ロック：入れ子にしても、一番外側でだけ取って外す（Sheets.gs の withLock_）');
+{
+  const vm = require('vm');
+  const fs = require('fs');
+  const path = require('path');
+  const ev = [];
+  const ctx = vm.createContext({
+    LockService: { getScriptLock: () => ({ waitLock: () => ev.push('取る'), releaseLock: () => ev.push('外す') }) },
+    console: console,
+  });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'Sheets.gs'), 'utf8'), ctx, { filename: 'Sheets.gs' });
+  const out = vm.runInContext(
+    'withLock_(function () { log.push("外の前"); withLock_(function () { log.push("中"); }); log.push("外の後"); return 1; })',
+    Object.assign(ctx, { log: ev }));
+  h.check(out === 1 && ev.join('→') === '取る→外の前→中→外の後→外す',
+    '★内側の withLock_ はロックを外さない（「確かめてから書く」の途中で、ほかの実行が割り込まない）：' + ev.join('→'));
+  ev.length = 0;
+  try { vm.runInContext('withLock_(function () { withLock_(function () { throw new Error("x"); }); })', ctx); } catch (e) { /* 期待どおり */ }
+  vm.runInContext('withLock_(function () {})', ctx);
+  h.check(ev.join('→') === '取る→外す→取る→外す', '中で失敗しても、深さが戻り、次の呼び出しはまたロックを取る');
+}
 
 process.exitCode = h.report();
