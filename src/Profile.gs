@@ -6,8 +6,7 @@
  *
  * ■ 本人が変更できるもの / できないもの（D28 の線引き。ここが本ファイルの肝）
  *
- *   ❌ contacts.phone         … 2026-11-21 から職員が名簿から入れて直す（D64）。支援室の名簿が正なので、
- *                               本人が書き換えると食い違う。番号が変わったら本人は支援室へ伝える（画面では読み取り専用で見せる）
+ *   ✅ contacts.phone         … 自分の電話番号。支援室の名簿に電話番号は無いので、本人が入れる（D65。D64 で一度職員の管理にしたのを戻した）
  *   ✅ contacts.webhook_url   … 自分の Chat スペース。形式は isChatWebhook_ で検証する
  *   ✅ staffs.available_slots / assist_slots … 本命。学期ごとの空きコマ更新（業務ごと・D32）
  *   ✅ staffs.skills          … 対応できる業務（テイク / 介助）。D28 では職員管理にしていたが、
@@ -82,10 +81,11 @@ function getMyProfile() {
 }
 
 /**
- * マイページからの更新。受け付けるのは webhook_url / slots / skills の3つだけ
- * （D28 の3つ＋ D31 で skills を追加・D64 で phone を職員の管理に移した。送られてきても無視する）。
+ * マイページからの更新。受け付けるのは phone / webhook_url / slots / skills の4つだけ
+ * （D28 の3つ＋ D31 で skills を追加。phone は D64 で職員の管理にしたが、名簿に電話番号が無いので D65 で本人に戻した）。
+ * phone と webhook_url は、**送られてきたときだけ**書く（確認の画面の初めての登録などで、送らない項目を空にしない）。
  *
- * @param {{webhook_url:string, slots:Array<string>, skills:Array<string>}} payload
+ * @param {{phone:string, webhook_url:string, slots:Array<string>, skills:Array<string>}} payload
  * @return {{ok:boolean, slots:string, skills:string, slots_updated_at:string, warnings:Array<string>}}
  */
 function updateMyProfile(payload) {
@@ -96,6 +96,13 @@ function updateMyProfile(payload) {
   const p = payload || {};
   const isStudent = String(user.role).trim() !== ROLE_STAFF;
   const warnings = [];
+
+  // 電話番号は、送られてきたときだけ書く（D65）。形は validatePhone_ でそろえる（090-1234-5678）。空は「消す」
+  const contactUpdates = {};
+  if (Object.prototype.hasOwnProperty.call(p, 'phone')) {
+    contactUpdates.phone = validatePhone_(p.phone);
+    if (!contactUpdates.phone) warnings.push('電話番号が未登録です。返信が無いときに職員が連絡できません。');
+  }
 
   // 通知先は、送られてきたときだけ書く。確認の画面の初めての登録（D64）は業務と空きコマだけを送るので、
   // そこで空にして消さないため
@@ -108,10 +115,10 @@ function updateMyProfile(payload) {
     }
     if (!webhook) warnings.push('Webhook URL が未登録です。代行依頼の通知が届きません。');
 
-    // 電話番号は書かない（職員の管理・D64）
-    const contactUpdated = updateRow_(SHEET.CONTACTS, 'staff_id', user.staff_id, {
-      webhook_url: webhook,
-    });
+    contactUpdates.webhook_url = webhook;
+  }
+  if (Object.keys(contactUpdates).length) {
+    const contactUpdated = updateRow_(SHEET.CONTACTS, 'staff_id', user.staff_id, contactUpdates);
     if (!contactUpdated) throw new Error('連絡先の行が見つかりませんでした。職員にお問い合わせください。');
   }
 

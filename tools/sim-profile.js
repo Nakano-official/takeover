@@ -97,7 +97,7 @@ let res = G.updateMyProfile({
   available_slots: '月1,月2,月3',
 });
 h.check(res.ok === true, '保存できる');
-h.check(contactRow('S101').phone !== '080-2222-2222', '★電話番号は送られてきても書き換えない（職員が名簿から入れる・D64）');
+h.check(contactRow('S101').phone === '080-2222-2222', '★電話番号は本人が直せる（支援室の名簿に電話番号は無い・D65。D64 で一度職員の管理にしたのを戻した）');
 h.check(staffRow('S101').name === '学生 太郎', '★氏名は書き換わらない（機能Bの照合キー・D7③）');
 h.check(staffRow('S101').role === '学生', '★role は書き換わらない（権限昇格を防ぐ）');
 h.check(staffRow('S101').skills === 'テイク,介助', 'skills は本人が更新できる（D31）');
@@ -167,7 +167,7 @@ h.check(typeof before === 'string', '（前回値は文字列）');
 h.section('5b) 職員の保存では空きコマに触らない');
 setup(); asStaff();
 G.updateMyProfile({ phone: '06-1111-2222', webhook_url: OK_HOOK, slots: ['月1'] });
-h.check(contactRow('T1').phone !== '06-1111-2222' && contactRow('T1').webhook_url === OK_HOOK, '職員も通知先は更新できる（電話番号はマイページでは変わらない・D64）');
+h.check(contactRow('T1').phone === '06-1111-2222' && contactRow('T1').webhook_url === OK_HOOK, '職員も電話番号と通知先は更新できる');
 h.check(!staffRow('T1').available_slots, '★職員の available_slots は書かない（意味を持たないため）');
 h.check(!staffRow('T1').slots_updated_at, '職員には更新日時も入らない');
 
@@ -273,12 +273,19 @@ try {
 h.check(rejected, '★テイクの空きコマに移動枠は入れられない（画面を通さない経路でも弾く）');
 h.check(staffRow('S101').assist_slots === '月移動1-2', '★弾いたときは介助ぶんも書き換えない');
 
-h.section('電話番号はマイページでは扱わない（D64）');
+h.section('電話番号の形（D65 で本人が入れる形に戻した）');
 setup(); asStudent();
 const phoneBefore = contactRow('S101').phone;
 threw = '';
 try { G.updateMyProfile({ phone: '=1+1', webhook_url: OK_HOOK, slots: ['月1'] }); } catch (e) { threw = e.message; }
-h.check(!threw && contactRow('S101').phone === phoneBefore, '★数式のような電話番号を送られても、無視して書き換えない');
-h.check(G.getMyProfile().phone === phoneBefore, 'マイページには登録済みの電話番号を（読むだけで）出す');
+h.check(/電話番号/.test(threw) && contactRow('S101').phone === phoneBefore, '★数式のような電話番号は弾き、書き換えない');
+G.updateMyProfile({ phone: '09012345678', slots: ['月1'] });
+h.check(contactRow('S101').phone === '090-1234-5678', 'ハイフンの無い11桁は 3-4-4 にそろえる');
+const w = G.updateMyProfile({ phone: '', slots: ['月1'] });
+h.check(contactRow('S101').phone === '' && w.warnings.some((x) => /電話番号が未登録/.test(x)), '空にすると消え、未登録の注意を返す');
+G.updateMyProfile({ phone: '090-1111-2222', slots: ['月1'] });
+G.updateMyProfile({ slots: ['月2'] });
+h.check(contactRow('S101').phone === '090-1111-2222', '★電話番号を送らない保存では、電話番号を変えない（空にしない）');
+h.check(G.getMyProfile().phone === '090-1111-2222', 'マイページには登録済みの電話番号を出す（入力欄に入れて見せる）');
 
 process.exitCode = h.report();

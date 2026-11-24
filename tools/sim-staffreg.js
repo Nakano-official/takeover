@@ -270,10 +270,10 @@ h.check(row && row.entryYear === '25' && row.studentNo === 'Y250001', '学籍番
 h.check(roster.summary.unconfirmed === 1, '上の集計にも出る');
 h.check(roster.rows.filter((x) => x.staff_id === 'S1')[0].issues.indexOf('unconfirmed') === -1, '今いる人には付かない');
 
-h.section('11) マイページで電話番号を直せない（D64）');
+h.section('11) 電話番号は本人が入れる（D65。D64 で職員の管理にしたのを戻した）');
 setup(); h.setUser({ staff_id: 'S1', name: '既存 学生', role: '学生', email: 'y240001@mail.ryukoku.ac.jp' });
 G.updateMyProfile({ phone: '080-9999-9999', webhook_url: HOOK, skills: ['テイク'], slotsByType: { 'テイク': ['月1'] } });
-h.check(contactOf('Y240001').phone === '090-0000-0001', '★送られてきても電話番号は変わらない');
+h.check(contactOf('Y240001').phone === '080-9999-9999', '★マイページから電話番号を直せる（支援室の名簿に電話番号は無いので）');
 
 h.section('12) 名簿の画面：支援室の Excel を貼って読む');
 const page = loadPage('roster', { include: ['shared-contact'], globals: {
@@ -352,7 +352,7 @@ h.check(sv.ok && meRow.available_slots === '月1' && meRow.skills === 'テイク
 h.check(contactOf('Y250001').webhook_url === HOOK, '★通知先を送らなければ、通知先は今のまま（空にしない）');
 h.check(!(sv.warnings || []).some((w) => /Webhook/.test(w)), '通知先を送らなければ、通知先の注意も出さない');
 // 画面：「はい」→ 確認 → 業務と空きコマの入力を出す
-const cp = loadPage('confirm', { include: ['shared-slots', 'shared-chat-install'] });
+const cp = loadPage('confirm', { include: ['shared-contact', 'shared-slots', 'shared-chat-install'] });
 cp.ctx.answer(true);
 const confirmCall = cp.calls.filter((c) => c.name === 'confirmMyIdentity')[0];
 h.check(confirmCall && confirmCall.args[0] === true, '「はい」で confirmMyIdentity(true) を呼ぶ');
@@ -363,13 +363,18 @@ cp.reply(cp.calls.indexOf(profCall), JSON.parse(JSON.stringify(G.getMyProfile())
 const sb = cp.el('setupBody').innerHTML;
 h.check(sb.indexOf('対応できる業務') !== -1 && sb.indexOf('空きコマ') !== -1 && sb.indexOf('data-slot=') !== -1,
   '★業務と空きコマ（曜日×時限）の入力を出す（マイページと同じ部品）');
+h.check(/電話番号/.test(sb) && sb.indexOf('id="phone0"') !== -1, '★確認のあとの登録で、電話番号も入れてもらう（D65）');
+cp.ctx.saveSetup();   // 電話番号が空
+h.check(!cp.calls.some((c) => c.name === 'updateMyProfile') && /電話番号を入れて/.test(cp.el('setupMsg').innerHTML),
+  '★電話番号が空なら送らない（返事が無いときに職員が電話するため）');
+cp.el('phone0').value = '090'; cp.el('phone1').value = '1234'; cp.el('phone2').value = '5678';
 cp.ctx.saveSetup();   // 業務を1つも選んでいない（この試験の DOM ではチェックが取れない）
 h.check(!cp.calls.some((c) => c.name === 'updateMyProfile') && /1つ以上/.test(cp.el('setupMsg').innerHTML),
   '業務を1つも選ばなければ送らない');
 cp.ctx.showNext(true);
 h.check(cp.el('next').hidden === false && /あとで|いつでも/.test(cp.el('nextLead').textContent), '「あとで」なら、マイページで登録できると案内する');
 // 職員として登録された人は、業務と空きコマを聞かずに最後の案内へ
-const cp2 = loadPage('confirm', { include: ['shared-slots', 'shared-chat-install'] });
+const cp2 = loadPage('confirm', { include: ['shared-contact', 'shared-slots', 'shared-chat-install'] });
 cp2.ctx.startSetup();
 cp2.reply(0, { isStudent: false });
 h.check(cp2.el('next').hidden === false && cp2.el('setupBody').innerHTML.indexOf('data-slot=') === -1, '職員として登録された人には、業務と空きコマを聞かない');
@@ -562,7 +567,7 @@ h.check(r5 && r5.issues.indexOf('skills') !== -1 && r5.issues.indexOf('slots') =
   '★名簿で「業務が未選択」を出す（空きコマの問題は重ねない）。上の集計にも出る');
 // 確認の画面・マイページの入力部品：業務が空欄の人には、何もチェックを入れずに見せる
 {
-  const sp = loadPage('confirm', { include: ['shared-slots', 'shared-chat-install'] });
+  const sp = loadPage('confirm', { include: ['shared-contact', 'shared-slots', 'shared-chat-install'] });
   const empty = sp.ctx.renderSkills({ supportTypes: ['テイク', '介助'], skillList: [] });
   const one = sp.ctx.renderSkills({ supportTypes: ['テイク', '介助'], skillList: ['テイク'] });
   h.check(empty.indexOf('checked') === -1, '★業務が空欄の人には、どのチェックも入れずに見せる（外し忘れで、できない業務の依頼が届かない）');

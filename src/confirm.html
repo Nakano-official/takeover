@@ -61,7 +61,7 @@
     <div id="setup" hidden>
       <div class="card">
         <p class="step">確認できました</p>
-        <h2>続けて、代行に入れる条件を登録してください</h2>
+        <h2>続けて、連絡先と代行に入れる条件を登録してください</h2>
         <p class="lead">代行のお願いは、ここで選んだ<b>業務</b>と<b>空きコマ</b>に合う人に届きます。あとからマイページでいつでも直せます。</p>
       </div>
       <div id="setupBody" class="state">読み込み中…</div>
@@ -95,6 +95,7 @@
     </div>
   </main>
 
+  <?!= include('shared-contact') ?>
   <?!= include('shared-slots') ?>
   <script>
     var P = null;   // getMyProfile の戻り（業務と空きコマの入力部品が使う）
@@ -151,7 +152,10 @@
           if (!p || !p.isStudent) { showNext(false); return; }
           var body = document.getElementById('setupBody');
           body.className = '';
-          body.innerHTML = renderSkills(p) + renderSlots(p);
+          // 電話番号は本人が入れる（支援室の名簿に電話番号は無い・D65）
+          body.innerHTML = '<div class="card">' +
+              phoneFieldHtml(p.phone, '代行の返事が無いときなどに、職員から電話することがあります。') + '</div>' +
+            renderSkills(p) + renderSlots(p);
           document.getElementById('setupFoot').hidden = false;
         })
         .withFailureHandler(function () {
@@ -163,6 +167,9 @@
 
     function saveSetup() {
       if (!P) return;
+      var phone = phoneValue();
+      var phoneErr = phoneError() || (phone ? '' : '電話番号を入れてください（代行の返事が無いときなどに、職員から電話します）。');
+      if (phoneErr) { setupMsg('err', phoneErr); return; }
       var skills = pickedSkills();
       if (!skills.length) {
         setupMsg('err', '対応できる業務を1つ以上選んでください（選んでいないと、どの代行依頼も届きません）。');
@@ -175,13 +182,13 @@
           title: '空きコマが選ばれていません',
           message: 'このままだと、代行のお願いは届きません。\nこのまま登録しますか？（あとでマイページから入れられます）',
           ok: 'このまま登録する', cancel: '空きコマを選ぶ',
-        }, function (yes) { if (yes) sendSetup(skills, slots); });
+        }, function (yes) { if (yes) sendSetup(phone, skills, slots); });
         return;
       }
-      sendSetup(skills, slots);
+      sendSetup(phone, skills, slots);
     }
 
-    function sendSetup(skills, slots) {
+    function sendSetup(phone, skills, slots) {
       var btn = document.getElementById('setupSave');
       btn.disabled = true;
       btn.textContent = '登録しています…';
@@ -192,8 +199,8 @@
           btn.textContent = 'この内容で登録する';
           setupMsg('err', err.message);
         })
-        // 通知先（webhook_url）は送らない＝今の値のまま（Profile.gs）。業務と空きコマだけを登録する
-        .updateMyProfile({ skills: skills, slotsByType: slots });
+        // 通知先（webhook_url）は送らない＝今の値のまま（Profile.gs）。電話番号・業務・空きコマを登録する
+        .updateMyProfile({ phone: phone, skills: skills, slotsByType: slots });
     }
 
     function setupMsg(kind, text) {

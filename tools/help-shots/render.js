@@ -93,7 +93,17 @@ function precompute(pages, params, opts) {
   tryPut('getOpenVacancies', function () { return G.getOpenVacancies(); });
   tryPut('getVacanciesForManage', function () { return G.getVacanciesForManage(); });
   tryPut('getInputData', function () { return G.getInputData(null); });
-  tryPut('getMyProfile', function () { return G.getMyProfile(); });
+  tryPut('getMyProfile', function () {
+    // 確認の画面（D64）は「はい」で確認済みにしてから読む。デモは「はい」が書き込まないので、確認済みとして中身を作る
+    // （getMyProfile は確認がまだの人には返さない・D65）
+    const me = G.getCurrentUser_();
+    if (!me || me.confirmed !== false) return G.getMyProfile();
+    const c = h.row('contacts', 'staff_id', me.staff_id);
+    const was = c.confirmed_at;
+    c.confirmed_at = '2026-11-10 09:00:00';
+    h.cache.clear();
+    try { return G.getMyProfile(); } finally { c.confirmed_at = was; h.cache.clear(); }
+  });
   tryPut('getStaffRoster', function () { return G.getStaffRoster(); });
   tryPut('getRegistrations', function () { return G.getRegistrations(); });
   tryPut('getStudentAccess', function () { return G.getStudentAccess(); });

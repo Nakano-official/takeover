@@ -120,7 +120,8 @@ function seed(h) {
   // 職員が名簿から登録したばかりで、本人がまだ「あなたは〇〇さんですか？」に答えていない学生（D64）。
   // 確認の画面と、名簿の「確認まだ」を撮るため。空きコマ・通知先はまだ無い
   h.add('staffs', { staff_id: 'S08', name: '新人 花子', role: '学生', skills: '', available_slots: '', assist_slots: '', slots_updated_at: '' });
-  h.add('contacts', { staff_id: 'S08', name: '新人 花子', account: 'Y260108', phone: '090-0000-1009',
+  // 支援室の名簿に電話番号は無いので、名簿から登録したばかりの人は電話番号も空（本人が確認のあとに入れる・D65）
+  h.add('contacts', { staff_id: 'S08', name: '新人 花子', account: 'Y260108', phone: '',
     webhook_url: '', confirmed_at: '' });
   COURSES.forEach(function (c) {
     h.add('courses', {
