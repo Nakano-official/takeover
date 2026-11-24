@@ -485,15 +485,20 @@ h.check(/本人の確認/.test(errOf(() => G.getMyProfile())), '★確認がま�
 G.confirmMyIdentity(true);
 h.check(G.getMyProfile().isStudent === true, '確認のあとは今まで通り返す');
 
-h.section('16) 学籍番号を直したら、覚えていた DM の宛先も消す');
+h.section('16) 学籍番号を直したら、覚えていた DM の宛先と Webhook の通知先も消す');
 setup(); asStaff();
 Object.assign(contactOf('Y240001'), { dm_space: 'spaces/OLD', dm_error: '前の失敗', dm_error_at: '2026-11-01 10:00' });
 G.updateStaffContact({ staff_id: 'S1', account: 'Y240001', family_name: '既存', given_name: '学生', phone: '' });
-h.check(contactOf('Y240001').dm_space === 'spaces/OLD', '学籍番号を変えなければ、DM の宛先はそのまま');
+h.check(contactOf('Y240001').dm_space === 'spaces/OLD' && contactOf('Y240001').webhook_url === HOOK, '学籍番号を変えなければ、DM の宛先も通知先もそのまま');
 G.updateStaffContact({ staff_id: 'S1', account: 'Y240009', family_name: '既存', given_name: '学生', phone: '' });
 const moved = contactOf('Y240009');
 h.check(moved.dm_space === '' && moved.dm_error === '' && moved.dm_error_at === '' && moved.confirmed_at === '',
   '★学籍番号を変えたら、DM の宛先と送れなかった記録を消し、確認もやり直す（前の人に届き続けない・PR #59 のレビュー）');
+h.check(moved.webhook_url === '', '★Webhook の通知先も消す（Webhook に切り替えても、前の人の通知先に届かない・PR #59 のレビュー）');
+asEmail('y240009@mail.ryukoku.ac.jp');
+G.confirmMyIdentity(true);
+h.check(G.buildWebhookMap_().S1 === '' || G.buildWebhookMap_().S1 === undefined,
+  '★新しいアカウントで確認し直しても、前の人の通知先は使わない（本人が入れ直すまで届かない）');
 
 h.section('16b) 同時に直したとき：ほかの画面の学籍番号の訂正を書き戻さない');
 setup(); asStaff();

@@ -219,9 +219,10 @@ function updateStaffContact(p) {
       // 学籍番号は、変えるときだけ書く（変えないときは書かない＝ほかの画面の訂正を書き戻さない）
       updates[ACCOUNT_COL] = e.account;
       if (hasConfirmedColumn_()) updates[CONFIRMED_COL] = '';   // 確認をやり直す
-      // 覚えていた DM の宛先は、前の学籍番号の人との DM。そのままだと直したあとも前の人に届くので消す（PR #59 のレビュー）
+      // 覚えていた通知先は、前の学籍番号の人のもの。そのままだと直したあとも前の人に届くので消す（PR #59 のレビュー）。
+      // DM の宛先に加えて、Webhook の通知先も消す（DM で困ったときに Webhook へ切り替えても、前の人に届かないように）
       const heads = getHeaders_(SHEET.CONTACTS).map(function (x) { return String(x).trim(); });
-      DM_COLS.forEach(function (c) { if (heads.indexOf(c) !== -1) updates[c] = ''; });
+      DM_COLS.concat(['webhook_url']).forEach(function (c) { if (heads.indexOf(c) !== -1) updates[c] = ''; });
     }
     updateRow_(SHEET.CONTACTS, 'staff_id', staffId, updates);
     return { name: e.name, accountChanged: accountChanged };
