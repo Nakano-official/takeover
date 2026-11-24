@@ -495,11 +495,13 @@ function migrateContactsToAccount() {
  * 何度実行してもよい。
  *
  * ■ 前の版へ戻す手順（この順番で・docs/spec/backlog.md 16）
- *   1. この関数を実行する（email を作り直し、書き込みを反映して、本人の特定のキャッシュを捨てる）
+ *   1. この関数を実行する。email を作り直して書き込みを確定し、**トリガーを全部消して、本人の特定のキャッシュを止めたままにする**
+ *      （IDENTITY_CACHE_OFF。新しい版は世代を作らなくなり、キャッシュを読みも書きもしない。トリガーを消すのは、
+ *      前の版のコードを push したあとに、前の版の keepIdentityCacheAlive が世代を作り直さないように・PR #59 のレビュー）
  *   2. 前の版のコードを clasp push する（**時間で動くトリガーはデプロイではなく push したコードで動く**ので、デプロイを戻すだけでは足りない）
  *   3. デプロイを管理 → 鉛筆 → 新しいバージョン で、前の版のコードを公開する
- *   4. GAS エディタから installTriggers() を実行する（トリガーを作り直し、本人の特定のキャッシュをもう一度捨てる。
- *      1〜3 の間に新しい版が「確認がまだ」の人をキャッシュに入れていても、前の版がそれを使わないように）
+ *   4. GAS エディタから installTriggers() を実行する（トリガーを作り直す。前の版の installTriggers が新しい世代を作り、キャッシュが動き出す）
+ *   1〜4 のあいだは締切の確認などのトリガーが止まるので、続けて行う。
  */
 function restoreContactEmailsForRollback() {
   requireEditorRun_();
@@ -529,14 +531,15 @@ function restoreContactEmailsForRollback() {
     return [want];
   });
   sheet.getRange(2, mailIdx + 1, n, 1).setValues(values);
-  SpreadsheetApp.flush();             // 書き込みを確定してから、キャッシュを捨てる
+  SpreadsheetApp.flush();             // 書き込みを確定してから、キャッシュを止める
   invalidateSheetCache_('contacts');
-  // 本人の特定のキャッシュ（D48）を捨てる。前の版はキャッシュを先に見て、本人の確認を読まないので、
-  // 確認の画面を開いた人の項目が残っていると、email を空にしても入れてしまう（PR #59 のレビュー）
-  advanceIdentityGen_();
+  // 本人の特定のキャッシュ（D48）を、前の版を公開し終えるまで止めたままにする。前の版はキャッシュを先に見て、
+  // 本人の確認を読まないので、新しい版が入れた「確認がまだ」の人の項目が残っていると、email を空にしても入れてしまう（PR #59 のレビュー）
+  PropertiesService.getScriptProperties().setProperty(IDENTITY_CACHE_OFF_PROP, '1');
+  removeTriggers();                   // keepIdentityCacheAlive などを止める（世代を作り直させない）。中でキャッシュも止める
   Logger.log('✅ email を今の学籍番号に合わせました：作り直し ' + made + ' 人・確認がまだで空にした ' + blanked + ' 人。');
-  Logger.log('   本人の特定のキャッシュも捨てました。確認がまだの人は、前の版では入れません（「まだ登録されていません」になります）。');
-  Logger.log('   次に：前の版のコードを clasp push → デプロイを新しいバージョンで更新 → GAS エディタから installTriggers() を実行。');
+  Logger.log('   トリガーを消し、本人の特定のキャッシュを止めました。確認がまだの人は、前の版では入れません（「まだ登録されていません」になります）。');
+  Logger.log('   続けて：前の版のコードを clasp push → デプロイを新しいバージョンで更新 → GAS エディタから installTriggers() を実行。');
 }
 
 function migrateAddStaffSlotsUpdatedAt() {

@@ -42,6 +42,13 @@ const IDENTITY_KEY_PREFIX = 'identity:user:';
 const IDENTITY_GEN_TTL_SEC = 3600;          // 世代の寿命。延長されなければ1時間で消え、キャッシュが止まる
 const IDENTITY_ENTRY_TTL_SEC = 21600;       // 各人の項目の寿命（CacheService の上限＝6時間）
 const IDENTITY_KEEPALIVE_INTERVAL_MIN = 15; // 世代の延長間隔（everyMinutes が受け付ける値にすること）
+// このスクリプトのプロパティが '1' のあいだは、世代を作らない＝キャッシュを止めたままにする（前の版へ戻す途中・D65）。
+// 世代が無ければ cachedIdentity_ は読みも書きもしない。installTriggers() が消す（そこからキャッシュが動き出す）
+const IDENTITY_CACHE_OFF_PROP = 'IDENTITY_CACHE_OFF';
+
+function identityCacheOff_() {
+  return PropertiesService.getScriptProperties().getProperty(IDENTITY_CACHE_OFF_PROP) === '1';
+}
 
 /**
  * email の本人確認結果を返す。キャッシュに今の世代の項目があればシートを読まない。
@@ -86,6 +93,7 @@ function onDbSheetChange(e) {
  * 世代が消えていたら新しく作る。
  */
 function keepIdentityCacheAlive() {
+  if (identityCacheOff_()) { stopIdentityCache_(); return; }   // 止めているあいだは作らない
   withLock_(function () {
     const cache = CacheService.getScriptCache();
     const gen = cache.get(IDENTITY_GEN_KEY) || newIdentityGen_();
@@ -95,6 +103,7 @@ function keepIdentityCacheAlive() {
 
 /** 世代を進めて、全員分の項目を無効にする */
 function advanceIdentityGen_() {
+  if (identityCacheOff_()) { stopIdentityCache_(); return; }   // 止めているあいだは新しい世代を作らない（消すだけで全員分が無効）
   try {
     withLock_(function () {
       CacheService.getScriptCache().put(IDENTITY_GEN_KEY, newIdentityGen_(), IDENTITY_GEN_TTL_SEC);

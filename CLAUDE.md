@@ -253,6 +253,7 @@ GASエディタの「スクリプトのプロパティ」から設定し、コ�
 | CHAT_WEBHOOK_URL | 職員向け Chat スペースの Incoming Webhook URL（スタッフ個別の Webhook は連絡先DBで管理） |
 | DEVICE_TOKEN | 物理アラート端末（M5Stack）用の認証トークン（D6）。端末スケッチと完全一致させる |
 | STUDENT_ACCESS | 学生への公開（D56）。`closed` のときだけ「準備中」で、学生はマイページしか使えない。**無い＝公開中**。職員が承認画面のスイッチで切り替えるので、手で入れなくてよい |
+| IDENTITY_CACHE_OFF | `1` のあいだ本人の特定のキャッシュ（D48）を止めたままにする。前の版へ戻す途中だけ `restoreContactEmailsForRollback` が立て、`installTriggers` が消す（D65）。**手で入れない** |
 | APP_URL | 公開用の `/exec` の URL。**Chat に入れるリンクはこれを使う**（`getPublicAppUrl_`）。`/exec` で画面が開かれると自動で入るので、手で入れなくてよい。`getUrl()` は `/dev` から操作すると `/dev` を返し、それを Chat に入れると学生が開けず、スクリプトの持ち主へ共有のリクエストが届いていた。画面の中のリンク（ナビ）は今まで通り `getAppUrl_` |
 
 **.clasp.json はGitにコミットしない（スクリプトIDが含まれるため）。**

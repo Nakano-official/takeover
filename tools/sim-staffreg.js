@@ -42,7 +42,7 @@ h.stub({
   ScriptApp: { getService: function () { return { getUrl: function () { return 'https://example.invalid/app'; } }; } },
 });
 h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Access.gs', 'ClassCalendar.gs', 'Cancellation.gs',
-  'Profile.gs', 'Registration.gs', 'Roster.gs', 'StaffAdmin.gs', 'Notify.gs', 'code.js', 'Identity.gs', 'Setup.js']);
+  'Profile.gs', 'Registration.gs', 'Roster.gs', 'StaffAdmin.gs', 'Notify.gs', 'code.js', 'Identity.gs', 'Setup.js', 'Triggers.gs']);
 const G = h.G;
 const HOOK = 'https://chat.googleapis.com/v1/spaces/AAA/messages?key=k&token=t';
 // Notify.gs を読み込んだので、Chat への送信の一番下だけ記録にする
@@ -471,11 +471,26 @@ sh = fakeContacts([
 ]);
 h.cache.set('identity:gen', { value: 'G-OLD', ttl: 3600 });
 flushed = 0;
+let triggers = [{ name: 'keepIdentityCacheAlive' }, { name: 'closeExpiredRecruits' }];
+const savedScriptApp = h.context.ScriptApp;
+h.context.ScriptApp = Object.assign({}, savedScriptApp, {
+  getProjectTriggers: () => triggers.map((t) => ({ getHandlerFunction: () => t.name, _t: t })),
+  deleteTrigger: (x) => { triggers = triggers.filter((t) => t !== x._t); },
+});
 G.restoreContactEmailsForRollback();
 const em = (r) => sh.grid[r][2];
-const genNow = h.cache.get('identity:gen');
-h.check(flushed >= 1 && (!genNow || genNow.value !== 'G-OLD'),
-  '★書き込みを確定し、本人の特定のキャッシュを捨てる（前の版がキャッシュに残った「確認がまだ」の人を入れないように・PR #59 のレビュー）');
+h.check(flushed >= 1 && !h.cache.get('identity:gen'),
+  '★書き込みを確定し、本人の特定のキャッシュを止める（世代を消す）');
+h.check(triggers.length === 0, '★トリガーを全部消す（前の版のコードを push したあと、前の版の keepIdentityCacheAlive が世代を作り直さないように）');
+h.check(h.props.IDENTITY_CACHE_OFF === '1', '★キャッシュを止めたままにする印を立てる（前の版を公開し終えるまで・PR #59 のレビュー）');
+// 止めているあいだに、新しい版で登録や確認が起きても、世代を作らない（キャッシュを読みも書きもしない）
+G.advanceIdentityGen_();
+G.keepIdentityCacheAlive();
+h.check(!h.cache.get('identity:gen'), '★止めているあいだは、新しい版が世代を作り直さない（登録・確認・延長のトリガーでも）');
+delete h.props.IDENTITY_CACHE_OFF;   // installTriggers() が消す
+G.advanceIdentityGen_();
+h.check(!!h.cache.get('identity:gen'), '印が消えれば、また世代を作る');
+h.context.ScriptApp = savedScriptApp;
 h.check(em(1) === 'y240001@mail.ryukoku.ac.jp' && em(4) === 'y250001@mail.ryukoku.ac.jp',
   '★確認済みの人は、今の学籍番号から作ったメールにする（この版で登録した人も前の版で入れる）');
 h.check(em(2) === 'y240012@mail.ryukoku.ac.jp',
