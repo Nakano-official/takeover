@@ -97,6 +97,9 @@ function updateMyProfile(payload) {
   const isStudent = String(user.role).trim() !== ROLE_STAFF;
   const warnings = [];
 
+  // ── 1. 送られてきた項目を**全部確かめてから**書く（PR #59 のレビュー）。途中で弾かれたのに、
+  //       先に確かめた電話番号だけ保存されている、ということを起こさない ──
+
   // 電話番号は、送られてきたときだけ書く（D65）。形は validatePhone_ でそろえる（090-1234-5678）。空は「消す」
   const contactUpdates = {};
   if (Object.prototype.hasOwnProperty.call(p, 'phone')) {
@@ -114,12 +117,7 @@ function updateMyProfile(payload) {
       throw new Error('Chat の Webhook URL の形式が違います（https://chat.googleapis.com/ で始まる必要があります）。');
     }
     if (!webhook) warnings.push('Webhook URL が未登録です。代行依頼の通知が届きません。');
-
     contactUpdates.webhook_url = webhook;
-  }
-  if (Object.keys(contactUpdates).length) {
-    const contactUpdated = updateRow_(SHEET.CONTACTS, 'staff_id', user.staff_id, contactUpdates);
-    if (!contactUpdated) throw new Error('連絡先の行が見つかりませんでした。職員にお問い合わせください。');
   }
 
   // 空きコマと対応できる業務は学生のみ。職員は代行候補にならない（findCandidates_ が
@@ -127,11 +125,11 @@ function updateMyProfile(payload) {
   var savedSlots = {};
   var skillsCsv = '';
   var updatedAt = '';
+  var staffUpdates = null;
   if (isStudent) {
     const staffRow = findRow_(SHEET.STAFFS, 'staff_id', user.staff_id);
     updatedAt = nowString_();
-
-    const updates = { slots_updated_at: updatedAt };
+    staffUpdates = { slots_updated_at: updatedAt };
 
     // 空きコマは業務ごと（D32）。**送られてきた業務だけ**を書き換える。
     // 画面が介助のタブを出していないとき（対応できる業務から外している等）に
@@ -144,7 +142,7 @@ function updateMyProfile(payload) {
         return;
       }
       const csv = normalizeSlots_(requested[type], type);
-      updates[col] = csv;
+      staffUpdates[col] = csv;
       savedSlots[type] = splitSlots_(csv);
     });
 
@@ -153,28 +151,45 @@ function updateMyProfile(payload) {
     // 逆に「空配列で送ってきた＝全部外した」は意思表示なので normalizeSkills_ が弾く。
     if (p.skills !== undefined) {
       skillsCsv = normalizeSkills_(p.skills);
-      updates.skills = skillsCsv;
+      staffUpdates.skills = skillsCsv;
       // 担当を外れたわけではないので保存は止めない。ただし黙って食い違わせない。
       droppedSkillWarning_(user.staff_id, staffRow, skillsCsv).forEach(function (w) { warnings.push(w); });
     } else {
       skillsCsv = splitSkills_(staffRow && staffRow.skills).join(',');
     }
 
-    // 保存のたびに日時を更新する。値が変わらなくても「今学期これで出し直した」という
-    // 本人の確認なので、職員が「まだ出していない人」を見分けられるようにする（D28）。
-    const staffUpdated = updateRow_(SHEET.STAFFS, 'staff_id', user.staff_id, updates);
-    if (!staffUpdated) throw new Error('名簿の行が見つかりませんでした。職員にお問い合わせください。');
-
     // 「対応できる業務に入れているのに、その業務の空きコマが空」だけを警告する。
     // 対応しない業務の空きコマが無いのは当たり前なので、そこを鳴らすとノイズになる。
     const mySkills = splitSkills_(skillsCsv);
     SUPPORT_TYPES.forEach(function (type) {
-      if (mySkills.length && mySkills.indexOf(type) === -1) return;
+      if (mySkills.indexOf(type) === -1) return;
       if (!savedSlots[type].length) {
         warnings.push(type + 'の空きコマが1つも選ばれていません。' + type + 'の代行候補に出ません。');
       }
     });
   }
+
+  // ── 2. 書き込み。名簿の学籍番号の訂正（updateStaffContact）と同じロックの中で、今の行がまだこのアカウントの行で、
+  //       確認済みかを読み直してから書く（PR #59 のレビュー）。訂正と、訂正前のアカウントからの保存が重なると、
+  //       前の人の電話番号が保存されたり、訂正で消した通知先が戻ったりするため ──
+  const me = accountOfEmail_(user.email);
+  withLock_(function () {
+    const contact = findRow_(SHEET.CONTACTS, 'staff_id', user.staff_id);
+    if (!contact) throw new Error('連絡先の行が見つかりませんでした。職員にお問い合わせください。');
+    if (!me || contactAccount_(contact) !== me) {
+      throw new Error('登録の学籍番号が変わりました。画面を開き直してください。');
+    }
+    if (isUnconfirmedContact_(contact)) {
+      throw new Error('はじめに、本人の確認をしてください（画面を開き直すと出ます）。');
+    }
+    if (Object.keys(contactUpdates).length) updateRow_(SHEET.CONTACTS, 'staff_id', user.staff_id, contactUpdates);
+    // 保存のたびに日時を更新する。値が変わらなくても「今学期これで出し直した」という
+    // 本人の確認なので、職員が「まだ出していない人」を見分けられるようにする（D28）。
+    if (staffUpdates) {
+      const staffUpdated = updateRow_(SHEET.STAFFS, 'staff_id', user.staff_id, staffUpdates);
+      if (!staffUpdated) throw new Error('名簿の行が見つかりませんでした。職員にお問い合わせください。');
+    }
+  });
 
   return {
     ok: true, slotsByType: savedSlots, skills: skillsCsv,

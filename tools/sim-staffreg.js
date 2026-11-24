@@ -588,6 +588,28 @@ h.check(r5 && r5.issues.indexOf('skills') !== -1 && r5.issues.indexOf('slots') =
 h.check(/選んでいないと、どの代行依頼も届きません/.test(errOf(() => G.normalizeSkills_([]))),
   '業務を1つも選ばない保存は「選んでいないと、どの代行依頼も届きません」と案内する');
 
+h.section('16d) マイページの保存：全部確かめてから書く・学籍番号が直されたあとの古いアカウントからは書かない');
+setup(); h.setUser({ staff_id: 'S1', name: '既存 学生', role: '学生', email: 'y240001@mail.ryukoku.ac.jp' });
+const phone0 = contactOf('Y240001').phone;
+h.check(/./.test(errOf(() => G.updateMyProfile({ phone: '080-1111-2222', skills: ['テイク'], slotsByType: { 'テイク': ['月99'] } }))) &&
+  contactOf('Y240001').phone === phone0,
+  '★空きコマが弾かれたら、一緒に送った電話番号も保存しない（全部確かめてから書く・PR #59 のレビュー）');
+// 古いアカウントでログインしたままの画面から、学籍番号の訂正のあとに保存が届いた
+const staleMe = G.getCurrentUser_();
+asStaff();
+G.updateStaffContact({ staff_id: 'S1', account: 'Y240009', account_before: 'Y240001', family_name: '既存', given_name: '学生', phone: '' });
+contactOf('Y240009').confirmed_at = '2026-11-25 10:00';   // 新しいアカウントで確認し直したあと
+const realGet2 = h.context.getCurrentUser_;
+h.context.getCurrentUser_ = function () { return Object.assign({}, staleMe); };
+const errStale = errOf(() => G.updateMyProfile({ phone: '080-3333-4444', webhook_url: HOOK, skills: ['テイク'], slotsByType: { 'テイク': ['月1'] } }));
+h.context.getCurrentUser_ = realGet2;
+h.check(/学籍番号が変わりました/.test(errStale) && contactOf('Y240009').phone === '' && contactOf('Y240009').webhook_url === '',
+  '★学籍番号が直されたあと、前のアカウントの画面から保存しても、電話番号も通知先も書かない（PR #59 のレビュー）');
+h.check(h.row('staffs', 'staff_id', 'S1').available_slots !== '月1', '★空きコマ・業務も書かない');
+asEmail('y240009@mail.ryukoku.ac.jp');
+h.check(G.updateMyProfile({ phone: '080-3333-4444', skills: ['テイク'], slotsByType: { 'テイク': ['月1'] } }).ok &&
+  contactOf('Y240009').phone === '080-3333-4444', '新しいアカウントからなら保存できる');
+
 h.section('17) ロック：入れ子にしても、一番外側でだけ取って外す（Sheets.gs の withLock_）');
 {
   const vm = require('vm');
