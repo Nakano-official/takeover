@@ -182,13 +182,14 @@ function updateMyProfile(payload) {
     if (isUnconfirmedContact_(contact)) {
       throw new Error('はじめに、本人の確認をしてください（画面を開き直すと出ます）。');
     }
+    // 名簿（staffs）の行も書くときは、書く前に行があるかを確かめる（片側だけ書いて失敗しない・PR #59 のレビュー）
+    if (staffUpdates && !findRow_(SHEET.STAFFS, 'staff_id', user.staff_id)) {
+      throw new Error('名簿の行が見つかりませんでした。職員にお問い合わせください。');
+    }
     if (Object.keys(contactUpdates).length) updateRow_(SHEET.CONTACTS, 'staff_id', user.staff_id, contactUpdates);
     // 保存のたびに日時を更新する。値が変わらなくても「今学期これで出し直した」という
     // 本人の確認なので、職員が「まだ出していない人」を見分けられるようにする（D28）。
-    if (staffUpdates) {
-      const staffUpdated = updateRow_(SHEET.STAFFS, 'staff_id', user.staff_id, staffUpdates);
-      if (!staffUpdated) throw new Error('名簿の行が見つかりませんでした。職員にお問い合わせください。');
-    }
+    if (staffUpdates) updateRow_(SHEET.STAFFS, 'staff_id', user.staff_id, staffUpdates);
   });
 
   return {

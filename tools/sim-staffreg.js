@@ -609,6 +609,12 @@ h.check(h.row('staffs', 'staff_id', 'S1').available_slots !== '月1', '★空き
 asEmail('y240009@mail.ryukoku.ac.jp');
 h.check(G.updateMyProfile({ phone: '080-3333-4444', skills: ['テイク'], slotsByType: { 'テイク': ['月1'] } }).ok &&
   contactOf('Y240009').phone === '080-3333-4444', '新しいアカウントからなら保存できる');
+// 連絡先DBにはあるのに、名簿（staffs）の行が無い人（片側だけ残った行）
+h.db.staffs = h.db.staffs.filter((x) => x.staff_id !== 'S1');
+h.cache.clear();
+const errHalf = errOf(() => G.updateMyProfile({ phone: '080-5555-6666', skills: ['テイク'], slotsByType: { 'テイク': ['月1'] } }));
+h.check(/名簿の行が見つかりません/.test(errHalf) && contactOf('Y240009').phone === '080-3333-4444',
+  '★名簿の行が無ければ、連絡先も書かずに止める（片側だけ書かない・PR #59 のレビュー）');
 
 h.section('17) ロック：入れ子にしても、一番外側でだけ取って外す（Sheets.gs の withLock_）');
 {
