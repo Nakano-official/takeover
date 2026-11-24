@@ -409,7 +409,7 @@ const CONTACT_HEADERS = ['staff_id', 'name', 'account', 'phone', 'webhook_url', 
  * 既存の連絡先DBの contacts に、学籍番号（account）の列と DM の列を足す（D65）。GAS エディタから1回実行する。
  *
  *  - **email 列は書き換えず、そのまま残す**。account は新しい列に作る（PR #59 のレビュー）。
- *    今の版（email で本人を引く）がそのまま動き続け、DM で困ったときに前の版へ戻しても誰もが入れる。
+ *    push してから移行するまでの間も、今の版（email で本人を引く）が動き続ける。
  *    email 列は、DM がうまく回りだしてから webhook_url と一緒に消す（backlog 16）
  *  - **全部の行を確かめてから、見出しと値を1回の書き込みで入れる**。大学のメール（@mail.ryukoku.ac.jp）でない行や、
  *    同じ学籍番号になる行が1つでもあれば、何も書かずに止まる（直してからもう一度実行する）
@@ -482,64 +482,6 @@ function migrateContactsToAccount() {
   invalidateSheetCache_('contacts'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
   advanceIdentityGen_();             // 本人の特定の引き方が変わったので、キャッシュを捨てる（D48）
   Logger.log('   これで、スタッフ名簿から学籍番号で登録・修正できるようになります。');
-}
-
-/**
- * 前の版（email で本人を引く版）へ戻す前に実行する（D65 の戻し方）。GAS エディタから実行する。
- *
- * 前の版は email で本人を引き、本人の確認（confirmed_at）を読まない。そこで email 列を、今の状態に合わせて作り直す
- * （PR #59 のレビュー）：
- *  - 確認済みで account がある行 … account から作ったメールにする（学籍番号を直した人の、直す前のメールを残さない）
- *  - 確認がまだの行 … email を空にする（前の版では、確認していない人をスタッフとして扱わない＝入れない）
- *  - account が空の行 … email はそのまま（移行の前からある行など）
- * 何度実行してもよい。
- *
- * ■ 前の版へ戻す手順（この順番で・docs/spec/backlog.md 16）
- *   1. この関数を実行する。email を作り直して書き込みを確定し、**トリガーを全部消して、本人の特定のキャッシュを止めたままにする**
- *      （IDENTITY_CACHE_OFF。新しい版は世代を作らなくなり、キャッシュを読みも書きもしない。トリガーを消すのは、
- *      前の版のコードを push したあとに、前の版の keepIdentityCacheAlive が世代を作り直さないように・PR #59 のレビュー）
- *   2. 前の版のコードを clasp push する（**時間で動くトリガーはデプロイではなく push したコードで動く**ので、デプロイを戻すだけでは足りない）
- *   3. デプロイを管理 → 鉛筆 → 新しいバージョン で、前の版のコードを公開する
- *   4. GAS エディタから installTriggers() を実行する（トリガーを作り直す。前の版の installTriggers が新しい世代を作り、キャッシュが動き出す）
- *   1〜4 のあいだは締切の確認などのトリガーが止まるので、続けて行う。
- */
-function restoreContactEmailsForRollback() {
-  requireEditorRun_();
-  const ss = openContactsDb_();
-  const sheet = ss.getSheetByName('contacts');
-  if (!sheet) { Logger.log('❌ contacts シートが見つかりません。'); return; }
-  const lastCol = sheet.getLastColumn();
-  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return String(h).trim(); });
-  const mailIdx = headers.indexOf('email');
-  const accIdx = headers.indexOf(ACCOUNT_COL);
-  const confIdx = headers.indexOf(CONFIRMED_COL);
-  if (mailIdx === -1 || accIdx === -1) { Logger.log('❌ email 列か account 列がありません。前の版へは、この関数では戻せません。'); return; }
-  const n = Math.max(sheet.getLastRow() - 1, 0);
-  if (!n) { Logger.log('✅ 行がありません。'); return; }
-  const mails = sheet.getRange(2, mailIdx + 1, n, 1).getValues();
-  const accs = sheet.getRange(2, accIdx + 1, n, 1).getValues();
-  const confs = confIdx !== -1 ? sheet.getRange(2, confIdx + 1, n, 1).getValues() : null;
-  var made = 0, blanked = 0;
-  const values = mails.map(function (r, i) {
-    const mail = String(r[0] == null ? '' : r[0]).trim();
-    const acc = String(accs[i][0] == null ? '' : accs[i][0]).trim();
-    if (!acc) return [mail];
-    const confirmed = !confs || String(confs[i][0] == null ? '' : confs[i][0]).trim() !== '';
-    if (!confirmed) { if (mail) blanked++; return ['']; }
-    const want = emailOfAccount_(acc);
-    if (want.toLowerCase() !== mail.toLowerCase()) made++;
-    return [want];
-  });
-  sheet.getRange(2, mailIdx + 1, n, 1).setValues(values);
-  SpreadsheetApp.flush();             // 書き込みを確定してから、キャッシュを止める
-  invalidateSheetCache_('contacts');
-  // 本人の特定のキャッシュ（D48）を、前の版を公開し終えるまで止めたままにする。前の版はキャッシュを先に見て、
-  // 本人の確認を読まないので、新しい版が入れた「確認がまだ」の人の項目が残っていると、email を空にしても入れてしまう（PR #59 のレビュー）
-  PropertiesService.getScriptProperties().setProperty(IDENTITY_CACHE_OFF_PROP, '1');
-  removeTriggers();                   // keepIdentityCacheAlive などを止める（世代を作り直させない）。中でキャッシュも止める
-  Logger.log('✅ email を今の学籍番号に合わせました：作り直し ' + made + ' 人・確認がまだで空にした ' + blanked + ' 人。');
-  Logger.log('   トリガーを消し、本人の特定のキャッシュを止めました。確認がまだの人は、前の版では入れません（「まだ登録されていません」になります）。');
-  Logger.log('   続けて：前の版のコードを clasp push → デプロイを新しいバージョンで更新 → GAS エディタから installTriggers() を実行。');
 }
 
 function migrateAddStaffSlotsUpdatedAt() {

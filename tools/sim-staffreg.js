@@ -42,7 +42,7 @@ h.stub({
   ScriptApp: { getService: function () { return { getUrl: function () { return 'https://example.invalid/app'; } }; } },
 });
 h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Access.gs', 'ClassCalendar.gs', 'Cancellation.gs',
-  'Profile.gs', 'Registration.gs', 'Roster.gs', 'StaffAdmin.gs', 'Notify.gs', 'code.js', 'Identity.gs', 'Setup.js', 'Triggers.gs']);
+  'Profile.gs', 'Registration.gs', 'Roster.gs', 'StaffAdmin.gs', 'Notify.gs', 'code.js', 'Identity.gs', 'Setup.js']);
 const G = h.G;
 const HOOK = 'https://chat.googleapis.com/v1/spaces/AAA/messages?key=k&token=t';
 // Notify.gs を読み込んだので、Chat への送信の一番下だけ記録にする
@@ -458,46 +458,6 @@ h.check(sh.grid[1][col(sh, 'account')] === 'Y240001', '失敗のあと、もう�
 h.deployerEmail = 'deployer@mail.ryukoku.ac.jp';
 h.check(/スクリプトエディタ/.test(errOf(() => G.migrateContactsToAccount())), '★画面からは実行できない（GAS エディタから実行する）');
 h.deployerEmail = '';
-
-h.section('14b) 前の版へ戻すとき：email を今の学籍番号に合わせる（restoreContactEmailsForRollback）');
-sh = fakeContacts([
-  ['staff_id', 'name', 'email', 'phone', 'webhook_url', 'confirmed_at', 'account'],
-  ['S1', '既存 学生', 'y240001@mail.ryukoku.ac.jp', '', '', '2026-01-01', 'Y240001'],   // そのまま
-  ['S2', '訂正 花子', 'y240002@mail.ryukoku.ac.jp', '', '', '2026-11-25', 'Y240012'],   // 学籍番号を直して、確認し直した
-  ['S3', '訂正中 次郎', 'y240003@mail.ryukoku.ac.jp', '', '', '', 'Y240013'],          // 学籍番号を直して、まだ確認していない
-  ['S9', '新人 太郎', '', '', '', '2026-11-25', 'Y250001'],                              // この版で登録して、確認済み
-  ['S8', '新人 花子', '', '', '', '', 'Y250002'],                                        // この版で登録して、確認がまだ
-  ['T1', '移行前 行', 'old@mail.ryukoku.ac.jp', '', '', '2026-01-01', ''],               // account が空
-]);
-h.cache.set('identity:gen', { value: 'G-OLD', ttl: 3600 });
-flushed = 0;
-let triggers = [{ name: 'keepIdentityCacheAlive' }, { name: 'closeExpiredRecruits' }];
-const savedScriptApp = h.context.ScriptApp;
-h.context.ScriptApp = Object.assign({}, savedScriptApp, {
-  getProjectTriggers: () => triggers.map((t) => ({ getHandlerFunction: () => t.name, _t: t })),
-  deleteTrigger: (x) => { triggers = triggers.filter((t) => t !== x._t); },
-});
-G.restoreContactEmailsForRollback();
-const em = (r) => sh.grid[r][2];
-h.check(flushed >= 1 && !h.cache.get('identity:gen'),
-  '★書き込みを確定し、本人の特定のキャッシュを止める（世代を消す）');
-h.check(triggers.length === 0, '★トリガーを全部消す（前の版のコードを push したあと、前の版の keepIdentityCacheAlive が世代を作り直さないように）');
-h.check(h.props.IDENTITY_CACHE_OFF === '1', '★キャッシュを止めたままにする印を立てる（前の版を公開し終えるまで・PR #59 のレビュー）');
-// 止めているあいだに、新しい版で登録や確認が起きても、世代を作らない（キャッシュを読みも書きもしない）
-G.advanceIdentityGen_();
-G.keepIdentityCacheAlive();
-h.check(!h.cache.get('identity:gen'), '★止めているあいだは、新しい版が世代を作り直さない（登録・確認・延長のトリガーでも）');
-delete h.props.IDENTITY_CACHE_OFF;   // installTriggers() が消す
-G.advanceIdentityGen_();
-h.check(!!h.cache.get('identity:gen'), '印が消えれば、また世代を作る');
-h.context.ScriptApp = savedScriptApp;
-h.check(em(1) === 'y240001@mail.ryukoku.ac.jp' && em(4) === 'y250001@mail.ryukoku.ac.jp',
-  '★確認済みの人は、今の学籍番号から作ったメールにする（この版で登録した人も前の版で入れる）');
-h.check(em(2) === 'y240012@mail.ryukoku.ac.jp',
-  '★学籍番号を直した人は、直す前のメールを残さない（前の版で前の人がその行として入れない・PR #59 のレビュー）');
-h.check(em(3) === '' && em(5) === '',
-  '★確認がまだの人は email を空にする（前の版は確認を読まないので、確認していない人をスタッフとして扱わない）');
-h.check(em(6) === 'old@mail.ryukoku.ac.jp', 'account が空の行は、email をそのまま');
 
 h.section('14c) confirmed_at の移行：見出しと値を1回で書く（migrateAddContactConfirmedAt）');
 sh = fakeContacts([

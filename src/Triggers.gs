@@ -86,9 +86,7 @@ function installTriggers() {
     Logger.log('   ' + t.label);
   });
 
-  // 本人確認キャッシュを動かし始める（世代はトリガー側だけが作る・Identity.gs）。
-  // 前の版へ戻す途中で止めていた（IDENTITY_CACHE_OFF）なら、ここで解く
-  PropertiesService.getScriptProperties().deleteProperty(IDENTITY_CACHE_OFF_PROP);
+  // 本人確認キャッシュを動かし始める（世代はトリガー側だけが作る・Identity.gs）
   advanceIdentityGen_();
   Logger.log('✅ 本人確認キャッシュを有効にしました（D48）。');
 
