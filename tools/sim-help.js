@@ -34,8 +34,8 @@ const topicsOf = function (key, user) {
 };
 const ALL = Object.keys(TOPICS);
 const FOR_STUDENT = ALL.filter((k) => !TOPICS[k].staffOnly);
-const STAFF = { staff_id: 'T1', name: '職員', role: '職員', email: 't@example.jp' };
-const STUDENT = { staff_id: 'S1', name: '学生', role: '学生', email: 's@example.jp' };
+const STAFF = { staff_id: 'T1', name: '職員', role: '職員', email: 't@mail.ryukoku.ac.jp' };
+const STUDENT = { staff_id: 'S1', name: '学生', role: '学生', email: 's@mail.ryukoku.ac.jp' };
 const hasBtn = (key, user) => h.G.renderChrome_(PAGES[key], key, user).indexOf('help-btn') !== -1;
 
 console.log('===== ヘルプの検証 =====');

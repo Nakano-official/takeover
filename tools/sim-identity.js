@@ -31,9 +31,9 @@ function setup() {
   reads = 0;
   h.add('staffs', { staff_id: 'T1', name: '職員 一郎', role: '職員' });
   h.add('staffs', { staff_id: 'S1', name: '学生 花子', role: '学生' });
-  h.add('contacts', { staff_id: 'T1', name: '職員 一郎', email: 't1@example.jp' });
-  h.add('contacts', { staff_id: 'S1', name: '学生 花子', email: 's1@example.jp' });
-  h.setEmail('t1@example.jp');
+  h.add('contacts', { staff_id: 'T1', name: '職員 一郎', email: 't1@mail.ryukoku.ac.jp' });
+  h.add('contacts', { staff_id: 'S1', name: '学生 花子', email: 's1@mail.ryukoku.ac.jp' });
+  h.setEmail('t1@mail.ryukoku.ac.jp');
 }
 
 // ── 1) トリガーが動いていない（世代が無い）────────────────
@@ -43,7 +43,7 @@ var u = G.getCurrentUser_();
 h.check(u && u.staff_id === 'T1' && u.role === '職員', '本人を正しく引ける');
 G.getCurrentUser_();
 h.check(reads === 2, '★世代が無ければ2回とも読む（トリガー無しで古い権限を持ち続けない）');
-h.check(!h.cache.has(keyOf('t1@example.jp')), '★世代が無ければキャッシュに書かない');
+h.check(!h.cache.has(keyOf('t1@mail.ryukoku.ac.jp')), '★世代が無ければキャッシュに書かない');
 
 // ── 2) 当たれば読まない ──────────────────────────────────
 h.section('2) 世代があれば2回目からシートを読まない');
@@ -55,10 +55,10 @@ u = G.getCurrentUser_();
 var u2 = G.getCurrentUser_();
 h.check(reads === 1, '★2回目はシートを読まない');
 h.check(JSON.stringify(u) === JSON.stringify(u2), 'キャッシュから返しても中身は同じ');
-h.check(u2.email === 't1@example.jp', 'email も返す');
-h.check(h.cache.get(keyOf('t1@example.jp')).ttl === h.value('IDENTITY_ENTRY_TTL_SEC'),
+h.check(u2.email === 't1@mail.ryukoku.ac.jp', 'email も返す');
+h.check(h.cache.get(keyOf('t1@mail.ryukoku.ac.jp')).ttl === h.value('IDENTITY_ENTRY_TTL_SEC'),
   '各人の項目は6時間');
-var cached = JSON.parse(h.cache.get(keyOf('t1@example.jp')).value);
+var cached = JSON.parse(h.cache.get(keyOf('t1@mail.ryukoku.ac.jp')).value);
 h.check(Object.keys(cached.user).sort().join(',') === 'confirmed,name,role,staff_id',
   '★持つのは staff_id・name・role と、本人の確認（confirmed・D64）だけ');
 
@@ -139,12 +139,12 @@ h.check(G.getCurrentUser_().role === '学生', '★次の呼び出しでは直�
 h.section('7) 未登録（null）はキャッシュしない');
 setup();
 G.keepIdentityCacheAlive();
-h.setEmail('new@example.jp');
+h.setEmail('new@mail.ryukoku.ac.jp');
 h.check(G.getCurrentUser_() === null, '名簿に無ければ null');
-h.check(!h.cache.has(keyOf('new@example.jp')), '★null は書かない');
+h.check(!h.cache.has(keyOf('new@mail.ryukoku.ac.jp')), '★null は書かない');
 // 承認で行ができた（アプリの書き込み＝変更トリガーは来ない前提）
 h.add('staffs', { staff_id: 'S2', name: '新人', role: '学生' });
-h.add('contacts', { staff_id: 'S2', name: '新人', email: 'new@example.jp' });
+h.add('contacts', { staff_id: 'S2', name: '新人', email: 'new@mail.ryukoku.ac.jp' });
 u = G.getCurrentUser_();
 h.check(u && u.staff_id === 'S2', '★承認された直後から本人として使える');
 
@@ -152,25 +152,25 @@ h.check(u && u.staff_id === 'S2', '★承認された直後から本人として
 h.section('8) 人ごとに別の項目・メールの大文字小文字');
 setup();
 G.keepIdentityCacheAlive();
-h.setEmail('t1@example.jp');
+h.setEmail('t1@mail.ryukoku.ac.jp');
 G.getCurrentUser_();
-h.setEmail('s1@example.jp');
+h.setEmail('s1@mail.ryukoku.ac.jp');
 u = G.getCurrentUser_();
 h.check(u.staff_id === 'S1' && u.role === '学生', '★別の人には別の結果（他人の権限で動かない）');
-h.setEmail('T1@Example.JP');
+h.setEmail('T1@Mail.Ryukoku.AC.JP');
 reads = 0;
 u = G.getCurrentUser_();
 h.check(reads === 0 && u.staff_id === 'T1', '大文字小文字が違っても同じ項目に当たる');
-h.check(u.email === 'T1@Example.JP', 'email は今のセッションの表記で返す');
+h.check(u.email === 'T1@Mail.Ryukoku.AC.JP', 'email は今のセッションの表記で返す');
 
 // ── 9) 壊れた値 ──────────────────────────────────────────
 h.section('9) キャッシュの値が壊れていたら読み直す');
 setup();
 G.keepIdentityCacheAlive();
-h.cache.set(keyOf('t1@example.jp'), { value: '{壊れた', ttl: 1 });
+h.cache.set(keyOf('t1@mail.ryukoku.ac.jp'), { value: '{壊れた', ttl: 1 });
 u = G.getCurrentUser_();
 h.check(u && u.staff_id === 'T1' && reads === 1, '★壊れた値は使わず読み直す');
-h.check(JSON.parse(h.cache.get(keyOf('t1@example.jp')).value).user.staff_id === 'T1',
+h.check(JSON.parse(h.cache.get(keyOf('t1@mail.ryukoku.ac.jp')).value).user.staff_id === 'T1',
   '読み直した結果で上書きする');
 
 // ── 10) Session が空 ─────────────────────────────────────

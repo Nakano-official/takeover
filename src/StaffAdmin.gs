@@ -1,20 +1,29 @@
 /**
- * スタッフの登録と、本人の確認（D64）
+ * スタッフの登録と、本人の確認（D64・D65）
  *
  * 以前は学生が自分で利用登録を申請し（氏名・電話・通知先・空きコマ）、職員が承認していた（D28）。
- * 2026-11-21 に改めた：氏名・電話番号・大学のメールアドレスは**支援室の名簿にすでにある**ので、
- * **職員が名簿から登録する**。学生の入力の手間と、書き方の揺れ（名前・番号）を無くすため。
+ * 2026-11-21 に改めた：氏名と学籍番号は**支援室の名簿にすでにある**ので、**職員が名簿から登録する**。
+ * 学生の入力の手間と、書き方の揺れ（名前）を無くすため。
  *
- * ■ メールアドレスの打ち間違いへの備え
- *   職員が入れるメールアドレスを1文字間違えると、別の実在の学生に業務の連絡が届きうる。そこで：
+ * ■ メールアドレスは持たない（D65・2026-11-24）
+ *   支援室の名簿（Excel）は「学部・学籍・氏名・備考」で、メールアドレスは無い。大学のメールは全員
+ *   「学籍番号＠mail.ryukoku.ac.jp」なので、contacts には学籍番号（account）だけを持ち、メールはスクリプトで作る。
+ *
+ * ■ 学籍番号の打ち間違いへの備え
+ *   職員が入れる学籍番号を1文字間違えると、別の実在の学生に業務の連絡が届きうる。そこで：
  *   - 登録した人は**本人の確認がまだ**（contacts.confirmed_at が空）の状態から始まる
  *   - 初めて画面を開いたとき「あなたは〇〇 〇〇さんですか？」と出し（confirm.html）、「はい」で確認済みにする。
- *     「いいえ」なら職員スペースへ知らせる（メールアドレスの登録を直してもらう）
+ *     「いいえ」なら職員スペースへ知らせる（学籍番号の登録を直してもらう）
  *   - **確認がまだの人には通知を送らない**（buildWebhookMap_）。学生が使う画面の関数も止める（getOpenUser_）
  *
  * ■ すでにいる人は確認済み
  *   confirmed_at の列が無い（移行前）か、値が入っていれば確認済み。移行（migrateAddContactConfirmedAt）は
  *   列を足し、今いる全員に移行の日時を入れる。**空になるのは、ここで職員が新しく登録した人だけ**。
+ *
+ * ■ 名簿をまるごと貼ってよい
+ *   支援室の名簿には、登録済みの学生とまだの学生が混ざっている。**登録済みの人は飛ばし、新しい人だけを足す**
+ *   （学籍番号で見分ける）。登録済みなのに氏名が名簿と違う人は、書き換えずに知らせる（どちらが正しいかは職員が決める）。
+ *   形のおかしい行が1つでもあれば、誰も登録しない（途中まで登録された状態を作らない）。
  *
  * ■ 登録するのは学生スタッフだけ
  *   職員のアカウントは支援室の共用アカウント1つだけで、増えない（構築のときに手で入れる・setup.md 1.4）。
@@ -22,8 +31,9 @@
  *   区分は受け取らず、いつも「学生」で作る。
  *
  * ■ 職員が直せるもの
- *   氏名・電話番号・メールアドレス（updateStaffContact）。メールアドレスを変えたら確認をやり直す。
- *   空きコマ・通知先は今まで通り本人がマイページで直す。
+ *   氏名・電話番号・学籍番号（updateStaffContact）。学籍番号を変えたら確認をやり直す。
+ *   **職員の行の学籍番号（ログインの識別子）は変えられない**。変えると、職員の権限が別のアカウントへ移るため
+ *   （PR #66 のレビュー）。空きコマ・通知先は今まで通り本人がマイページで直す。
  *
  * 公開関数（google.script.run から呼ぶ）:
  *  - registerStaff(items)       … 職員だけ。1人でも、名簿から貼った何人分でも
@@ -31,7 +41,7 @@
  *  - confirmMyIdentity(isMe)    … 本人（確認がまだの人）
  */
 
-const STAFF_REGISTER_MAX = 200;   // 1回に登録できる人数（貼り間違いで大量に作らないため）
+const STAFF_REGISTER_MAX = 300;   // 1回に読める人数（名簿をまるごと貼るため。貼り間違いで大量に作らないよう上限は置く）
 // CONFIRMED_COL（Constants.gs）と isUnconfirmedContact_（Util.gs）は、本人確認・通知・名簿からも使うので共通の場所にある
 
 function hasConfirmedColumn_() {
@@ -44,28 +54,21 @@ function assertConfirmedColumn_() {
   }
 }
 
-/** 大学のメールアドレスとして使える形か（形だけを見る。実在は本人の確認で確かめる） */
-function normalizeStaffEmail_(value) {
-  const email = String(value == null ? '' : value).trim();
-  if (!email) throw new Error('メールアドレスを入れてください。');
-  if (email.length > 254 || !/^[^\s@<>"'\\]+@[^\s@<>"'\\]+\.[^\s@<>"'\\]+$/.test(email)) {
-    throw new Error('メールアドレスの形が違います：' + email);
-  }
-  assertNotFormula_('メールアドレス', email);
-  return email;
-}
-
 /**
  * 1人分の入力をそろえる（登録・修正で共通）。
- * @param {{email, family_name, given_name, phone, skills}} raw   区分（role）は受け取らない（いつも学生）
+ * @param {{account, family_name, given_name, phone, skills}} raw   区分（role）は受け取らない（いつも学生）
+ * @param {{keepAccount:string}} [opts] keepAccount … 職員の行など、学籍番号の形でない今の識別子を変えずに通す
  */
-function normalizeStaffEntry_(raw) {
+function normalizeStaffEntry_(raw, opts) {
   const p = raw || {};
+  const keep = opts && opts.keepAccount;
   const family = validatePersonName_('姓', p.family_name);
   const given = validatePersonName_('名', p.given_name);
   if (/[\s　]/.test(family + given)) throw new Error('姓と名の中に空白は入れないでください。');
+  const account = keep && String(p.account == null ? '' : p.account).trim().toUpperCase() === keep
+    ? keep : normalizeAccount_(p.account, { studentOnly: true });
   return {
-    email: normalizeStaffEmail_(p.email),
+    account: account,
     name: validatePersonName_('氏名', family + ' ' + given),   // 「姓 名」（半角スペース1つ・D54）
     phone: validatePhone_(p.phone),                              // 空なら空（名簿に無い人もいる）
     // 空＝全対応（D9）。選んだものは業務の名前だけを残す
@@ -75,34 +78,59 @@ function normalizeStaffEntry_(raw) {
 }
 
 /**
- * 職員がスタッフを登録する。名簿から貼った何人分でもよい。
+ * 職員がスタッフを登録する。名簿をまるごと貼った何人分でもよい。
  *
- * **1人でも直す必要があれば、誰も登録しない**（何行目の何がおかしいかを返す）。
- * 途中まで登録された状態を作らず、直して丸ごと貼り直せばよい形にするため。
+ * - **登録済みの人（同じ学籍番号）は飛ばす**（skipped）。氏名が名簿と違えば nameDiffers を付けて知らせる（書き換えない）
+ * - 同じ貼り付けの中で同じ学籍番号が2回あれば、2回目は飛ばす。氏名が違えばどちらが正しいか分からないので直してもらう
+ * - **形のおかしい行が1つでもあれば、誰も登録しない**（何行目の何がおかしいかを返す）
  *
- * @param {Array<Object>|Object} items normalizeStaffEntry_ の入力（email・family_name・given_name・phone・skills）
- * @return {{ok:true, registered:Array<{staff_id,name,email}>}|{ok:false, errors:Array<{line,email,message}>}}
+ * @param {Array<Object>|Object} items normalizeStaffEntry_ の入力（account・family_name・given_name・phone・skills）
+ * @return {{ok:true, registered:Array<{line,staff_id,name,account}>, skipped:Array<{line,account,name,current,nameDiffers,reason}>}
+ *        |{ok:false, errors:Array<{line,account,message}>}}  line は items の何番目か（1から）
  */
 function registerStaff(items) {
   requireStaff_();
   assertConfirmedColumn_();
+  assertAccountColumn_();
   const list = Array.isArray(items) ? items : [items];
   if (!list.length) throw new Error('登録する人がいません。');
-  if (list.length > STAFF_REGISTER_MAX) throw new Error('1回に登録できるのは ' + STAFF_REGISTER_MAX + ' 人までです。');
+  if (list.length > STAFF_REGISTER_MAX) throw new Error('1回に読めるのは ' + STAFF_REGISTER_MAX + ' 人までです。名簿を分けて貼ってください。');
 
-  const seen = {};
+  // 今の名簿（学籍番号 → 行）。1回だけ読む
+  const existing = {};
+  readRows_(SHEET.CONTACTS).forEach(function (c) {
+    const acc = String(c[ACCOUNT_COL] || '').trim().toUpperCase();
+    if (acc) existing[acc] = c;
+  });
+
+  const seen = {};      // この貼り付けの中で見た学籍番号 → { line, name }
   const entries = [];
+  const skipped = [];
   const errors = [];
   list.forEach(function (raw, i) {
+    const line = i + 1;
     try {
       const e = normalizeStaffEntry_(raw);
-      const key = e.email.toLowerCase();
-      if (seen[key]) throw new Error('同じメールアドレスが ' + seen[key] + ' 行目にもあります。');
-      seen[key] = i + 1;
-      if (findRowCI_(SHEET.CONTACTS, 'email', e.email)) throw new Error('このメールアドレスは、もう名簿にあります。');
+      const now = existing[e.account];
+      if (now) {
+        const current = String(now.name || '').trim();
+        skipped.push({ line: line, account: e.account, name: e.name, current: current,
+          nameDiffers: nameKey_(current) !== nameKey_(e.name), reason: 'registered' });
+        return;
+      }
+      const dup = seen[e.account];
+      if (dup) {
+        if (nameKey_(dup.name) !== nameKey_(e.name)) {
+          throw new Error('同じ学籍番号が ' + dup.line + ' 番目にもあり、氏名が違います（' + dup.name + '）。');
+        }
+        skipped.push({ line: line, account: e.account, name: e.name, current: '', nameDiffers: false, reason: 'duplicate' });
+        return;
+      }
+      seen[e.account] = { line: line, name: e.name };
+      e.line = line;
       entries.push(e);
     } catch (err) {
-      errors.push({ line: i + 1, email: String((raw && raw.email) || '').trim(), message: err.message });
+      errors.push({ line: line, account: String((raw && raw.account) || '').trim(), message: err.message });
     }
   });
   if (errors.length) return { ok: false, errors: errors };
@@ -115,7 +143,8 @@ function registerStaff(items) {
       available_slots: '', assist_slots: '', personal_code: '',
       slots_updated_at: '',   // 空きコマは本人がマイページで出す（名簿では「未提出」）
     });
-    const contact = { staff_id: staffId, name: e.name, email: e.email, phone: e.phone, webhook_url: '' };
+    const contact = { staff_id: staffId, name: e.name, phone: e.phone, webhook_url: '' };
+    contact[ACCOUNT_COL] = e.account;
     contact[CONFIRMED_COL] = '';   // 本人の確認がまだ
     try {
       appendRow_(SHEET.CONTACTS, contact);
@@ -124,19 +153,21 @@ function registerStaff(items) {
         '名簿（staffs）に ' + staffId + '（' + e.name + '）を作りましたが、連絡先の作成に失敗しました：' + err.message +
         '　連絡先DBに手で行を足すか、staffs の ' + staffId + ' を消してください。');
     }
-    registered.push({ staff_id: staffId, name: e.name, email: e.email });
+    registered.push({ line: e.line, staff_id: staffId, name: e.name, account: e.account });
   });
-  advanceIdentityGen_();   // 新しい人がログインしたときに、名簿に無い扱いのキャッシュが残らないように
-  return { ok: true, registered: registered };
+  if (registered.length) advanceIdentityGen_();   // 新しい人がログインしたときに、名簿に無い扱いのキャッシュが残らないように
+  return { ok: true, registered: registered, skipped: skipped };
 }
 
 /**
- * 職員がスタッフの氏名・電話番号・メールアドレスを直す。
- * メールアドレスを変えたら、本人の確認をやり直す（別の人のアドレスに替わった可能性があるため）。
- * @param {{staff_id, email, family_name, given_name, phone}} p
+ * 職員がスタッフの氏名・電話番号・学籍番号を直す。
+ * 学籍番号を変えたら、本人の確認をやり直す（別の人の番号に替わった可能性があるため）。
+ * **学生スタッフでない行（職員など）の学籍番号は変えられない**。ログインの識別子なので、変えると権限が別のアカウントへ移る。
+ * @param {{staff_id, account, family_name, given_name, phone}} p
  */
 function updateStaffContact(p) {
   requireStaff_();
+  assertAccountColumn_();
   const q = p || {};
   const staffId = String(q.staff_id || '').trim();
   const staff = findRow_(SHEET.STAFFS, 'staff_id', staffId);
@@ -144,25 +175,30 @@ function updateStaffContact(p) {
   const contact = findRow_(SHEET.CONTACTS, 'staff_id', staffId);
   if (!contact) throw new Error('このスタッフの連絡先の行がありません。連絡先DBを確かめてください。');
 
-  const e = normalizeStaffEntry_({ email: q.email, family_name: q.family_name, given_name: q.given_name, phone: q.phone });
-  const emailChanged = e.email.toLowerCase() !== String(contact.email || '').trim().toLowerCase();
-  if (emailChanged) {
-    const other = findRowCI_(SHEET.CONTACTS, 'email', e.email);
-    if (other && String(other.staff_id).trim() !== staffId) throw new Error('このメールアドレスは、ほかの人の登録に使われています。');
+  const current = String(contact[ACCOUNT_COL] || '').trim().toUpperCase();
+  const isStudent = String(staff.role || '').trim() === '学生';
+  const e = normalizeStaffEntry_({ account: q.account, family_name: q.family_name, given_name: q.given_name, phone: q.phone },
+    { keepAccount: current });
+  const accountChanged = e.account !== current;
+  if (accountChanged) {
+    if (!isStudent) throw new Error('学生スタッフでない人（' + String(staff.role || '').trim() + '）の学籍番号は、名簿の画面から変えられません。');
+    const other = findRowCI_(SHEET.CONTACTS, ACCOUNT_COL, e.account);
+    if (other && String(other.staff_id).trim() !== staffId) throw new Error('この学籍番号は、ほかの人の登録に使われています。');
   }
 
   updateRow_(SHEET.STAFFS, 'staff_id', staffId, { name: e.name });
-  const updates = { name: e.name, phone: e.phone, email: e.email };
-  if (emailChanged && hasConfirmedColumn_()) updates[CONFIRMED_COL] = '';   // 確認をやり直す
+  const updates = { name: e.name, phone: e.phone };
+  updates[ACCOUNT_COL] = e.account;
+  if (accountChanged && hasConfirmedColumn_()) updates[CONFIRMED_COL] = '';   // 確認をやり直す
   updateRow_(SHEET.CONTACTS, 'staff_id', staffId, updates);
-  advanceIdentityGen_();   // 氏名・メールが変わったので、本人確認のキャッシュを捨てる（D48）
-  return { ok: true, reconfirm: emailChanged };
+  advanceIdentityGen_();   // 氏名・学籍番号が変わったので、本人確認のキャッシュを捨てる（D48）
+  return { ok: true, reconfirm: accountChanged };
 }
 
 /**
  * 本人の確認（初めて画面を開いたとき）。
  *   isMe=true  … 確認済みにする。このあとマイページで空きコマを出してもらう
- *   isMe=false … 確認済みにせず、職員スペースへ「登録のメールアドレスを確かめて」と知らせる
+ *   isMe=false … 確認済みにせず、職員スペースへ「登録の学籍番号を確かめて」と知らせる
  */
 function confirmMyIdentity(isMe) {
   const user = getCurrentUser_();
@@ -184,7 +220,7 @@ function confirmMyIdentity(isMe) {
       postToWebhook_(url, '⚠️ *名簿の確認で「違う」が押されました*\n' +
         '登録の名前: ' + user.name + '（' + user.staff_id + '）\n' +
         'ログインしたアカウント: ' + user.email + '\n' +
-        'メールアドレスの登録を確かめてください（スタッフ名簿で直せます）。');
+        '学籍番号の登録を確かめてください（スタッフ名簿で直せます）。');
       notified = true;
     }
   } catch (e) { /* 知らせられなくても、本人には支援室へ連絡するよう案内する */ }

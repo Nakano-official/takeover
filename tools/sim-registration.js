@@ -21,7 +21,7 @@ h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Access.gs', 'Class
 const G = h.G;
 
 const OK_HOOK = 'https://chat.googleapis.com/v1/spaces/AAA/messages?key=k&token=t';
-const NEW_MAIL = 'newcomer@example.ac.jp';
+const NEW_MAIL = 'newcomer@mail.ryukoku.ac.jp';
 
 function setup() {
   h.reset();
@@ -31,12 +31,12 @@ function setup() {
   // 既存の名簿（採番が S001 / S101 と衝突しないかも見る）
   h.add('staffs', { staff_id: 'S001', name: '職員 花子', role: '職員' });
   h.add('staffs', { staff_id: 'S101', name: '既存 学生', role: '学生', skills: 'テイク' });
-  h.add('contacts', { staff_id: 'S001', name: '職員 花子', email: 'staff@example.ac.jp' });
-  h.add('contacts', { staff_id: 'S101', name: '既存 学生', email: 'exist@example.ac.jp' });
+  h.add('contacts', { staff_id: 'S001', name: '職員 花子', email: 'staff@mail.ryukoku.ac.jp' });
+  h.add('contacts', { staff_id: 'S101', name: '既存 学生', email: 'exist@mail.ryukoku.ac.jp' });
 }
 const asNewcomer = () => h.setEmail(NEW_MAIL);
-const asStaff = () => h.setUser({ staff_id: 'S001', name: '職員 花子', role: '職員', email: 'staff@example.ac.jp' });
-const asStudent = () => h.setUser({ staff_id: 'S101', name: '既存 学生', role: '学生', email: 'exist@example.ac.jp' });
+const asStaff = () => h.setUser({ staff_id: 'S001', name: '職員 花子', role: '職員', email: 'staff@mail.ryukoku.ac.jp' });
+const asStudent = () => h.setUser({ staff_id: 'S101', name: '既存 学生', role: '学生', email: 'exist@mail.ryukoku.ac.jp' });
 const reg = () => h.db.registrations[0];
 
 /** すでに出ていた申請（以前の申請画面が保存していた形）を1件置く */
@@ -66,7 +66,8 @@ h.check(res.staff_id === 'S102', '★既存の S101 の次で採番される（S
 const newStaff = h.row('staffs', 'staff_id', res.staff_id);
 const newContact = h.row('contacts', 'staff_id', res.staff_id);
 h.check(!!newStaff && !!newContact, 'staffs と contacts の両方に行ができる');
-h.check(newStaff.name === '新人 太郎' && newContact.email === NEW_MAIL, '氏名とメールが入る');
+h.check(newStaff.name === '新人 太郎' && newContact.account === NEW_MAIL.split('@')[0].toUpperCase() && !('email' in newContact),
+  '氏名と学籍番号（メールの「@より前」の大文字）が入る。メールは持たない（D65）');
 h.check(newStaff.role === '学生', '★区分の既定は「学生」');
 h.check(newStaff.available_slots === '月1,火2', 'テイクの空きコマが引き継がれる');
 h.check(newStaff.assist_slots === '水3', '介助の空きコマも引き継がれる（テイクの値を写さない）');

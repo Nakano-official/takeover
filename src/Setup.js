@@ -61,13 +61,13 @@ function runSetup_(data, isEmpty) {
   if (isEmpty) {
     Logger.log('★ まずログインできるよう、最初の職員を1行ずつ追加してください：');
     Logger.log('  - staffs   : staff_id / name / role=職員 /（skills・available_slots は空でOK）');
-    Logger.log('  - contacts : 同じ staff_id / name / email=自分の大学アドレス');
+    Logger.log('  - contacts : 同じ staff_id / name / account=自分の大学アドレスの「@より前」（大文字・D65）');
     Logger.log('  その後、フォーム取り込みやシフト入力画面で学生・コマを投入します（docs/guides/operations.md）。');
     Logger.log('  ★ terms（学期マスタ）に当年度の雛形（前期/後期＋1Q〜4Q）を入れました。');
     Logger.log('    開始/終了日を実際の学事暦に合わせて調整してください（体系判定・現在学期の解決に使います）。');
   } else {
-    Logger.log('★ テストで自分が職員としてログインするには、連絡先DB contacts の S001 の email を');
-    Logger.log('  自分のアドレスに書き換えてください（それで「職員」として全画面が見えます）。');
+    Logger.log('★ テストで自分が職員としてログインするには、連絡先DB contacts の S001 の account を');
+    Logger.log('  自分の大学アドレスの「@より前」（大文字）に書き換えてください（それで「職員」として全画面が見えます）。');
   }
 }
 
@@ -231,7 +231,7 @@ function buildDummyData_() {
   const contacts = staff.concat(students).map(function (p, i) {
     return {
       staff_id: p.id, name: p.name,
-      email: p.id.toLowerCase() + '@example.ryukoku.ac.jp',
+      account: p.id,   // 学籍番号の代わり（ダミー・D65）
       phone: '000-0000-' + ('000' + (i + 1)).slice(-4),
       webhook_url: '',
       confirmed_at: nowString_(),   // ダミーは確認済み（確認の画面を出さない・D64）
@@ -385,7 +385,8 @@ function migrateAddContactConfirmedAt() {
   var filled = 0;
   if (lastRow >= 2) {
     const idCol = headers.indexOf('staff_id') + 1;
-    const mailCol = headers.indexOf('email') + 1;
+    // 識別子の列は、D65 の移行の前は email、後は account
+    const mailCol = (headers.indexOf('email') !== -1 ? headers.indexOf('email') : headers.indexOf(ACCOUNT_COL)) + 1;
     const ids = sheet.getRange(2, idCol, lastRow - 1, 1).getValues();
     const mails = sheet.getRange(2, mailCol, lastRow - 1, 1).getValues();
     const stamp = nowString_();
@@ -399,6 +400,77 @@ function migrateAddContactConfirmedAt() {
   invalidateSheetCache_('contacts'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
   Logger.log('✅ contacts に confirmed_at 列を足し、今いる ' + filled + ' 人を確認済みにしました（D64）。');
   Logger.log('   これで、スタッフ名簿から職員が登録できるようになります。');
+}
+
+/** 新しく作る連絡先DBの contacts の列（D65 の移行のあとと同じ並び） */
+const CONTACT_HEADERS = ['staff_id', 'name', 'account', 'phone', 'webhook_url', 'confirmed_at'].concat(DM_COLS);
+
+/**
+ * 既存の連絡先DBの contacts を、メールアドレスから学籍番号（account）で持つ形に替える（D65）。GAS エディタから1回実行する。
+ *
+ *  1. email 列の値を「@より前」の大文字に書き換え、見出しを account にする（大学のメールは全員 学籍番号＠mail.ryukoku.ac.jp）
+ *  2. DM の列（dm_space・dm_error・dm_error_at）を足す
+ *
+ * **1行でも大学のメール（@mail.ryukoku.ac.jp）でない行や、書き換えると同じ値になる行があれば、何も書き換えずに止まる**
+ * （途中まで書き換わった状態を作らない）。止まったら、出てきた行を直してからもう一度実行する。
+ * 2回目以降は、足りない列だけを足す（何度実行してもよい）。
+ * この関数を実行するまで、名簿からの登録・修正は止めてある（本人の特定は email 列のまま動く）。
+ */
+function migrateContactsToAccount() {
+  requireEditorRun_();
+  const ss = openContactsDb_();
+  const sheet = ss.getSheetByName('contacts');
+  if (!sheet) { Logger.log('❌ contacts シートが見つかりません。'); return; }
+
+  var lastCol = sheet.getLastColumn();
+  var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return String(h).trim(); });
+  const mailIdx = headers.indexOf('email');
+  const accIdx = headers.indexOf(ACCOUNT_COL);
+
+  if (accIdx === -1) {
+    if (mailIdx === -1) { Logger.log('❌ contacts に email 列も account 列もありません。見出しの行を確かめてください。'); return; }
+    const lastRow = sheet.getLastRow();
+    const n = Math.max(lastRow - 1, 0);
+    const mails = n ? sheet.getRange(2, mailIdx + 1, n, 1).getValues() : [];
+    const bad = [];
+    const seen = {};
+    const values = mails.map(function (r, i) {
+      const mail = String(r[0] == null ? '' : r[0]).trim();
+      if (!mail) return [''];
+      const acc = accountOfEmail_(mail);
+      if (!acc) { bad.push((i + 2) + '行目：大学のメールではありません（' + mail + '）'); return [mail]; }
+      if (seen[acc]) { bad.push((i + 2) + '行目：' + seen[acc] + '行目と同じ学籍番号（' + acc + '）になります'); return [mail]; }
+      seen[acc] = i + 2;
+      return [acc];
+    });
+    if (bad.length) {
+      Logger.log('❌ 何も書き換えていません。次の行を直してから、もう一度実行してください：');
+      bad.forEach(function (b) { Logger.log('   ' + b); });
+      return;
+    }
+    // 学籍番号を数値や日付に変えられないよう、先に列をテキストにしてから書く
+    sheet.getRange(2, mailIdx + 1, Math.max(sheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+    if (n) sheet.getRange(2, mailIdx + 1, n, 1).setValues(values);
+    sheet.getRange(1, mailIdx + 1, 1, 1).setValues([[ACCOUNT_COL]]);
+    headers[mailIdx] = ACCOUNT_COL;
+    Logger.log('✅ email 列を account 列（学籍番号）に替えました：' + Object.keys(seen).length + ' 人（D65）。');
+  } else {
+    Logger.log('✅ contacts には既に account 列があります（書き換えなし）。');
+  }
+
+  // DM の列を足す（無いものだけ）
+  const missing = DM_COLS.filter(function (c) { return headers.indexOf(c) === -1; });
+  if (missing.length) {
+    lastCol = sheet.getLastColumn();
+    sheet.getRange(1, lastCol + 1, 1, missing.length).setValues([missing]);
+    sheet.getRange(2, lastCol + 1, Math.max(sheet.getMaxRows() - 1, 1), missing.length).setNumberFormat('@');
+    Logger.log('✅ DM の列を足しました：' + missing.join('・') + '（D65）。');
+  } else {
+    Logger.log('✅ DM の列は既にあります（追加なし）。');
+  }
+  invalidateSheetCache_('contacts'); // Sheets.gs を経由しない書き換えなので実行内キャッシュを捨てる
+  advanceIdentityGen_();             // 本人の特定の引き方が変わったので、キャッシュを捨てる（D48）
+  Logger.log('   これで、スタッフ名簿から学籍番号で登録・修正できるようになります。');
 }
 
 function migrateAddStaffSlotsUpdatedAt() {
@@ -1603,8 +1675,11 @@ function setupContactsDb_(ss, data) {
   // phone 列（C…ではなくD列）は先頭0欠落・数値化を防ぐためテキスト固定。
   // personal_code と同様、空セットアップ後に職員が直接追加する行も保護するため列全体に掛ける。
   contactsSheet.getRange(2, 4, Math.max(contactsSheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+  // account（C列）も学籍番号を数値や日付に変えられないようテキストに固定する（D65）
+  contactsSheet.getRange(2, 3, Math.max(contactsSheet.getMaxRows() - 1, 1), 1).setNumberFormat('@');
   // confirmed_at：本人の確認（D64）。空＝職員が登録して本人がまだ確かめていない。最初の職員を手で足すときは日時を入れる
-  writeTable_(contactsSheet, ['staff_id', 'name', 'email', 'phone', 'webhook_url', 'confirmed_at'], data.contacts);
+  // account：メールの「@より前」（学生は学籍番号・D65）。dm_*：Chat の DM の場所と、送れなかった記録（D65）
+  writeTable_(contactsSheet, CONTACT_HEADERS, data.contacts);
 
   // 利用登録の申請（D28）。未登録者が自分で出し、職員が承認して初めて staffs/contacts に入る。
   // 氏名・電話・Webhook を含むので連絡先DB側（職員のみ）に置く。

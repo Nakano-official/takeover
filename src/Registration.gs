@@ -90,9 +90,13 @@ function approveRegistration(registrationId, opts) {
     throw new Error('この申請は既に「' + String(reg.status).trim() + '」です。画面を更新してください。');
   }
 
+  // 名簿は学籍番号（account）で持つ（D65）。申請はログインしたアカウントのメールなので、そこから作る
+  assertAccountColumn_();
   const email = String(reg.email || '').trim();
-  if (findRowCI_(SHEET.CONTACTS, 'email', email)) {
-    throw new Error('このメールは既に名簿にあります（二重登録の防止）。申請を却下してください。');
+  const account = accountOfEmail_(email);
+  if (!account) throw new Error('大学のアカウント（@' + UNIVERSITY_MAIL_DOMAIN + '）からの申請ではないため、承認できません。申請を却下してください。');
+  if (findRowCI_(SHEET.CONTACTS, ACCOUNT_COL, account)) {
+    throw new Error('この学籍番号は既に名簿にあります（二重登録の防止）。申請を却下してください。');
   }
 
   // 申請の時点の確認と同じものを、名簿へ写す前にもう一度通す（申請はシートを直接直されることもある）
@@ -121,7 +125,7 @@ function approveRegistration(registrationId, opts) {
     appendRow_(SHEET.CONTACTS, {
       staff_id: staffId,
       name: name,
-      email: email,
+      account: account,
       phone: phone,
       webhook_url: String(reg.webhook_url || '').trim(),
       // 申請は本人が自分のアカウントでログインして出したものなので、メールアドレスは本人のもの。確認済みにする（D64）

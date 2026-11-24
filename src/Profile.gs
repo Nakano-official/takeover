@@ -17,7 +17,7 @@
  *
  *   ❌ staffs.name           … 表示と突合に使う。本人が変えると職員側の照合がずれる
  *   ❌ staffs.role           … 自分を職員にできてしまう＝連絡先DB全体が見える画面に入れる
- *   ❌ contacts.email / staff_id … 本人を特定するキーそのもの
+ *   ❌ contacts.account / staff_id … 本人を特定するキーそのもの（D65）
  *
  * ■ なりすまし防止
  *   更新対象の staff_id は**必ず `getCurrentUser_()`（Session）から取る**。

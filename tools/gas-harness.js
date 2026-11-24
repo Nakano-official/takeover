@@ -51,7 +51,7 @@ const DEFAULT_HEADERS = {
   terms: ['term_id', 'system', 'start_date', 'end_date'],
   no_class_days: ['no_class_id', 'start_date', 'end_date', 'from_period', 'reason'],
   cancellations: ['cancellation_id', 'course_id', 'date', 'reason', 'created_by', 'created_at'],
-  contacts: ['staff_id', 'name', 'email', 'phone', 'webhook_url', 'confirmed_at'],
+  contacts: ['staff_id', 'name', 'account', 'phone', 'webhook_url', 'confirmed_at', 'dm_space', 'dm_error', 'dm_error_at'],
   registrations: ['registration_id', 'email', 'name', 'phone', 'webhook_url', 'skills', 'slots',
     'note', 'status', 'applied_at', 'decided_at', 'decided_by', 'staff_id', 'reject_reason', 'assist_slots'],
 };
@@ -119,6 +119,13 @@ class Harness {
     // contacts は、指定しなければ「本人の確認済み」（D64）。今いる人を表す。確認がまだの人は confirmed_at: '' を渡す
     if (sheet === 'contacts' && !Object.prototype.hasOwnProperty.call(row, 'confirmed_at')) o.confirmed_at = '2026-01-01 00:00:00';
     Object.keys(row).forEach((k) => { o[k] = row[k]; });
+    // contacts はメールを持たず account（「@より前」の大文字）を持つ（D65）。検証では email で書いてもよいように、
+    // account 列がある表では移行（migrateContactsToAccount）と同じく大学のメールから作り、email は捨てる
+    if (sheet === 'contacts' && this.headers.contacts.indexOf('account') !== -1 && 'email' in row && !('account' in row)) {
+      const m = String(row.email || '').match(/^(.+)@mail\.ryukoku\.ac\.jp$/i);
+      o.account = m ? m[1].toUpperCase() : '';
+      delete o.email;
+    }
     this.db[sheet].push(o);
     return o;
   }

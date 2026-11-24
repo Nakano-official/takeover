@@ -34,17 +34,17 @@ function setup() {
   });
   h.add('staffs', { staff_id: 'T1', name: '職員 花子', role: '職員' });
   h.add('contacts', {
-    staff_id: 'S101', name: '学生 太郎', email: 's101@example.ac.jp',
+    staff_id: 'S101', name: '学生 太郎', email: 's101@mail.ryukoku.ac.jp',
     phone: '090-1111-1111', webhook_url: OK_HOOK,
   });
-  h.add('contacts', { staff_id: 'T1', name: '職員 花子', email: 't1@example.ac.jp' });
+  h.add('contacts', { staff_id: 'T1', name: '職員 花子', email: 't1@mail.ryukoku.ac.jp' });
   h.add('staffs', {
     staff_id: 'S102', name: '別の学生', role: '学生', skills: 'テイク', available_slots: '月1',
   });
-  h.add('contacts', { staff_id: 'S102', name: '別の学生', email: 's102@example.ac.jp', phone: '090-9999-9999' });
+  h.add('contacts', { staff_id: 'S102', name: '別の学生', email: 's102@mail.ryukoku.ac.jp', phone: '090-9999-9999' });
 }
-const asStudent = () => h.setUser({ staff_id: 'S101', name: '学生 太郎', role: '学生', email: 's101@example.ac.jp' });
-const asStaff = () => h.setUser({ staff_id: 'T1', name: '職員 花子', role: '職員', email: 't1@example.ac.jp' });
+const asStudent = () => h.setUser({ staff_id: 'S101', name: '学生 太郎', role: '学生', email: 's101@mail.ryukoku.ac.jp' });
+const asStaff = () => h.setUser({ staff_id: 'T1', name: '職員 花子', role: '職員', email: 't1@mail.ryukoku.ac.jp' });
 const staffRow = (id) => h.row('staffs', 'staff_id', id);
 const contactRow = (id) => h.row('contacts', 'staff_id', id);
 
@@ -104,7 +104,7 @@ h.check(staffRow('S101').skills === 'テイク,介助', 'skills は本人が更�
 h.check(staffRow('S101').personal_code === 'Y200001',
   '★personal_code は書き換わらない（列は残っているが誰も使わない・機能B未実装）');
 h.check(p.personal_code === undefined, '★personal_code はマイページにも返さない');
-h.check(contactRow('S101').email === 's101@example.ac.jp', '★メールは書き換わらない（本人を特定するキー）');
+h.check(contactRow('S101').account === 'S101', '★学籍番号（account）は書き換わらない（本人を特定するキー・D65）');
 
 h.section('2b) staff_id は Session から取る（payload の id は見ない）');
 h.check(staffRow('S102').available_slots === '月1', '★payload の staff_id で他人の行を書き換えられない');
@@ -174,7 +174,7 @@ h.check(!staffRow('T1').slots_updated_at, '職員には更新日時も入らな�
 // ── 6) 名簿に行が無い場合 ──────────────────────────────────
 h.section('6) 行が見つからないときは理由を返す');
 setup();
-h.setUser({ staff_id: 'S999', name: '幽霊', role: '学生', email: 'ghost@example.ac.jp' });
+h.setUser({ staff_id: 'S999', name: '幽霊', role: '学生', email: 'ghost@mail.ryukoku.ac.jp' });
 threw = '';
 try { G.updateMyProfile({ phone: '090-1111-1111', webhook_url: OK_HOOK, slots: [] }); } catch (e) { threw = e.message; }
 h.check(/連絡先の行が見つかりません/.test(threw), '職員に問い合わせるよう促す');

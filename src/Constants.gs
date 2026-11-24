@@ -144,3 +144,13 @@ const RECRUIT_DEADLINE_CHECK_INTERVAL_MIN = 10;
 // 本人の確認（D64）。contacts のこの列が空＝職員が登録して、本人がまだ「あなたは〇〇さんですか？」に答えていない。
 // 列が無い（移行前）・値がある＝確認済み。判定は Util.gs の isUnconfirmedContact_
 const CONFIRMED_COL = 'confirmed_at';
+
+// ログインの識別子（D65）。contacts はメールアドレスを持たず、メールの「@より前」だけを account 列に持つ
+// （学生は学籍番号。支援室の共用アカウントもそのアカウントの「@より前」）。大学のアカウントは全員このドメインなので、
+// メールは「account を小文字にしたもの＋@＋このドメイン」で作る（Util.gs の emailOfAccount_ / accountOfEmail_）。
+// 移行前のDB（account 列が無く email 列がある）は、本人の特定だけ email で引く（hasAccountColumn_）。
+const UNIVERSITY_MAIL_DOMAIN = 'mail.ryukoku.ac.jp';
+const ACCOUNT_COL = 'account';
+// DM（D65）。dm_space＝支援室アカウントとその人の DM の場所（送る側のアカウントごとに違う）。
+// dm_error / dm_error_at＝最後に送れなかった理由と日時（送れたら消す）
+const DM_COLS = ['dm_space', 'dm_error', 'dm_error_at'];

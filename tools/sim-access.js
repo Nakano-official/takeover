@@ -48,8 +48,8 @@ h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Access.gs', 'Class
   'Identity.gs', 'code.js']);
 const G = h.G;
 
-const STAFF = { staff_id: 'T1', name: '職員 花子', role: '職員', email: 'staff@example.ac.jp' };
-const STUDENT = { staff_id: 'S1', name: '学生 太郎', role: '学生', email: 'student@example.ac.jp' };
+const STAFF = { staff_id: 'T1', name: '職員 花子', role: '職員', email: 'staff@mail.ryukoku.ac.jp' };
+const STUDENT = { staff_id: 'S1', name: '学生 太郎', role: '学生', email: 'student@mail.ryukoku.ac.jp' };
 
 function setup() {
   h.reset();
@@ -118,7 +118,7 @@ h.check(/\?page=approvals"/.test(G.renderChrome_({ file: 'home', title: 'シフ�
   '職員のナビはいつも通り');
 
 h.section('5) 準備中でも未登録の人は申請画面へ');
-h.setEmail('newcomer@example.ac.jp');
+h.setEmail('newcomer@mail.ryukoku.ac.jp');
 h.check(pageOf('home') === 'signup', '名簿に無い人は申請画面');
 
 h.section('6) 公開に戻すと学生も使える');

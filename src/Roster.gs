@@ -91,8 +91,9 @@ function getStaffRoster() {
       if (contact && !phone) issues.push('phone');
     }
 
-    // 入学年度（メールの学籍番号から・D61）。名簿を「24」「25」…でまとめる
-    const sno = studentNoOfEmail_(contact ? contact.email : '');
+    // 入学年度（学籍番号から・D61）。名簿を「24」「25」…でまとめる
+    const account = contactAccount_(contact);
+    const sno = studentNoOfEmail_(account);
 
     return {
       staff_id: staffId,
@@ -102,7 +103,7 @@ function getStaffRoster() {
       studentNo: sno.studentNo,
       entryYear: sno.entryYear,
       skills: String(s.skills || '').trim(),   // 空欄は全対応扱い（D9）
-      email: contact ? String(contact.email || '').trim() : '',
+      account: account,   // 学籍番号（ログインの識別子・D65）
       phone: phone,
       // Webhook URL そのものは出さない。届くかどうかが分かれば足りるうえ、
       // URL は**それを知っている人なら誰でも投稿できる**秘密に近い値なので画面に晒さない。
@@ -189,10 +190,10 @@ function rosterOrphanContacts_(staffs, contacts) {
     return {
       staff_id: String(c.staff_id || '').trim(),
       name: String(c.name || '').trim(),
-      email: String(c.email || '').trim(),
+      account: contactAccount_(c),
     };
   }).filter(function (c) {
-    if (!c.email && !c.name && !c.staff_id) return false;   // 空行
+    if (!c.account && !c.name && !c.staff_id) return false;   // 空行
     return !c.staff_id || !known[c.staff_id];
   });
 }

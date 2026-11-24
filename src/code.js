@@ -142,7 +142,7 @@ function doGet(e) {
 
 /**
  * ログイン中のユーザーを特定して { email, staff_id, name, role } を返す。
- * contacts でメール → staff_id を引き、staffs で role を引く。
+ * contacts でメールの「@より前」（account・D65）→ staff_id を引き、staffs で role を引く。
  * 登録が無ければ null。
  *
  * 結果は実行をまたいでキャッシュする（Identity.gs・D48）。シートが手で直されたら
@@ -160,8 +160,17 @@ function getCurrentUser_() {
 }
 
 // シートから本人を引く（キャッシュに無いときだけ呼ばれる）
+// contacts はメールを持たず account（「@より前」）を持つ（D65）。移行（migrateContactsToAccount）の前は
+// account 列が無いので、今まで通り email 列で引く（push してから移行するまでの間も、誰もが入れるように）。
 function lookupIdentity_(email) {
-  const contact = findRowCI_(SHEET.CONTACTS, 'email', email);
+  var contact;
+  if (hasAccountColumn_()) {
+    const account = accountOfEmail_(email);
+    if (!account) return null;   // 大学のアカウントでない
+    contact = findRowCI_(SHEET.CONTACTS, ACCOUNT_COL, account);
+  } else {
+    contact = findRowCI_(SHEET.CONTACTS, 'email', email);
+  }
   if (!contact) return null;
 
   const staff = findRow_(SHEET.STAFFS, 'staff_id', contact.staff_id);

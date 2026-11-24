@@ -75,7 +75,8 @@ function viewAs(staffId) {
     return null;
   }
   const s = h.row('staffs', 'staff_id', staffId);
-  h.setUser({ staff_id: staffId, name: s.name, role: s.role, email: h.row('contacts', 'staff_id', staffId).email });
+  // ログインのメールは学籍番号から作る（D65。contacts はメールを持たない）
+  h.setUser({ staff_id: staffId, name: s.name, role: s.role, email: G.emailOfAccount_(h.row('contacts', 'staff_id', staffId).account) });
   return G.getCurrentUser_();
 }
 

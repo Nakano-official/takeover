@@ -56,11 +56,11 @@ function setup() {
   h.add('periods', { period: '2', start_time: '11:00', end_time: '12:30' });
   [['S1', '学生 一郎'], ['S2', '学生 二郎'], ['S3', '学生 三郎'], ['S4', '代行 四郎']].forEach(function (s) {
     h.add('staffs', { staff_id: s[0], name: s[1], role: '学生', skills: 'テイク,介助' });
-    h.add('contacts', { staff_id: s[0], name: s[1], email: s[0].toLowerCase() + '@example.jp',
+    h.add('contacts', { staff_id: s[0], name: s[1], email: s[0].toLowerCase() + '@mail.ryukoku.ac.jp',
       webhook_url: s[0] === 'S2' ? '' : 'https://chat.googleapis.com/v1/spaces/' + s[0] });
   });
   h.add('staffs', { staff_id: 'T1', name: '職員 花子', role: '職員' });
-  h.add('contacts', { staff_id: 'T1', name: '職員 花子', email: 't1@example.jp' });
+  h.add('contacts', { staff_id: 'T1', name: '職員 花子', email: 't1@mail.ryukoku.ac.jp' });
   const c = (id, period, type, user, a, b, extra) => Object.assign({ course_id: id, quarter: 'X-後期', day: DAY,
     period: period, support_type: type, user_student: user, staff_a_id: a, staff_b_id: b || '' }, extra || {});
   h.add('courses', c('C1', '1', 'テイク', '架空 花子', 'S1', 'S2'));
@@ -70,8 +70,8 @@ function setup() {
   h.add('vacancies', { vacancy_id: 'V1', date: D, course_id: 'C1', absent_staff_id: 'S1', result: '' });
   h.add('vacancies', { vacancy_id: 'V2', date: D, course_id: 'C2', absent_staff_id: 'S3', result: '補充済', substitute_staff_id: 'S4' });
 }
-const asStaff = () => h.setUser({ staff_id: 'T1', name: '職員 花子', role: '職員', email: 't1@example.jp' });
-const asStudent = () => h.setUser({ staff_id: 'S1', name: '学生 一郎', role: '学生', email: 's1@example.jp' });
+const asStaff = () => h.setUser({ staff_id: 'T1', name: '職員 花子', role: '職員', email: 't1@mail.ryukoku.ac.jp' });
+const asStudent = () => h.setUser({ staff_id: 'S1', name: '学生 一郎', role: '学生', email: 's1@mail.ryukoku.ac.jp' });
 const errOf = (fn) => { try { fn(); return null; } catch (e) { return e.message; } };
 const held = (id, d) => G.courseHeldOn_(h.row('courses', 'course_id', id), d, G.classCalendar_());
 
@@ -215,7 +215,7 @@ h.check(/取り消して/.test(errOf(() => G.reopenVacancy('V1')) || ''), '先�
 h.check(h.row('vacancies', 'vacancy_id', 'V1').result === '休講', '結果は書き換えない');
 // 経路の漏れで開いたままになっていても、代行を確定させない
 h.row('vacancies', 'vacancy_id', 'V1').result = '';
-h.setUser({ staff_id: 'S4', name: '代行 四郎', role: '学生', email: 's4@example.jp' });
+h.setUser({ staff_id: 'S4', name: '代行 四郎', role: '学生', email: 's4@mail.ryukoku.ac.jp' });
 const c4 = G.claimVacancy('V1');
 h.check(c4.ok === false && /休講/.test(c4.message || ''), '★自分から代行に入れない');
 h.check(/休講です/.test(errOf(() => G.respondToVacancy('V1', '承諾')) || ''), '★代行依頼に承諾できない');
@@ -278,7 +278,7 @@ h.check(v1.result === '休講' && !v1.substitute_staff_id, '欠員の結果と�
 h.check(h.db.responses.length === resBefore && posted.length === 0, '回答も募集の通知も作らない');
 // 経路の漏れで開いたままでも、代行の回答・確定で止める
 v1.result = '';
-h.setUser({ staff_id: 'S4', name: '代行 四郎', role: '学生', email: 's4@example.jp' });
+h.setUser({ staff_id: 'S4', name: '代行 四郎', role: '学生', email: 's4@mail.ryukoku.ac.jp' });
 h.check(G.claimVacancy('V1').ok === false, '★自分から代行に入れない');
 h.check(/休講です/.test(errOf(() => G.respondToVacancy('V1', '承諾')) || ''), '★代行依頼に承諾できない');
 asStaff();

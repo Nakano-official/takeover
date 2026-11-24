@@ -49,7 +49,7 @@ function setup(closed, dayOffset) {
       staff_id: s[0], name: s[1], role: s[2], skills: s[3],
       available_slots: s[4] ? D + s[4] : '',
     });
-    h.add('contacts', { staff_id: s[0], name: s[1], email: s[0].toLowerCase() + '@example.jp' });
+    h.add('contacts', { staff_id: s[0], name: s[1], email: s[0].toLowerCase() + '@mail.ryukoku.ac.jp' });
   });
   h.add('courses', {
     course_id: 'C001', quarter: '2026-後期', day: D, period: '3', support_type: 'テイク',
@@ -63,7 +63,7 @@ function setup(closed, dayOffset) {
 }
 function as(id) {
   const s = h.row('staffs', 'staff_id', id);
-  h.setUser({ staff_id: id, name: s.name, role: s.role, email: id.toLowerCase() + '@example.jp' });
+  h.setUser({ staff_id: id, name: s.name, role: s.role, email: id.toLowerCase() + '@mail.ryukoku.ac.jp' });
 }
 const vac = (id) => h.row('vacancies', 'vacancy_id', id);
 const blockerFor = (vid, sid) => G.selfClaimBlocker_(vac(vid), h.row('staffs', 'staff_id', sid));
@@ -154,7 +154,7 @@ function setupBlock() {
   [['S1', '欠勤する人', '介助'], ['S8', '介助できる', '介助'], ['S9', '移動後に別の担当', '介助'], ['S10', 'テイクだけ', 'テイク']]
     .forEach(function (x) {
       h.add('staffs', { staff_id: x[0], name: x[1], role: '学生', skills: x[2] });
-      h.add('contacts', { staff_id: x[0], name: x[1], email: x[0].toLowerCase() + '@example.jp' });
+      h.add('contacts', { staff_id: x[0], name: x[1], email: x[0].toLowerCase() + '@mail.ryukoku.ac.jp' });
     });
   [['CB1', '移動前2'], ['CB2', '2'], ['CB3', '移動後2']].forEach(function (c) {
     h.add('courses', {
@@ -206,7 +206,7 @@ h.check(take && !take.claimable && take.reason.indexOf('対応できる業務') 
 h.check(list.items[0].date <= list.items[1].date, '日付の早い順');
 h.check(/^\d{2}:\d{2}$/.test(blk.deadline), '締切の時刻を返す');
 h.add('staffs', { staff_id: 'T1', name: '職員', role: '職員' });
-h.add('contacts', { staff_id: 'T1', name: '職員', email: 't1@example.jp' });
+h.add('contacts', { staff_id: 'T1', name: '職員', email: 't1@mail.ryukoku.ac.jp' });
 as('T1');
 list = G.getOpenVacancies();
 h.check(list.isStaff && list.items.every(function (x) { return !x.claimable && !x.reason; }),
@@ -245,7 +245,7 @@ h.add('terms', { term_id: '2026-3Q', system: 'quarter', start_date: T.dateIn(-60
 h.add('terms', { term_id: '2026-4Q', system: 'quarter', start_date: T.dateIn(1), end_date: T.dateIn(120) });
 [['S8', '4Qの担当'], ['S9', '3Qの担当']].forEach(function (s) {
   h.add('staffs', { staff_id: s[0], name: s[1], role: '学生', skills: 'テイク', available_slots: T.dayJp(DAY) + '3' });
-  h.add('contacts', { staff_id: s[0], name: s[1], email: s[0].toLowerCase() + '@example.jp' });
+  h.add('contacts', { staff_id: s[0], name: s[1], email: s[0].toLowerCase() + '@mail.ryukoku.ac.jp' });
 });
 h.add('courses', { course_id: 'C008', quarter: '2026-4Q', day: T.dayJp(DAY), period: '3', support_type: 'テイク',
   user_student: '四Q 利用者', staff_a_id: 'S8', staff_b_id: '' });
