@@ -165,7 +165,7 @@
       if (!P) return;
       var skills = pickedSkills();
       if (!skills.length) {
-        setupMsg('err', '対応できる業務を1つ以上選んでください（すべて外すと、逆にすべての依頼が届きます）。');
+        setupMsg('err', '対応できる業務を1つ以上選んでください（選んでいないと、どの代行依頼も届きません）。');
         return;
       }
       var slots = pickedSlotsByType(P);

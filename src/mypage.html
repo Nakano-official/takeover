@@ -98,7 +98,7 @@
       // 学生が対応できる業務を1つも選んでいないときは往復させずにここで止める
       // （サーバー側でも同じ検証をしている。空欄だと、どの依頼も届かなくなるため・D31・D65）
       if (P && P.isStudent && pickedSkills().length === 0) {
-        showToast('対応できる業務を1つ以上選んでください（すべて外すと、逆にすべての依頼が届きます）。', false);
+        showToast('対応できる業務を1つ以上選んでください（選んでいないと、どの代行依頼も届きません）。', false);
         return;
       }
       var btn = document.getElementById('save');

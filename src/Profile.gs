@@ -257,7 +257,7 @@ function normalizeSkills_(skills) {
     return raw.some(function (x) { return String(x).trim() === name; });
   });
   if (!picked.length) {
-    throw new Error('対応できる業務を1つ以上選んでください（すべて外すと、逆にすべての依頼が届きます）。');
+    throw new Error('対応できる業務を1つ以上選んでください（選んでいないと、どの代行依頼も届きません）。');
   }
   return picked.join(',');
 }

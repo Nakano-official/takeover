@@ -664,7 +664,7 @@
         if (mode === 'one') {
           var skills = Array.prototype.filter.call(document.getElementsByName('sSkill'), function (c) { return c.checked; })
             .map(function (c) { return c.value; });
-          if (!skills.length) { setDialogMsg('err', '対応できる業務を1つ以上選んでください（どちらも外すと、すべての依頼が届きます）。'); return; }
+          if (!skills.length) { setDialogMsg('err', '対応できる業務を1つ以上選んでください（選んでいないと、どの代行依頼も届きません）。'); return; }
           entry.skills = skills;
           payload = [entry];
         } else {

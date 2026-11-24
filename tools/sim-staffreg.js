@@ -568,6 +568,20 @@ h.check(r5 && r5.issues.indexOf('skills') !== -1 && r5.issues.indexOf('slots') =
   h.check(empty.indexOf('checked') === -1, '★業務が空欄の人には、どのチェックも入れずに見せる（外し忘れで、できない業務の依頼が届かない）');
   h.check((one.match(/checked/g) || []).length === 1, '選んだ業務だけにチェックを入れる');
 }
+// シフト確認のマイビュー：業務を選んでいない人に「あなたが入れます」を出さない（サーバーの候補の抽出と食い違わない）
+{
+  const hp = loadPage('home', { globals: { viewCacheLoad() {}, viewCacheLocked() { return false; }, viewCacheClear() {} } });
+  hp.ctx.ME = '自分 花子';   // ログイン中の人の名前（この試験では埋まらないので入れる）
+  const open1 = { staffA: '相方 一郎', staffB: '', support_type: 'テイク', status: '通常', day: '月', period: '1' };
+  hp.ctx.DATA = { me: { skills: [], slotsByType: { 'テイク': ['月1'] } } };
+  h.check(hp.ctx.isMyOpen(open1) === false,
+    '★業務が未選択なら、空きコマが残っていても「あなたが入れます」を出さない（PR #59 のレビュー）');
+  hp.ctx.DATA = { me: { skills: ['テイク'], slotsByType: { 'テイク': ['月1'] } } };
+  h.check(hp.ctx.isMyOpen(open1) === true, '業務を選んでいて空きコマが合えば出す');
+}
+// 業務を1つも選ばない保存の案内は、新しい決まり（選ばないと届かない）に合わせる
+h.check(/選んでいないと、どの代行依頼も届きません/.test(errOf(() => G.normalizeSkills_([]))),
+  '業務を1つも選ばない保存は「選んでいないと、どの代行依頼も届きません」と案内する');
 
 h.section('17) ロック：入れ子にしても、一番外側でだけ取って外す（Sheets.gs の withLock_）');
 {
