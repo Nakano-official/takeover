@@ -1173,14 +1173,16 @@ function findCandidates_(course, excludeStaffIds, date, ctx) {
 }
 
 /**
- * その業務に対応できるか（D9）。**skills 未設定は全対応扱い**。
+ * その業務に対応できるか（D9）。**skills が空欄なら、どの業務にも対応しない**（D65・2026-11-25）。
+ * 以前は空欄＝全対応だったが、名簿から登録した人は業務が空で始まるうえ、画面が空の人に両方のチェックを
+ * 入れて見せていたので、選んだつもりのない業務の依頼まで届きえた。本人が選ぶまで、どの依頼も届けない。
  */
 function hasSkillFor_(staff, supportType) {
   const type = String(supportType || '').trim();
   if (!type) return true;
   const skills = String((staff && staff.skills) || '').split(',')
     .map(function (x) { return x.trim(); }).filter(Boolean);
-  return !skills.length || skills.indexOf(type) !== -1;
+  return skills.indexOf(type) !== -1;
 }
 
 /**

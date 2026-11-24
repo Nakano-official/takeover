@@ -38,7 +38,7 @@ const WEEK = { 月: '2026-11-09', 火: '2026-11-10', 水: '2026-11-11', 木: '20
 
 const STAFFS = [
   // staff_id, 氏名, role, skills, テイクの空きコマ, 介助の空きコマ
-  // 学生のメールは学籍番号の形（入学年度でまとまる・D61）。番号はすべて架空
+  // 最後の列は学籍番号（contacts.account・D65。入学年度でまとまる・D61）。番号はすべて架空
   ['S01', '山田 太郎', '学生', 'テイク,介助', '月1,木4', '', 'y250101'],
   ['S02', '佐藤 花子', '学生', 'テイク', '月1,水3,水2,木4', '', 'y240102'],
   ['S03', '田中 一郎', '学生', 'テイク', '月3,水2,水3,木4', '', 't240103'],
@@ -111,12 +111,18 @@ function seed(h) {
       slots_updated_at: s[0] === 'S07' ? '' : '2026-09-15 20:00:00',
     });
     h.add('contacts', {
-      staff_id: s[0], name: s[1], email: s[6] + '@example.jp',
+      staff_id: s[0], name: s[1], account: s[6].toUpperCase(),   // 学籍番号（D65・架空の番号）
       // 090-0000-xxxx は架空と分かる並び（実在の番号に当たらないよう 0000 を入れる）
       phone: '090-0000-' + String(1001 + i),
       webhook_url: 'https://chat.googleapis.com/v1/spaces/DEMO' + i + '/messages?key=k&token=t',
     });
   });
+  // 職員が名簿から登録したばかりで、本人がまだ「あなたは〇〇さんですか？」に答えていない学生（D64）。
+  // 確認の画面と、名簿の「確認まだ」を撮るため。空きコマ・通知先はまだ無い
+  h.add('staffs', { staff_id: 'S08', name: '新人 花子', role: '学生', skills: '', available_slots: '', assist_slots: '', slots_updated_at: '' });
+  // 支援室の名簿に電話番号は無いので、名簿から登録したばかりの人は電話番号も空（本人が確認のあとに入れる・D65）
+  h.add('contacts', { staff_id: 'S08', name: '新人 花子', account: 'Y260108', phone: '',
+    webhook_url: '', confirmed_at: '' });
   COURSES.forEach(function (c) {
     h.add('courses', {
       course_id: c[0], quarter: TERM, day: c[1], period: c[2], support_type: c[3],
@@ -145,7 +151,8 @@ const VIEWERS = {
   student: 'S01',     // 山田 太郎（学生）
   candidate: 'S06',   // 小林 健太（水曜2限の代行候補。代行依頼への回答画面を撮る）
   staff: 'T01',       // 支援室 職員
-  newcomer: null,     // 名簿に無いアカウント（利用登録の申請画面）
+  newcomer: null,     // 名簿に無いアカウント（「まだ登録されていません」の案内）
+  fresh: 'S08',       // 新人 花子（職員が登録したばかり・本人の確認がまだ・D64）
 };
 const NEWCOMER_EMAIL = 'newcomer@example.jp';
 

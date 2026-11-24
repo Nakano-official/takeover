@@ -25,16 +25,17 @@ h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Access.gs', 'Class
 
 const PAGES = h.value('PAGES');
 const TOPICS = h.value('HELP_TOPICS');
-// 見せる話題が無い画面（USB 中継プログラムが開く画面／未登録の人の申請画面）
-const NO_HELP = ['deviceRelay', 'signup'];   // signup は画面の中のボタンから開く話題だけを持つ
+// 見せる話題が無い画面（USB 中継プログラムが開く画面／名簿に無い人への案内）
+// signup は以前は申請画面で「通知先URLの作り方」だけを持っていたが、申請をやめて案内だけになった（D64）
+const NO_HELP = ['deviceRelay', 'signup'];
 const topicsOf = function (key, user) {
   const m = /HELP_TOPICS_HERE = (\[.*?\]);/.exec(h.G.renderChrome_(PAGES[key], key, user));
   return m ? JSON.parse(m[1]).map((t) => t.key) : [];
 };
 const ALL = Object.keys(TOPICS);
 const FOR_STUDENT = ALL.filter((k) => !TOPICS[k].staffOnly);
-const STAFF = { staff_id: 'T1', name: '職員', role: '職員', email: 't@example.jp' };
-const STUDENT = { staff_id: 'S1', name: '学生', role: '学生', email: 's@example.jp' };
+const STAFF = { staff_id: 'T1', name: '職員', role: '職員', email: 't@mail.ryukoku.ac.jp' };
+const STUDENT = { staff_id: 'S1', name: '学生', role: '学生', email: 's@mail.ryukoku.ac.jp' };
 const hasBtn = (key, user) => h.G.renderChrome_(PAGES[key], key, user).indexOf('help-btn') !== -1;
 
 console.log('===== ヘルプの検証 =====');
@@ -47,8 +48,8 @@ h.section('2) 学生は、職員向けを除いた同じ一覧を開ける');
 Object.keys(PAGES).filter((k) => !PAGES[k].staffOnly && NO_HELP.indexOf(k) === -1).forEach(function (k) {
   h.check(hasBtn(k, STUDENT) && topicsOf(k, STUDENT).join() === FOR_STUDENT.join(), PAGES[k].title);
 });
-h.check(!hasBtn('signup', null) && topicsOf('signup', null).join() === 'webhook',
-  '申請画面：ヘッダーのボタンは出さず、「詳細はこちら」で通知先URLの作り方だけを開ける（D54）');
+h.check(!hasBtn('signup', null) && topicsOf('signup', null).length === 0,
+  '名簿に無い人への案内：ヘルプは出さない（申請をやめた・D64）');
 NO_HELP.forEach(function (k) {
   h.check(!hasBtn(k, STAFF) && !hasBtn(k, null), PAGES[k].title + '：ヘッダーのボタンは出さない');
 });

@@ -20,8 +20,8 @@
 const ROLE_STAFF = '職員';
 
 // 対応できる業務（staffs.skills / courses.support_type に入る値・D9）。
-// skills 空欄は「全対応」扱い（D9）。この既定があるため、マイページでは
-// 「両方チェックを外す」を保存させない（外した人が全依頼を受ける側に倒れてしまうため・D31）。
+// skills 空欄は「まだ選んでいない＝どの依頼も届かない」（D65 で D9 の「全対応」を改めた）。
+// マイページでは「両方チェックを外す」を保存させない（選んだつもりで依頼が止まらないように・D31）。
 const SUPPORT_TYPES = ['テイク', '介助'];
 
 // 空きコマは**業務ごとに別で持つ**（D32）。テイクと介助では空いている時間が違ううえ、
@@ -140,3 +140,17 @@ const MSG_SELF_CLAIM_CLOSED =
 // ※ 値を変えたら installTriggers() を再実行してトリガーを作り直すこと
 //   （既存のトリガーは古い間隔のまま動き続ける）。
 const RECRUIT_DEADLINE_CHECK_INTERVAL_MIN = 10;
+
+// 本人の確認（D64）。contacts のこの列が空＝職員が登録して、本人がまだ「あなたは〇〇さんですか？」に答えていない。
+// 列が無い（移行前）・値がある＝確認済み。判定は Util.gs の isUnconfirmedContact_
+const CONFIRMED_COL = 'confirmed_at';
+
+// ログインの識別子（D65）。contacts はメールアドレスを持たず、メールの「@より前」だけを account 列に持つ
+// （学生は学籍番号。支援室の共用アカウントもそのアカウントの「@より前」）。大学のアカウントは全員このドメインなので、
+// メールは「account を小文字にしたもの＋@＋このドメイン」で作る（Util.gs の emailOfAccount_ / accountOfEmail_）。
+// 移行前のDB（account 列が無く email 列がある）は、本人の特定だけ email で引く（hasAccountColumn_）。
+const UNIVERSITY_MAIL_DOMAIN = 'mail.ryukoku.ac.jp';
+const ACCOUNT_COL = 'account';
+// DM（D65）。dm_space＝支援室アカウントとその人の DM の場所（送る側のアカウントごとに違う）。
+// dm_error / dm_error_at＝最後に送れなかった理由と日時（送れたら消す）
+const DM_COLS = ['dm_space', 'dm_error', 'dm_error_at'];

@@ -64,7 +64,7 @@ h.stub({
     },
   },
 });
-h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Access.gs', 'ClassCalendar.gs', 'Cancellation.gs', 'Input.gs', 'Profile.gs', 'Registration.gs', 'Roster.gs',
+h.load(['Constants.gs', 'Util.gs', 'Terms.gs', 'Vacancy.gs', 'Access.gs', 'ClassCalendar.gs', 'Cancellation.gs', 'Input.gs', 'Profile.gs', 'Registration.gs', 'Roster.gs', 'StaffAdmin.gs',
   'Setup.js', 'code.js', 'Identity.gs']);
 const G = h.G;
 
@@ -75,7 +75,8 @@ function viewAs(staffId) {
     return null;
   }
   const s = h.row('staffs', 'staff_id', staffId);
-  h.setUser({ staff_id: staffId, name: s.name, role: s.role, email: h.row('contacts', 'staff_id', staffId).email });
+  // ログインのメールは学籍番号から作る（D65。contacts はメールを持たない）
+  h.setUser({ staff_id: staffId, name: s.name, role: s.role, email: G.emailOfAccount_(h.row('contacts', 'staff_id', staffId).account) });
   return G.getCurrentUser_();
 }
 
@@ -92,7 +93,17 @@ function precompute(pages, params, opts) {
   tryPut('getOpenVacancies', function () { return G.getOpenVacancies(); });
   tryPut('getVacanciesForManage', function () { return G.getVacanciesForManage(); });
   tryPut('getInputData', function () { return G.getInputData(null); });
-  tryPut('getMyProfile', function () { return G.getMyProfile(); });
+  tryPut('getMyProfile', function () {
+    // 確認の画面（D64）は「はい」で確認済みにしてから読む。デモは「はい」が書き込まないので、確認済みとして中身を作る
+    // （getMyProfile は確認がまだの人には返さない・D65）
+    const me = G.getCurrentUser_();
+    if (!me || me.confirmed !== false) return G.getMyProfile();
+    const c = h.row('contacts', 'staff_id', me.staff_id);
+    const was = c.confirmed_at;
+    c.confirmed_at = '2026-11-10 09:00:00';
+    h.cache.clear();
+    try { return G.getMyProfile(); } finally { c.confirmed_at = was; h.cache.clear(); }
+  });
   tryPut('getStaffRoster', function () { return G.getStaffRoster(); });
   tryPut('getRegistrations', function () { return G.getRegistrations(); });
   tryPut('getStudentAccess', function () { return G.getStudentAccess(); });
@@ -100,7 +111,6 @@ function precompute(pages, params, opts) {
   out['setStudentAccess|true'] = { open: true };
   out['setStudentAccess|false'] = { open: false };
   tryPut('getTermsAdmin', function () { return G.getTermsAdmin(); });
-  tryPut('getSignupContext', function () { return G.getSignupContext(); });
   if (params.vacancy) {
     tryPut('getVacancyForRespond|' + params.vacancy, function () { return G.getVacancyForRespond(params.vacancy); });
   }
@@ -186,7 +196,8 @@ function renderPage(viewerKey, pageKey, params, opts) {
   h.props.STUDENT_ACCESS = (params && params.closed) ? 'closed' : null;
   const user = viewAs(DEMO.VIEWERS[viewerKey]);
   // 準備中の画面（closed）は PAGES に無い（?page= では開けない）ので別に引く
-  const config = pageKey === 'closed' ? h.value('CLOSED_PAGE') : h.value('PAGES')[pageKey];
+  const config = pageKey === 'closed' ? h.value('CLOSED_PAGE')
+    : pageKey === 'confirm' ? h.value('CONFIRM_PAGE') : h.value('PAGES')[pageKey];
   const html = evaluate(fs.readFileSync(path.join(SRC, config.file + '.html'), 'utf8'), {
     user: user,
     params: params || {},
@@ -217,6 +228,7 @@ const SHOTS = {
   'staff-roster': ['staff', 'roster', {}],
   'staff-approvals': ['staff', 'approvals', { closed: true }],   // 準備中のスイッチも写す（D56）
   'student-closed': ['student', 'closed', { closed: true }],       // 準備中に学生が開いたとき
+  'fresh-confirm': ['fresh', 'confirm', {}],                        // 職員が登録した人が初めて開いたとき（D64）
   'staff-terms': ['staff', 'terms', {}],
 };
 

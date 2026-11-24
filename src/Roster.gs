@@ -13,10 +13,11 @@
  *   - **本人が今学期の空きコマを出し直したか**（slots_updated_at。空＝職員が入れたまま・D28）
  *   - 今学期に何コマ持っているか
  *
- * ■ 読み取り専用
- *   ここでは何も書き換えない。名簿を作るのは承認（approveRegistration）だけ、
- *   本人の連絡先と空きコマを直すのはマイページ（Profile.gs）だけ、という D28 の経路を崩さない。
- *   職員が管理する項目（skills）はシートで直す。
+ * ■ 名簿の登録と修正（2026-11-21・D64）
+ *   ここ（getStaffRoster）は読むだけ。名簿の画面から、職員が学生を登録し（registerStaff）、
+ *   氏名・電話・メールを直す（updateStaffContact）。どちらも StaffAdmin.gs にある。
+ *   空きコマ・通知先・対応できる業務は今まで通り本人がマイページで直す（Profile.gs）。
+ *   以前（D28）は、名簿を作るのは承認だけ・連絡先を直すのはマイページだけとしていた。
  *
  * ■ 個人コード（personal_code）は出さない
  *   機能B（勤怠整合性チェック）を実装しない方針になったため（2026-09-13）、この列を読む相手が
@@ -58,9 +59,9 @@ function getStaffRoster() {
 
     const slotsByType = slotsByTypeOf_(s);
     const mySkills = splitSkills_(s.skills);
-    // skills 空欄は全対応扱い（D9）なので、その人には両方の業務の空きコマが要る。
+    // 対応できる業務の空きコマだけを数える。skills 空欄は「まだ選んでいない」（D65）なので、どの業務も数えない
     const relevantTypes = SUPPORT_TYPES.filter(function (t) {
-      return !mySkills.length || mySkills.indexOf(t) !== -1;
+      return mySkills.indexOf(t) !== -1;
     });
     const missingSlotTypes = relevantTypes.filter(function (t) {
       return !slotsByType[t].length;
@@ -75,10 +76,15 @@ function getStaffRoster() {
     // 「欠けていること」をコードで返す。文言は画面側に置く（ここはデータだけ返す）。
     const issues = [];
     if (!contact) issues.push('contact');
+    // 職員が登録して、本人がまだ確かめていない（D64）。確かめるまで通知は送らない
+    const unconfirmed = isUnconfirmedContact_(contact);
+    if (unconfirmed) issues.push('unconfirmed');
     if (isStudent) {
+      // 業務を選んでいない人には、どの依頼も届かない（D65）。空きコマより先に直すことなので、空きコマの問題は重ねない
+      if (!mySkills.length) issues.push('skills');
       // 空きコマが無い人は、候補抽出のどの経路にも乗らない＝依頼が一生飛ばない。
       // 対応する業務のうち1つでも空なら出す（テイクは埋めたが介助は空、を見逃さない）。
-      if (missingSlotTypes.length) issues.push('slots');
+      else if (missingSlotTypes.length) issues.push('slots');
       // 空きコマはあるが本人の更新履歴が無い＝職員が入れたまま。学期をまたぐと古い値のまま残る。
       else if (!updatedAt) issues.push('slotsStale');
       // 連絡先の行ごと無い人に「通知先が無い」「電話が無い」まで並べても、直す手順は
@@ -87,8 +93,9 @@ function getStaffRoster() {
       if (contact && !phone) issues.push('phone');
     }
 
-    // 入学年度（メールの学籍番号から・D61）。名簿を「24」「25」…でまとめる
-    const sno = studentNoOfEmail_(contact ? contact.email : '');
+    // 入学年度（学籍番号から・D61）。名簿を「24」「25」…でまとめる
+    const account = contactAccount_(contact);
+    const sno = studentNoOfEmail_(account);
 
     return {
       staff_id: staffId,
@@ -97,13 +104,14 @@ function getStaffRoster() {
       isStudent: isStudent,
       studentNo: sno.studentNo,
       entryYear: sno.entryYear,
-      skills: String(s.skills || '').trim(),   // 空欄は全対応扱い（D9）
-      email: contact ? String(contact.email || '').trim() : '',
+      skills: String(s.skills || '').trim(),   // 空欄は「まだ選んでいない」（どの依頼も届かない・D65）
+      account: account,   // 学籍番号（ログインの識別子・D65）
       phone: phone,
       // Webhook URL そのものは出さない。届くかどうかが分かれば足りるうえ、
       // URL は**それを知っている人なら誰でも投稿できる**秘密に近い値なので画面に晒さない。
       hasWebhook: !!webhook,
       hasContact: !!contact,
+      confirmed: !!contact && !unconfirmed,
       slotsByType: slotsByType,
       slotCounts: SUPPORT_TYPES.map(function (t) {
         return { type: t, count: slotsByType[t].length, relevant: relevantTypes.indexOf(t) !== -1 };
@@ -184,10 +192,10 @@ function rosterOrphanContacts_(staffs, contacts) {
     return {
       staff_id: String(c.staff_id || '').trim(),
       name: String(c.name || '').trim(),
-      email: String(c.email || '').trim(),
+      account: contactAccount_(c),
     };
   }).filter(function (c) {
-    if (!c.email && !c.name && !c.staff_id) return false;   // 空行
+    if (!c.account && !c.name && !c.staff_id) return false;   // 空行
     return !c.staff_id || !known[c.staff_id];
   });
 }
@@ -204,10 +212,12 @@ function rosterSummary_(rows) {
     staffMembers: rows.length - students.length,
     needsAction: students.filter(function (r) { return r.issues.length > 0; }).length,
     noContact: count('contact'),
+    noSkills: count('skills'),
     noSlots: count('slots'),
     slotsStale: count('slotsStale'),
     noWebhook: count('webhook'),
     noPhone: count('phone'),
+    unconfirmed: count('unconfirmed'),
   };
 }
 

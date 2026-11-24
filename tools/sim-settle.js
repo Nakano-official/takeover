@@ -32,12 +32,12 @@ function setup() {
   h.add('periods', { period: '1', start_time: '09:15', end_time: '10:45' });
   h.add('periods', { period: '2', start_time: '11:00', end_time: '12:30' });
   [['S1', '学生 一郎'], ['S2', '学生 二郎'], ['S3', '学生 三郎'], ['S4', '学生 四郎'], ['S5', '代行 五郎']].forEach(function (s) {
-    h.add('staffs', { staff_id: s[0], name: s[1], role: '学生', skills: '',
+    h.add('staffs', { staff_id: s[0], name: s[1], role: '学生', skills: 'テイク,介助',   // 空欄はどの依頼も届かない（D65）
       available_slots: s[0] === 'S5' ? DAY + '1' : '', assist_slots: s[0] === 'S5' ? DAY + '2' : '' });
-    h.add('contacts', { staff_id: s[0], name: s[1], email: s[0].toLowerCase() + '@example.jp', phone: '090-0000-000' + s[0].slice(1) });
+    h.add('contacts', { staff_id: s[0], name: s[1], email: s[0].toLowerCase() + '@mail.ryukoku.ac.jp', phone: '090-0000-000' + s[0].slice(1) });
   });
   h.add('staffs', { staff_id: 'T1', name: '職員 花子', role: '職員' });
-  h.add('contacts', { staff_id: 'T1', name: '職員 花子', email: 't1@example.jp' });
+  h.add('contacts', { staff_id: 'T1', name: '職員 花子', email: 't1@mail.ryukoku.ac.jp' });
   const c = (id, period, type, user, a, b, extra) => h.add('courses', Object.assign({ course_id: id, quarter: 'X-後期', day: DAY,
     period: period, support_type: type, user_student: user, staff_a_id: a, staff_b_id: b || '' }, extra || {}));
   c('CT', '1', 'テイク', '架空 花子', 'S1', 'S2', { subject: '線形代数', room: '講義室A' });
@@ -47,8 +47,8 @@ function setup() {
   h.add('vacancies', { vacancy_id: 'VA', date: D, course_id: 'CA', absent_staff_id: 'S3', result: '' });
   h.add('vacancies', { vacancy_id: 'VT1', date: D, course_id: 'CT1', absent_staff_id: 'S4', result: '' });
 }
-const asStaff = () => h.setUser({ staff_id: 'T1', name: '職員 花子', role: '職員', email: 't1@example.jp' });
-const as = (id) => h.setUser({ staff_id: id, name: h.row('staffs', 'staff_id', id).name, role: '学生', email: id.toLowerCase() + '@example.jp' });
+const asStaff = () => h.setUser({ staff_id: 'T1', name: '職員 花子', role: '職員', email: 't1@mail.ryukoku.ac.jp' });
+const as = (id) => h.setUser({ staff_id: id, name: h.row('staffs', 'staff_id', id).name, role: '学生', email: id.toLowerCase() + '@mail.ryukoku.ac.jp' });
 const errOf = (fn) => { try { fn(); return null; } catch (e) { return e.message; } };
 const vac = (id) => h.row('vacancies', 'vacancy_id', id);
 const manageOf = () => {

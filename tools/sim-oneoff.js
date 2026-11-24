@@ -308,7 +308,7 @@ h.add('periods', { period: '移動後2', start_time: '12:30', end_time: '12:45',
 h.add('periods', { period: '3', start_time: '13:30', end_time: '15:00' });
 h.add('staffs', { staff_id: 'S1', name: '介助 一郎', role: '学生', skills: 'テイク,介助' });
 h.add('staffs', { staff_id: 'T1', name: '職員', role: '職員' });
-h.setUser({ staff_id: 'T1', name: '職員', role: '職員', email: 't1@example.jp' });
+h.setUser({ staff_id: 'T1', name: '職員', role: '職員', email: 't1@mail.ryukoku.ac.jp' });
 
 const withMove = Object.assign({}, bundleBase, { move_before: true, move_after: true });
 const flagged = h.G.addCourse(withMove);
@@ -384,7 +384,7 @@ h.context.openMainDb_ = function () {
       getRange: function () { return { getValues: function () { return [hs]; }, setValues: function () {} }; } };
   } };
 };
-h.setUser({ staff_id: 'T1', name: '職員', role: '職員', email: 't1@example.jp' });
+h.setUser({ staff_id: 'T1', name: '職員', role: '職員', email: 't1@mail.ryukoku.ac.jp' });
 const mig = h.G.migrateMoveCoursesToFlags();
 h.check(mig.flagged === 3 && mig.deleted === 2 && mig.kept === 1 && mig.orphan === 1,
   '★印3件・削除2件・記録ありで残す1件・相手なし1件：' + JSON.stringify(mig));
@@ -396,7 +396,7 @@ h.check(!!h.row('courses', 'course_id', 'C003'), '欠員の記録が付いた移
 h.check(!!h.row('courses', 'course_id', 'C004'), 'くっつく授業が見つからない移動のコマは消さない');
 const again = h.G.migrateMoveCoursesToFlags();
 h.check(again.flagged === 0 && again.deleted === 0, 'もう一度実行しても何も変わらない');
-h.deployerEmail = 'deployer@example.jp';
+h.deployerEmail = 'deployer@mail.ryukoku.ac.jp';
 let denied = '';
 try { h.G.migrateMoveCoursesToFlags(); } catch (e) { denied = e.message; }
 h.check(/スクリプトエディタ/.test(denied), '★画面からは実行できない（GAS エディタから実行する）');
@@ -411,7 +411,7 @@ h.add('terms', { term_id: '2026-前期', system: 'semester', start_date: T.dateI
 h.add('periods', { period: '1', start_time: '09:15', end_time: '10:45' });
 h.add('periods', { period: '2', start_time: '11:00', end_time: '12:30' });
 h.add('staffs', { staff_id: 'T1', name: '職員', role: '職員' });
-h.setUser({ staff_id: 'T1', name: '職員', role: '職員', email: 't1@example.jp' });
+h.setUser({ staff_id: 'T1', name: '職員', role: '職員', email: 't1@mail.ryukoku.ac.jp' });
 const np = (period, name) => ({ quarter: '2026-前期', day: '月', period: period, support_type: 'テイク', user_student: name });
 h.G.addCourse(np('1', '  架空　 花子 '));
 h.check(h.row('courses', 'course_id', 'C001').user_student === '架空 花子', '★全角・連続の空白は半角1つに揃える');

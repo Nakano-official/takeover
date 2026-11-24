@@ -39,8 +39,8 @@ function setupTerms(spec) {
   h.add('periods', { period: '1', start_time: '09:15', end_time: '10:45' });
   h.add('staffs', { staff_id: 'S1', name: '担当', role: '学生', skills: '介助' });
   h.add('staffs', { staff_id: 'T1', name: '職員', role: '職員' });
-  h.add('contacts', { staff_id: 'T1', name: '職員', email: 't@e.jp' });
-  h.setUser({ staff_id: 'T1', name: '職員', role: '職員', email: 't@e.jp' });
+  h.add('contacts', { staff_id: 'T1', name: '職員', email: 't@mail.ryukoku.ac.jp' });
+  h.setUser({ staff_id: 'T1', name: '職員', role: '職員', email: 't@mail.ryukoku.ac.jp' });
 }
 
 function addCourse(id, term) {
@@ -140,8 +140,8 @@ h.section('5) 学期マスタが空のまま（従来動作）');
 h.reset();
 h.add('periods', { period: '1', start_time: '09:15', end_time: '10:45' });
 h.add('staffs', { staff_id: 'T1', name: '職員', role: '職員' });
-h.add('contacts', { staff_id: 'T1', name: '職員', email: 't@e.jp' });
-h.setUser({ staff_id: 'T1', name: '職員', role: '職員', email: 't@e.jp' });
+h.add('contacts', { staff_id: 'T1', name: '職員', email: 't@mail.ryukoku.ac.jp' });
+h.setUser({ staff_id: 'T1', name: '職員', role: '職員', email: 't@mail.ryukoku.ac.jp' });
 addCourse('C1', '2026-3Q');
 addCourse('C2', '2026-4Q');
 h.check(G.nearestTermId_(G.readTerms_()) === '', '学期が無ければ空を返す');

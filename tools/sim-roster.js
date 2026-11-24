@@ -26,8 +26,8 @@ const T = h.time;
 
 const OK_HOOK = 'https://chat.googleapis.com/v1/spaces/AAA/messages?key=k&token=t';
 
-const asStaff = () => h.setUser({ staff_id: 'T1', name: '職員 花子', role: '職員', email: 't1@example.ac.jp' });
-const asStudent = () => h.setUser({ staff_id: 'S101', name: '完備 太郎', role: '学生', email: 's101@example.ac.jp' });
+const asStaff = () => h.setUser({ staff_id: 'T1', name: '職員 花子', role: '職員', email: 't1@mail.ryukoku.ac.jp' });
+const asStudent = () => h.setUser({ staff_id: 'S101', name: '完備 太郎', role: '学生', email: 's101@mail.ryukoku.ac.jp' });
 const rowOf = (res, id) => res.rows.filter((r) => r.staff_id === id)[0];
 
 function setup() {
@@ -41,7 +41,7 @@ function setup() {
   h.add('terms', { term_id: '2026-後期', system: 'semester', start_date: T.dateIn(120), end_date: T.dateIn(240) });
 
   h.add('staffs', { staff_id: 'T1', name: '職員 花子', role: '職員' });
-  h.add('contacts', { staff_id: 'T1', name: '職員 花子', email: 't1@example.ac.jp' });
+  h.add('contacts', { staff_id: 'T1', name: '職員 花子', email: 't1@mail.ryukoku.ac.jp' });
 
   // ① 何も欠けていない学生
   h.add('staffs', {
@@ -50,7 +50,7 @@ function setup() {
     slots_updated_at: '2026-09-01 10:00:00',
   });
   h.add('contacts', {
-    staff_id: 'S101', name: '完備 太郎', email: 's101@example.ac.jp',
+    staff_id: 'S101', name: '完備 太郎', email: 's101@mail.ryukoku.ac.jp',
     phone: '090-1111-1111', webhook_url: OK_HOOK,
   });
 
@@ -60,7 +60,7 @@ function setup() {
     available_slots: '水3', assist_slots: '水3', personal_code: '',
     slots_updated_at: '2026-09-02 09:00:00',
   });
-  h.add('contacts', { staff_id: 'S102', name: '承認直後 次郎', email: 's102@example.ac.jp' });
+  h.add('contacts', { staff_id: 'S102', name: '承認直後 次郎', email: 's102@mail.ryukoku.ac.jp' });
 
   // ③ 職員が手で入れたまま本人が出し直していない（slots_updated_at が空）
   h.add('staffs', {
@@ -68,7 +68,7 @@ function setup() {
     available_slots: '', assist_slots: '木1', personal_code: 'Y200003', slots_updated_at: '',
   });
   h.add('contacts', {
-    staff_id: 'S103', name: '未更新 三郎', email: 's103@example.ac.jp',
+    staff_id: 'S103', name: '未更新 三郎', email: 's103@mail.ryukoku.ac.jp',
     phone: '090-3333-3333', webhook_url: OK_HOOK,
   });
 
@@ -78,7 +78,7 @@ function setup() {
     available_slots: '', personal_code: 'Y200004', slots_updated_at: '',
   });
   h.add('contacts', {
-    staff_id: 'S104', name: '空きなし 四郎', email: 's104@example.ac.jp',
+    staff_id: 'S104', name: '空きなし 四郎', email: 's104@mail.ryukoku.ac.jp',
     phone: '090-4444-4444', webhook_url: OK_HOOK,
   });
 
@@ -142,8 +142,8 @@ h.check(res.rows.filter((r) => r.isStudent).length === 5, '学生スタッフが
 
 const s101 = rowOf(res, 'S101');
 h.check(s101.name === '完備 太郎' && s101.role === '学生', '氏名と区分を返す');
-h.check(s101.email === 's101@example.ac.jp' && s101.phone === '090-1111-1111',
-  '連絡先DBのメール・電話を突き合わせて返す');
+h.check(s101.account === 'S101' && s101.phone === '090-1111-1111',
+  '連絡先DBの学籍番号・電話を突き合わせて返す');
 h.check(s101.hasWebhook === true, 'Webhook は「あるか」だけを返す');
 h.check(JSON.stringify(res.rows).indexOf(OK_HOOK) === -1,
   'Webhook URL そのものは絶対に返さない（知っていれば誰でも投稿できる値のため）');
@@ -230,7 +230,7 @@ h.check(rowOf(res, 'S101').courseCount > 0, '全員が0コマにならない');
 // ── 6) 片側だけの行 ────────────────────────────────────────
 h.section('6) 片側だけ残った行');
 setup();
-h.add('contacts', { staff_id: 'S999', name: '名簿なし 九郎', email: 's999@example.ac.jp' });
+h.add('contacts', { staff_id: 'S999', name: '名簿なし 九郎', email: 's999@mail.ryukoku.ac.jp' });
 h.add('contacts', { staff_id: '', name: '', email: '' });   // 空行は無視する
 asStaff();
 res = G.getStaffRoster();
@@ -242,9 +242,9 @@ h.check(rowOf(res, 'S105').issues.indexOf('contact') !== -1,
 // ── 7) 承認待ち件数 ────────────────────────────────────────
 h.section('7) 承認待ちの件数');
 setup();
-h.add('registrations', { registration_id: 'R001', email: 'a@example.ac.jp', name: 'A', status: '申請中' });
-h.add('registrations', { registration_id: 'R002', email: 'b@example.ac.jp', name: 'B', status: '承認済' });
-h.add('registrations', { registration_id: 'R003', email: 'c@example.ac.jp', name: 'C', status: '却下' });
+h.add('registrations', { registration_id: 'R001', email: 'a@mail.ryukoku.ac.jp', name: 'A', status: '申請中' });
+h.add('registrations', { registration_id: 'R002', email: 'b@mail.ryukoku.ac.jp', name: 'B', status: '承認済' });
+h.add('registrations', { registration_id: 'R003', email: 'c@mail.ryukoku.ac.jp', name: 'C', status: '却下' });
 asStaff();
 res = G.getStaffRoster();
 h.check(res.pendingRegistrations === 1, '申請中だけを数える（承認済・却下は数えない）');
@@ -270,14 +270,14 @@ h.check(JSON.stringify(res).indexOf('Y200001') === -1,
 h.section('6) 入学年度（メールの学籍番号から・D61）');
 const sn = (e) => JSON.stringify(G.studentNoOfEmail_(e));
 h.check(sn('y240241@mail.example.ac.jp') === JSON.stringify({ studentNo: 'Y240241', entryYear: '24' }), '★y240241 → 学籍番号 Y240241・入学年度 24');
-h.check(G.studentNoOfEmail_('T250012@example.ac.jp').entryYear === '25', '大文字でも読む');
-h.check(G.studentNoOfEmail_('y24m012@example.ac.jp').entryYear === '24', '★大学院生（年度の後に m など）も同じ入学年度に入れる');
-h.check(G.studentNoOfEmail_('24m0012@example.ac.jp').entryYear === '24', '先頭に英字が無い形でも読む');
-h.check(G.studentNoOfEmail_('shienshitsu@example.ac.jp').entryYear === '', '職員のアドレスなど学籍番号でないものは空');
-h.check(G.studentNoOfEmail_('s101@example.ac.jp').entryYear === '', '桁の足りないものは学籍番号とみなさない');
+h.check(G.studentNoOfEmail_('T250012@mail.ryukoku.ac.jp').entryYear === '25', '大文字でも読む');
+h.check(G.studentNoOfEmail_('y24m012@mail.ryukoku.ac.jp').entryYear === '24', '★大学院生（年度の後に m など）も同じ入学年度に入れる');
+h.check(G.studentNoOfEmail_('24m0012@mail.ryukoku.ac.jp').entryYear === '24', '先頭に英字が無い形でも読む');
+h.check(G.studentNoOfEmail_('shienshitsu@mail.ryukoku.ac.jp').entryYear === '', '職員のアドレスなど学籍番号でないものは空');
+h.check(G.studentNoOfEmail_('s101@mail.ryukoku.ac.jp').entryYear === '', '桁の足りないものは学籍番号とみなさない');
 h.check(G.studentNoOfEmail_('').entryYear === '', '空でも落ちない');
 setup();
-h.row('contacts', 'staff_id', 'S101').email = 'y260101@example.ac.jp';
+h.row('contacts', 'staff_id', 'S101').account = 'Y260101';
 asStaff();
 const r6 = G.getStaffRoster().rows.filter(function (r) { return r.staff_id === 'S101'; })[0];
 h.check(r6.entryYear === '26' && r6.studentNo === 'Y260101', '★名簿の行に入学年度と学籍番号を付ける');

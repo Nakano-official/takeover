@@ -22,47 +22,6 @@
 
     .field { margin-bottom: 16px; }
 
-    /* 対応できる業務。指で押せる大きさのトグルにする（チェックボックスだけだと狙いにくい） */
-    .skills { display: flex; flex-wrap: wrap; gap: 10px; }
-    .skill { display: inline-flex; align-items: center; gap: 8px; margin: 0;
-             border: 1px solid var(--border-strong); border-radius: var(--radius);
-             padding: 10px 16px; font-size: .95rem; cursor: pointer; background: var(--surface); }
-    .skill:hover { background: var(--brand-soft); }
-    .skill:has(input:checked) { border-color: var(--brand); background: var(--brand-soft);
-                                color: var(--brand-ink); }
-    .skill input { width: auto; }
-
-    /* 空きコマの格子（曜日 × 時限）。自由入力にすると存在しないスロットが入りうるので選択式にする */
-    .grid-wrap { overflow-x: auto; }
-    table.slots { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 380px; }
-    table.slots th, table.slots td { border-right: 1px solid var(--border);
-                                     border-bottom: 1px solid var(--border); text-align: center; }
-    table.slots tr > *:last-child { border-right: none; }
-    table.slots thead th { background: var(--brand); color: #fff; padding: 7px 4px;
-                           font-size: .88rem; font-weight: 600; border-color: var(--brand-dark); }
-    table.slots .ph { background: var(--surface-alt); font-size: .82rem; font-weight: 600;
-                      padding: 6px 8px; white-space: nowrap; text-align: right; }
-    table.slots .ph small { display: block; color: var(--text-faint); font-weight: normal; font-size: .7rem; }
-    table.slots td { padding: 0; }
-    /* セル全体を押せるようにする（チェックボックスだけだと指で狙いにくい） */
-    table.slots td label { display: block; margin: 0; padding: 10px 4px; cursor: pointer; }
-    table.slots td label:hover { background: var(--brand-soft); }
-    table.slots input { width: auto; }
-
-    /* 業務の切り替えタブ。ページを分けると行き来に時間がかかるので、同じカード内で切り替える */
-    .tabs { display: flex; gap: 6px; margin: 0 0 12px; border-bottom: 2px solid var(--border); }
-    .tab { appearance: none; border: none; background: none; font-family: inherit;
-           font-size: .92rem; font-weight: 700; color: var(--text-muted); cursor: pointer;
-           padding: 9px 16px; border-bottom: 3px solid transparent; margin-bottom: -2px; }
-    .tab:hover { color: var(--brand-ink); background: var(--brand-soft); }
-    .tab.on { color: var(--brand-ink); border-bottom-color: var(--brand); }
-    .tab .n { font-weight: normal; font-size: .82rem; color: var(--text-faint); margin-left: 5px; }
-    .tab.on .n { color: var(--brand-ink); }
-    .pane[hidden] { display: none; }
-    .panenote { font-size: .8rem; color: var(--warn); margin: 0 0 10px; }
-
-    .slotops { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-    .updated { font-size: .82rem; color: var(--text-muted); margin-top: 10px; }
     .toast { margin-top: 14px; display: none; }
     .toast.ok, .toast.err { display: block; }
     #save { margin-top: 4px; }
@@ -76,6 +35,7 @@
   </main>
 
   <?!= include('shared-contact') ?>
+  <?!= include('shared-slots') ?>
   <script>
     var P = null;   // getMyProfile の戻り
 
@@ -115,6 +75,7 @@
         '<div class="card">' +
         '<h2>連絡先</h2>' +
         '<p class="lead">この2つは自分で変更できます。</p>' +
+        // 電話番号は本人が入れる（支援室の名簿に電話番号は無い・D65）
         phoneFieldHtml(p.phone, '返信が無いときに職員から連絡することがあります。') +
         '<div class="field"><label for="webhook">Google Chat の通知先URL</label>' +
           webhookHelpButton() +
@@ -133,162 +94,11 @@
         '<div id="toast" class="toast"></div>';
     }
 
-    function renderSkills(p) {
-      var chosen = {};
-      (p.skillList || []).forEach(function (x) { chosen[x] = true; });
-      // 保存済みが空欄＝D9 の「全対応」。初めて開いた人が何も選ばれていない画面を見て
-      // そのまま保存すると弾かれるので、全対応は「両方にチェック」として見せる。
-      var allRound = (p.skillList || []).length === 0;
-
-      var boxes = (p.supportTypes || []).map(function (name) {
-        var on = allRound || chosen[name];
-        return '<label class="skill"><input type="checkbox" data-skill="' + escapeAttr(name) + '"'
-          + (on ? ' checked' : '') + '>' + escapeHtml(name) + '</label>';
-      }).join('');
-
-      return '<div class="card"><h2>対応できる業務</h2>' +
-        '<p class="lead">できるようになった業務・できなくなった業務を自分で変更できます。' +
-        '<b>ここで選んだ内容の代行依頼だけが届きます。</b></p>' +
-        '<div class="skills">' + boxes + '</div>' +
-        '<p class="hint">研修を受けて対応できる業務が増えたときは、ここにチェックを足してください。' +
-        '<b>1つ以上は選ぶ必要があります</b>（すべて外すと、逆にすべての依頼が届く扱いになるためです）。</p>' +
-        '</div>';
-    }
-
-    function pickedSkills() {
-      var out = [];
-      document.querySelectorAll('input[data-skill]').forEach(function (b) {
-        if (b.checked) out.push(b.getAttribute('data-skill'));
-      });
-      return out;
-    }
-
-    function renderSlots(p) {
-      // 空きコマは業務ごとに別で持つ（D32）。ページを分けると行き来に時間がかかるので、
-      // 1つのカードの中でタブを切り替える。保存は表示中のタブだけでなく全業務ぶんを送る。
-      var types = p.supportTypes || [];
-      var tabs = types.map(function (t, i) {
-        var n = ((p.slotsByType && p.slotsByType[t]) || []).length;
-        return '<button type="button" class="tab' + (i === 0 ? ' on' : '') + '"'
-          + ' data-tab="' + escapeAttr(t) + '">' + escapeHtml(t)
-          + '<span class="n" data-count="' + escapeAttr(t) + '">' + n + '</span></button>';
-      }).join('');
-
-      var panes = types.map(function (t, i) {
-        return '<div class="pane" data-pane="' + escapeAttr(t) + '"'
-          + (i === 0 ? '' : ' hidden') + '>' + slotGrid(p, t) + '</div>';
-      }).join('');
-
-      return '<div class="card"><h2>空きコマ</h2>' +
-        '<p class="lead">授業が入っていない＝<b>代行に入れる可能性がある</b>コマにチェックしてください。' +
-        'ここにチェックが無いコマの代行依頼は届きません。学期が変わったら出し直してください。</p>' +
-        '<p class="lead"><b>テイクと介助は別々に登録します。</b>' +
-        '業務によって空いている時間が違うためです。タブで切り替えてください。</p>' +
-        '<div class="tabs">' + tabs + '</div>' + panes +
-        '<div class="updated" id="updated">' + updatedText(p.slots_updated_at) + '</div>' +
-        '</div>';
-    }
-
-    // 1つの業務ぶんの格子（曜日 × その業務で選べる時限）
-    function slotGrid(p, type) {
-      var chosen = {};
-      (((p.slotsByType || {})[type]) || []).forEach(function (s) { chosen[s] = true; });
-      var periods = (p.periods || []).filter(function (per) {
-        return (per.supportTypes || []).indexOf(type) !== -1;
-      });
-
-      var h = '';
-      // 対応できる業務から外している間は、入れても依頼は届かない。消しはしないが黙ってもいない。
-      if ((p.skillList || []).length && p.skillList.indexOf(type) === -1) {
-        h += '<p class="panenote">いまは「対応できる業務」で' + escapeHtml(type)
-          + 'を選んでいないため、ここに入れても' + escapeHtml(type) + 'の依頼は届きません。</p>';
-      }
-      if (!periods.length) {
-        return h + '<p class="lead">' + escapeHtml(type) + 'で選べる時限が登録されていません。</p>';
-      }
-
-      h += '<div class="grid-wrap"><table class="slots"><thead><tr><th class="ph"></th>';
-      p.days.forEach(function (d) { h += '<th>' + escapeHtml(d) + '</th>'; });
-      h += '</tr></thead><tbody>';
-      periods.forEach(function (per) {
-        h += '<tr><th class="ph">' + escapeHtml(per.label || (per.period + '限'))
-          + (per.time ? '<small>' + escapeHtml(per.time) + '</small>' : '') + '</th>';
-        p.days.forEach(function (d) {
-          var key = d + per.period;
-          h += '<td><label><input type="checkbox" data-type="' + escapeAttr(type) + '"'
-            + ' data-slot="' + escapeAttr(key) + '"'
-            + (chosen[key] ? ' checked' : '') + '></label></td>';
-        });
-        h += '</tr>';
-      });
-      h += '</tbody></table></div>' +
-        '<div class="slotops">' +
-        '<button class="btn sm" type="button" data-all="' + escapeAttr(type) + '" data-on="1">すべて選ぶ</button>' +
-        '<button class="btn sm" type="button" data-all="' + escapeAttr(type) + '" data-on="">すべて外す</button>' +
-        '</div>';
-      return h;
-    }
-
-    // タブ切り替えと「すべて選ぶ／外す」。再描画しないので入力途中の内容は消えない。
-    document.addEventListener('click', function (ev) {
-      if (!ev.target || !ev.target.closest) return;
-      var tab = ev.target.closest('.tab[data-tab]');
-      if (tab) {
-        var name = tab.getAttribute('data-tab');
-        document.querySelectorAll('.tab[data-tab]').forEach(function (b) {
-          b.classList.toggle('on', b === tab);
-        });
-        document.querySelectorAll('.pane[data-pane]').forEach(function (el) {
-          el.hidden = el.getAttribute('data-pane') !== name;
-        });
-        return;
-      }
-      var all = ev.target.closest('button[data-all]');
-      if (all) setAll(all.getAttribute('data-all'), !!all.getAttribute('data-on'));
-    });
-
-    function refreshCounts() {
-      document.querySelectorAll('.n[data-count]').forEach(function (el) {
-        el.textContent = pickedSlots(el.getAttribute('data-count')).length;
-      });
-    }
-    document.addEventListener('change', function (ev) {
-      if (ev.target && ev.target.hasAttribute && ev.target.hasAttribute('data-slot')) refreshCounts();
-    });
-
-    function updatedText(at) {
-      return at
-        ? '最終更新: ' + escapeHtml(at)
-        : 'まだ一度も更新されていません（職員が入力した内容のままです）。';
-    }
-
-    function setAll(type, on) {
-      document.querySelectorAll('input[data-type="' + type + '"]').forEach(function (b) {
-        b.checked = on;
-      });
-      refreshCounts();
-    }
-
-    function pickedSlots(type) {
-      var out = [];
-      document.querySelectorAll('input[data-type="' + type + '"]').forEach(function (b) {
-        if (b.checked) out.push(b.getAttribute('data-slot'));
-      });
-      return out;
-    }
-
-    // 表示中のタブだけでなく全業務ぶんを送る（見ていないタブの内容を消さないため）
-    function pickedSlotsByType(p) {
-      var out = {};
-      (p.supportTypes || []).forEach(function (t) { out[t] = pickedSlots(t); });
-      return out;
-    }
-
     function save() {
       // 学生が対応できる業務を1つも選んでいないときは往復させずにここで止める
-      // （サーバー側でも同じ検証をしている。空欄＝全対応に倒れるのを防ぐため・D31）
+      // （サーバー側でも同じ検証をしている。空欄だと、どの依頼も届かなくなるため・D31・D65）
       if (P && P.isStudent && pickedSkills().length === 0) {
-        showToast('対応できる業務を1つ以上選んでください（すべて外すと、逆にすべての依頼が届きます）。', false);
+        showToast('対応できる業務を1つ以上選んでください（選んでいないと、どの代行依頼も届きません）。', false);
         return;
       }
       var phoneErr = phoneError();

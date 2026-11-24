@@ -31,6 +31,7 @@ node tools/sim-access.js      # 学生への公開の切り替え（準備中は
 node tools/sim-cancel.js      # 個別の休講（その日だけ・削除とは別・欠勤連絡と欠員・Chat に利用学生の名前を書かない・D60）
 node tools/sim-settle.js      # 決着の選択肢（介助に1人テイクを出さない）・判断に要る情報・欠勤連絡の確認（#52〜#54）
 node tools/sim-appurl.js      # Chat に入れるリンクは公開用の /exec（/dev から操作しても /dev を送らない）
+node tools/sim-staffreg.js    # 職員がスタッフを登録する・本人の確認まで通知を送らない・名簿から貼った内容の読み取り（D64）
 node tools/help-shots/render.js # ヘルプ撮影用に、架空データで画面を書き出す（D51・検証ではない）
 node tools/help-shots/shoot.js  # ヘルプの画像を撮り直して埋め込む（初回は tools/help-shots で npm install）
 node tools/demo-site/build.js   # GitHub Pages のデモ（架空データで全画面を行き来できる・D62）を書き出す

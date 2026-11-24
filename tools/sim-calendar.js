@@ -99,9 +99,9 @@ h.check(!G.concurrentTermSet_('2026-4Q', terms, '月', cal2)['2026-前期'], '�
 h.add('periods', { period: '3', start_time: '13:15', end_time: '14:45' });
 h.add('staffs', { staff_id: 'S1', name: '学生A', role: '学生', skills: 'テイク' });
 h.add('staffs', { staff_id: 'T1', name: '職員', role: '職員' });
-h.add('contacts', { staff_id: 'S1', name: '学生A', email: 's1@example.jp' });
-h.add('contacts', { staff_id: 'T1', name: '職員', email: 't1@example.jp' });
-h.setUser({ staff_id: 'T1', name: '職員', role: '職員', email: 't1@example.jp' });
+h.add('contacts', { staff_id: 'S1', name: '学生A', email: 's1@mail.ryukoku.ac.jp' });
+h.add('contacts', { staff_id: 'T1', name: '職員', email: 't1@mail.ryukoku.ac.jp' });
+h.setUser({ staff_id: 'T1', name: '職員', role: '職員', email: 't1@mail.ryukoku.ac.jp' });
 const pay = (q) => ({ quarter: q, day: '月', period: '3', support_type: 'テイク', user_student: '架空 花子', staff_a_id: 'S1' });
 G.addCourse(pay('2026-3Q'));
 let err = null;
@@ -147,8 +147,8 @@ h.add('periods', { period: '1', start_time: '09:00', end_time: '10:30' });
 h.add('periods', { period: '5', start_time: '16:55', end_time: '18:25' });
 h.add('staffs', { staff_id: 'S1', name: '学生A', role: '学生', skills: 'テイク', available_slots: '' });
 h.add('staffs', { staff_id: 'T1', name: '職員', role: '職員' });
-h.add('contacts', { staff_id: 'S1', name: '学生A', email: 's1@example.jp' });
-h.add('contacts', { staff_id: 'T1', name: '職員', email: 't1@example.jp' });
+h.add('contacts', { staff_id: 'S1', name: '学生A', email: 's1@mail.ryukoku.ac.jp' });
+h.add('contacts', { staff_id: 'T1', name: '職員', email: 't1@mail.ryukoku.ac.jp' });
 const OFF = T.dateIn(9);                // 授業の無い日（終日）
 const DAY = G.weekdayOf_(OFF);
 const NEXT = T.dateIn(16);              // 翌週の同じ曜日（授業がある）
@@ -159,7 +159,7 @@ h.add('no_class_days', { no_class_id: 'N1', start_date: OFF, end_date: '', from_
 h.add('no_class_days', { no_class_id: 'N2', start_date: HALF, end_date: '', from_period: '5', reason: '架空の行事' });
 G.clearClassCalendarCache_();
 
-h.setUser({ staff_id: 'S1', name: '学生A', role: '学生', email: 's1@example.jp' });
+h.setUser({ staff_id: 'S1', name: '学生A', role: '学生', email: 's1@mail.ryukoku.ac.jp' });
 const tt = G.getTimetable('');
 h.check(tt.noClass[OFF] && tt.noClass[OFF].reason === '架空の祝日' && !tt.noClass[OFF].from, '時間割へ授業の無い日（終日）を渡す');
 h.check(tt.noClass[HALF] && tt.noClass[HALF].from === 5, '〇講時以降も渡す');
@@ -189,8 +189,8 @@ h.reset();
   ['2026-4Q', 'quarter', '2026-11-20', '2027-01-20'],
 ].forEach((t) => h.add('terms', { term_id: t[0], system: t[1], start_date: t[2], end_date: t[3] }));
 h.add('staffs', { staff_id: 'T1', name: '職員', role: '職員' });
-h.add('contacts', { staff_id: 'T1', name: '職員', email: 't1@example.jp' });
-h.setUser({ staff_id: 'T1', name: '職員', role: '職員', email: 't1@example.jp' });
+h.add('contacts', { staff_id: 'T1', name: '職員', email: 't1@mail.ryukoku.ac.jp' });
+h.setUser({ staff_id: 'T1', name: '職員', role: '職員', email: 't1@mail.ryukoku.ac.jp' });
 G.clearClassCalendarCache_();
 
 const add = (p) => { try { G.addNoClassDay(p); return ''; } catch (e) { return e.message; } };
@@ -219,7 +219,7 @@ G.deleteNoClassDay(admin.noClassDays[0].no_class_id);
 h.check(G.getTermsAdmin().noClassDays.length === 1, '削除できる');
 
 h.section('4) 職員でなければ触れない');
-h.setUser({ staff_id: 'S9', name: '学生', role: '学生', email: 's9@example.jp' });
+h.setUser({ staff_id: 'S9', name: '学生', role: '学生', email: 's9@mail.ryukoku.ac.jp' });
 ['addNoClassDay', 'deleteNoClassDay'].forEach(function (fn) {
   threw = '';
   try { G[fn]({}); } catch (e) { threw = e.message; }

@@ -97,7 +97,7 @@
         '<dl class="dl">' +
           kv('電話番号', r.phone, '職員から連絡できません') +
           kv('通知先URL', r.webhook_url ? '登録あり' : '', '代行依頼が届きません') +
-          kv('申告スキル', r.skills, '空欄は全対応扱い') +
+          kv('申告スキル', r.skills, '空欄は未選択（どの依頼も届かない）') +
           kv('テイクの空き', r.slots, 'テイクの代行候補に出ません') +
           kv('介助の空き', r.assist_slots, '介助の代行候補に出ません') +
           kv('連絡事項', r.note) +
@@ -165,7 +165,7 @@
       var skills = pickedSkills(id);
       askConfirm({
         title: 'この申請を承認しますか？',
-        message: '区分: ' + role + '\n対応できる業務: ' + (skills || '（空欄＝全対応扱い）') +
+        message: '区分: ' + role + '\n対応できる業務: ' + (skills || '（空欄＝未選択。どの依頼も届きません）') +
           '\n\n名簿（staffs・contacts）に行が作られ、本人が全画面を使えるようになります。',
         ok: '承認する',
       }, function (yes) {

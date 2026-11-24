@@ -37,6 +37,8 @@ function isClosedFor_(user) {
  */
 function getOpenUser_() {
   const user = getCurrentUser_();
+  // 職員が登録して、本人がまだ確かめていない人（D64）。画面は doGet が確認の画面に回すが、関数も止める
+  if (user && user.confirmed === false) throw new Error('はじめに、本人の確認をしてください（画面を開き直すと出ます）。');
   if (isClosedFor_(user)) throw new Error(CLOSED_MESSAGE);
   return user;
 }

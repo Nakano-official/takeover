@@ -50,16 +50,16 @@ function setup() {
   h.add('terms', { term_id: 'X-後期', system: 'semester', start_date: T.dateIn(-30), end_date: T.dateIn(90) });
   h.add('periods', { period: '1', start_time: '09:15', end_time: '10:45' });
   h.add('staffs', { staff_id: 'T1', name: '職員 花子', role: '職員' });
-  h.add('contacts', { staff_id: 'T1', name: '職員 花子', email: 't1@example.ac.jp' });
+  h.add('contacts', { staff_id: 'T1', name: '職員 花子', email: 't1@mail.ryukoku.ac.jp' });
   h.add('staffs', { staff_id: 'S1', name: '学生 一郎', role: '学生', skills: 'テイク' });
-  h.add('contacts', { staff_id: 'S1', name: '学生 一郎', email: 's1@example.ac.jp', webhook_url: HOOK });
+  h.add('contacts', { staff_id: 'S1', name: '学生 一郎', email: 's1@mail.ryukoku.ac.jp', webhook_url: HOOK });
   h.add('staffs', { staff_id: 'S2', name: '学生 二郎', role: '学生', skills: 'テイク', available_slots: DAY + '1' });
-  h.add('contacts', { staff_id: 'S2', name: '学生 二郎', email: 's2@example.ac.jp', webhook_url: HOOK });
+  h.add('contacts', { staff_id: 'S2', name: '学生 二郎', email: 's2@mail.ryukoku.ac.jp', webhook_url: HOOK });
   h.add('courses', { course_id: 'C1', quarter: 'X-後期', day: DAY, period: '1', support_type: 'テイク',
     user_student: '架空 花子', staff_a_id: 'S1', staff_b_id: '' });
   h.add('vacancies', { vacancy_id: 'V1', date: D, course_id: 'C1', absent_staff_id: 'S1', result: '' });
 }
-const asStaff = () => h.setUser({ staff_id: 'T1', name: '職員 花子', role: '職員', email: 't1@example.ac.jp' });
+const asStaff = () => h.setUser({ staff_id: 'T1', name: '職員 花子', role: '職員', email: 't1@mail.ryukoku.ac.jp' });
 
 console.log('===== Chat に入れるリンクの URL（/dev を送らない）=====');
 
@@ -84,10 +84,9 @@ h.section('2) /dev から操作しても、Chat には /exec のリンクを入�
 CUR = DEV;   // 職員が /dev から操作している
 h.check(G.getPublicAppUrl_() === EXEC, '★Chat に使う URL は覚えた /exec');
 h.check(G.getAppUrl_() === DEV, '画面の中のリンク（ナビ）は今まで通り、開いている /dev');
-// 承認の Chat
-h.setEmail('newcomer@example.ac.jp');
-G.submitRegistration({ family_name: '新人', given_name: '太郎', phone: '090-0000-3333', webhook_url: HOOK,
-  skills: 'テイク', slotsByType: { 'テイク': [DAY + '1'] }, note: '' });
+// 承認の Chat（すでに出ていた申請を承認する。新しい申請は D64 で受け付けなくなった）
+h.add('registrations', { registration_id: 'R001', email: 'newcomer@mail.ryukoku.ac.jp', name: '新人 太郎', phone: '090-0000-3333',
+  webhook_url: HOOK, skills: 'テイク', slots: DAY + '1', assist_slots: '', note: '', status: '申請中', applied_at: '2026-11-01 10:00:00' });
 asStaff();
 posted.length = 0;
 const ap = G.approveRegistration(h.db.registrations[0].registration_id);

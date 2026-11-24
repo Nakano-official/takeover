@@ -84,6 +84,29 @@
             border-radius: var(--radius-sm); padding: 1px 8px; font-size: .8rem; }
     .todo { margin: 0; padding-left: 18px; font-size: .84rem; color: var(--warn); line-height: 1.7; }
     .todo li { margin-bottom: 2px; }
+    /* スタッフの登録・修正（D64）。窓の見た目はヘルプのシート（shared-styles の .help-modal / .help-sheet） */
+    .regbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .regbar .hint { margin: 0; flex: 1 1 240px; }
+    .sform .field { margin-bottom: 12px; }
+    .sform input[type=text], .sform input[type=email], .sform select, .sform textarea { width: 100%; font-size: .95rem; padding: 8px 10px; }
+    .sform .name2 { display: flex; gap: 8px; }
+    .sform .name2 input { flex: 1 1 0; min-width: 0; }
+    .sform .checks { display: flex; gap: 14px; flex-wrap: wrap; }
+    .sform .checks label { font-size: .9rem; color: var(--text); display: flex; gap: 6px; align-items: center; }
+    .sform textarea { min-height: 140px; font-family: inherit; }
+    .stabs { display: flex; gap: 6px; margin: 0 0 12px; }
+    .stabs button { flex: 1 1 0; }
+    .stabs button.on { background: var(--brand); color: #fff; border-color: var(--brand); }
+    .ptable { width: 100%; border-collapse: collapse; font-size: .82rem; margin: 8px 0; }
+    .ptable th, .ptable td { border-bottom: 1px solid var(--border); padding: 4px 6px; text-align: left; vertical-align: top; }
+    .ptable td:nth-child(2), .ptable td:nth-child(3), .ptable td:nth-child(4) { white-space: nowrap; }   /* 学籍番号・姓・名は1行 */
+    .ptable tr.bad td { background: var(--danger-bg); }
+    .ptable tr.skip td { color: var(--text-muted); }
+    .ptable td.why { color: var(--danger); }
+    .ptable td.st { font-size: .78rem; }
+    .ptable td.st.warn { color: var(--warn); font-weight: 600; }
+    .smsg:empty { display: none; }
+    .smsg { margin: 8px 0 0; }
   </style>
 </head>
 <body>
@@ -93,6 +116,17 @@
     <div id="top" class="state">読み込み中…</div>
 
     <div id="body" hidden>
+      <!-- スタッフの登録（D64）。支援室の名簿から、職員が登録する -->
+      <div class="card">
+        <h2>スタッフを登録する</h2>
+        <div class="regbar">
+          <button type="button" class="btn primary sm" onclick="openStaffDialog('one')">＋ 1人ずつ登録</button>
+          <button type="button" class="btn sm" onclick="openStaffDialog('bulk')">名簿から貼って登録</button>
+          <p class="hint">登録した人は、初めて開いたときに「あなたは〇〇さんですか？」と確かめます。確かめるまで通知は届きません。</p>
+        </div>
+        <div id="rosterMsg" class="smsg"></div>
+      </div>
+
       <div class="card">
         <h2>学生スタッフの状態</h2>
         <div id="summary" class="summary"></div>
@@ -102,7 +136,7 @@
       <div class="card">
         <div class="controls">
           <div class="field">
-            <label for="q">氏名・ID・学籍番号・メールで検索</label>
+            <label for="q">氏名・ID・学籍番号で検索</label>
             <input type="text" id="q" placeholder="例：山田 / S003 / Y24">
           </div>
           <div class="field">
@@ -136,7 +170,23 @@
     </div>
   </main>
 
+  <!-- 登録・修正の窓（D64）。中身は開くたびに作る（電話番号の欄の id が1組しか無いため） -->
+  <div id="staffDialog" class="help-modal" hidden onclick="if (event.target === this) closeStaffDialog()">
+    <div class="help-sheet" role="dialog" aria-modal="true" aria-labelledby="staffDialogTitle">
+      <div class="help-head">
+        <h2 id="staffDialogTitle">スタッフを登録する</h2>
+        <button type="button" class="help-x" onclick="closeStaffDialog()" aria-label="閉じる">×</button>
+      </div>
+      <div class="help-body sform" id="staffDialogBody"></div>
+      <div class="help-foot" style="justify-content:flex-end">
+        <button type="button" class="btn" onclick="closeStaffDialog()">やめる</button>
+        <button type="button" class="btn primary" id="staffDialogGo" onclick="staffDialogGo()">登録する</button>
+      </div>
+    </div>
+  </div>
+
   <?!= include('shared-cache') ?>
+  <?!= include('shared-contact') ?>
   <script>
     var DATA = null;
     var OPEN_ID = '';       // 詳細を開いている人（1人だけ）
@@ -145,10 +195,12 @@
     // issue コード → 画面の文言。「何が起きるか」まで書く（項目名だけだと重さが伝わらない）
     var ISSUES = {
       contact:    { label: '連絡先DBに行が無い',   why: 'この人はログインできません。承認の途中で片側だけ作られた可能性があります。' },
+      skills:     { label: '業務が未選択',         why: '対応できる業務を本人がまだ選んでいません。選ぶまで、どの代行依頼も届きません。マイページから選んでもらってください。' },
       slots:      { label: '空きコマが未登録',     why: '対応する業務の空きコマが入っていません。その業務の代行依頼の候補に一度も出てきません。マイページから登録してもらってください。' },
       slotsStale: { label: '本人が更新していない', why: '空きコマは入っていますが、本人がマイページで出し直した記録がありません。学期が変わっていれば古い値のままです。' },
       webhook:    { label: '通知先URLが未登録',    why: '代行依頼の通知が届きません。マイページから登録してもらってください。' },
-      phone:      { label: '電話番号が未登録',     why: '返信が無いときに職員から連絡できません。' }
+      phone:      { label: '電話番号が未登録',     why: '返信が無いときに職員から連絡できません。この画面の「氏名・電話・学籍番号を直す」から入れられます。' },
+      unconfirmed: { label: '本人の確認がまだ',    why: 'まだ一度も開いていないか、「あなたは〇〇さんですか？」に答えていません。確かめるまで通知は届きません。「違う」と答えた場合は、学籍番号を確かめてください。' }
     };
 
     function escapeHtml(s) {
@@ -174,11 +226,13 @@
       } else {
         chips.push(chip('*', 'warn', '要対応 ' + s.needsAction + ' 人'));
       }
+      chips.push(chip('skills', s.noSkills ? 'warn' : 'zero', '業務未選択 ' + s.noSkills));
       chips.push(chip('slots', s.noSlots ? 'warn' : 'zero', '空きコマ未登録 ' + s.noSlots));
       chips.push(chip('slotsStale', s.slotsStale ? 'warn' : 'zero', '本人未更新 ' + s.slotsStale));
       chips.push(chip('webhook', s.noWebhook ? 'warn' : 'zero', '通知先なし ' + s.noWebhook));
       chips.push(chip('phone', s.noPhone ? 'warn' : 'zero', '電話なし ' + s.noPhone));
       if (s.noContact) chips.push(chip('contact', 'warn', 'ログイン不可 ' + s.noContact));
+      if (s.unconfirmed) chips.push(chip('unconfirmed', 'warn', '確認まだ ' + s.unconfirmed));
       document.getElementById('summary').innerHTML = chips.join('');
 
       document.getElementById('scope').innerHTML =
@@ -208,7 +262,7 @@
         if (ISSUE_FILTER === '*' && r.issues.length === 0) return false;
         if (ISSUE_FILTER && ISSUE_FILTER !== '*' && r.issues.indexOf(ISSUE_FILTER) === -1) return false;
         if (q) {
-          var hay = (r.name + ' ' + r.staff_id + ' ' + r.studentNo + ' ' + r.email).toLowerCase();
+          var hay = (r.name + ' ' + r.staff_id + ' ' + r.studentNo + ' ' + r.account).toLowerCase();
           if (hay.indexOf(q) === -1) return false;
         }
         return true;
@@ -250,7 +304,7 @@
       document.getElementById('foot').textContent = '最終取得: ' + DATA.generatedAt;
     }
 
-    // 入学年度（メールの学籍番号の2桁）ごとにまとめる。古い年度から。読めない学生・職員は最後（D61）
+    // 入学年度（学籍番号の2桁）ごとにまとめる。古い年度から。読めない学生・職員は最後（D61）
     function groupsOf(rows) {
       var byKey = {};
       var keys = [];
@@ -277,7 +331,7 @@
         : (r.isStudent ? '<span class="stale">未更新</span>' : '<span class="na">—</span>');
       var kv = function (k, v) { return '<span>' + k + '</span><span>' + v + '</span>'; };
       var body = '<div class="kv">' +
-        kv('業務', escapeHtml(r.skills || '全対応')) +
+        kv('業務', r.skills ? escapeHtml(r.skills) : '<span class="no">未選択</span>') +
         (r.isStudent ? kv('空きコマ', slotCells(r) + '<span class="na">（テイク/介助）</span>') : '') +
         (r.isStudent ? kv('更新', updated) : '') +
         kv('担当', r.courseCount + ' コマ') +
@@ -326,7 +380,7 @@
           '<button type="button" class="btn sm" data-close="1">閉じる</button></div>' +
         '<dl class="dl">' +
           kv('スタッフID', r.staff_id) +
-          kv('メール', r.email) +
+          kv('学籍番号', r.account) +
           kv('電話番号', r.phone) +
           '<dt>通知先URL</dt><dd' + (r.hasWebhook ? '' : ' class="empty"') + '>' +
             (r.hasWebhook ? '登録あり（URL は表示しません）' : '（未登録・代行依頼が届きません）') +
@@ -334,8 +388,9 @@
           slots +
           kv('空きコマ更新', r.slots_updated_at) +
         '</dl>' + todo +
-        '<p class="hint">電話・通知先URL・空きコマ・対応業務は<b>本人がマイページから</b>直せます。' +
-        '氏名と区分は<b>職員が名簿（staffs）で</b>直します。</p>' +
+        '<p><button type="button" class="btn sm" data-edit="' + escapeAttr(r.staff_id) + '">氏名・電話・学籍番号を直す</button></p>' +
+        '<p class="hint">氏名・電話・学籍番号は<b>職員がここで</b>直します。通知先URL・空きコマ・対応業務は<b>本人がマイページから</b>直します。' +
+        '区分は名簿（staffs）で直します。</p>' +
         '</div>';
     }
 
@@ -348,7 +403,7 @@
         'この人はログインしても「利用登録がありません」になります。<br>' +
         list.map(function (c) {
           return '・' + escapeHtml(c.name || '（氏名なし）') + '（' +
-            escapeHtml(c.email || 'メール未登録') + '／staff_id: ' +
+            escapeHtml(c.account || '学籍番号なし') + '／staff_id: ' +
             escapeHtml(c.staff_id || '空') + '）';
         }).join('<br>') + '</div>';
     }
@@ -357,6 +412,8 @@
     // 箱を押すと、そのまとまりの下に詳細を開く（もう一度押すか「閉じる」で閉じる。開くのは1人だけ）
     document.getElementById('groups').addEventListener('click', function (ev) {
       if (ev.target.closest('[data-close]')) { OPEN_ID = ''; render(); return; }
+      var edit = ev.target.closest('[data-edit]');
+      if (edit) { openStaffDialog('edit', edit.getAttribute('data-edit')); return; }
       var box = ev.target.closest('.pc');
       if (!box) return;
       var id = box.getAttribute('data-id');
@@ -383,12 +440,299 @@
       el.addEventListener('change', render);
     });
 
-    // 同じタブで再び開いたときは前回の名簿を先に出す（D49）。読み取り専用なので操作は止めない。
+    // ── スタッフの登録・修正（D64）────────────────────────────
+    //
+    // 1人ずつ（one）・名簿から貼る（bulk）・直す（edit）を、同じ窓で切り替える。
+    // 電話番号の3つの欄（shared-contact）は id が1組だけなので、窓の中身は開くたびに作る。
+    var DIALOG = { mode: '', staffId: '', parsed: [] };
+
+    function setRosterMsg(kind, text) {
+      document.getElementById('rosterMsg').innerHTML =
+        text ? '<div class="notice ' + kind + '">' + escapeHtml(text) + '</div>' : '';
+    }
+    function setDialogMsg(kind, html) {
+      var el = document.getElementById('staffDialogMsg');
+      if (el) el.innerHTML = html ? '<div class="notice ' + kind + '">' + html + '</div>' : '';
+    }
+    function splitName(name) {
+      var s = String(name || '').trim();
+      var i = s.search(/[\s　]/);
+      return i < 0 ? [s, ''] : [s.slice(0, i), s.slice(i).trim()];
+    }
+    function rowById(id) {
+      return ((DATA && DATA.rows) || []).filter(function (r) { return r.staff_id === id; })[0] || null;
+    }
+
+    function openStaffDialog(mode, staffId) {
+      if (viewCacheLocked()) return;
+      DIALOG = { mode: mode, staffId: staffId || '', parsed: [] };
+      var title = mode === 'edit' ? '氏名・電話・学籍番号を直す' : 'スタッフを登録する';
+      var tabs = mode === 'edit' ? '' :
+        '<div class="stabs" role="tablist">' +
+          '<button type="button" class="btn sm' + (mode === 'one' ? ' on' : '') + '" onclick="openStaffDialog(\'one\')">1人ずつ</button>' +
+          '<button type="button" class="btn sm' + (mode === 'bulk' ? ' on' : '') + '" onclick="openStaffDialog(\'bulk\')">名簿から貼る</button>' +
+        '</div>';
+      var body;
+      if (mode === 'bulk') {
+        body = '<p class="hint">支援室の名簿（Excel）を、<b>見出しの行ごと、まるごと</b>コピーして貼ってください。' +
+          '<b>学籍</b>と<b>氏名</b>の列だけを読みます（学部・備考などほかの列は読みません）。' +
+          '<b>もう登録されている人は飛ばして、新しい人だけを登録します</b>（学籍番号で見分けます）。' +
+          '氏名は姓と名の間に空白（全角でもよい）を入れてください。学生スタッフとして登録し、対応できる業務と空きコマは本人が入れます。</p>' +
+          '<div class="field"><label for="bulkText">名簿から貼る</label>' +
+          '<textarea id="bulkText" placeholder="学部&#9;学籍&#9;氏名&#9;備考&#10;理工学部&#9;Y259999&#9;山田　太郎&#9;"></textarea></div>' +
+          '<button type="button" class="btn sm" onclick="bulkPreview()">読み取って確かめる</button>' +
+          '<div id="bulkPreview"></div>';
+      } else {
+        var r = mode === 'edit' ? rowById(staffId) : null;
+        var nm = splitName(r && r.name);
+        // 学生スタッフでない行（職員など）の学籍番号はログインの識別子なので変えられない（サーバーも拒否する）
+        var lockAcc = mode === 'edit' && r && !r.isStudent;
+        body = '<div class="field"><label for="sAccount">学籍番号</label>' +
+            '<input id="sAccount" type="text" autocomplete="off" placeholder="例：Y259999" value="' + escapeAttr(r ? r.account : '') + '"' +
+              (lockAcc ? ' readonly' : '') + '>' +
+            (lockAcc
+              ? '<p class="hint">学生スタッフでない人の学籍番号（ログインのアカウント）は、この画面からは変えられません。</p>'
+              : '<p class="hint">大学のメールアドレスを貼ってもかまいません（「@」より前を使います）。' +
+                (mode === 'edit' ? '変えると、本人の確認（「あなたは〇〇さんですか？」）をやり直します。' : '') + '</p>') + '</div>' +
+          '<div class="field"><label for="sFamily">氏名（姓と名）</label><div class="name2">' +
+            '<input id="sFamily" type="text" placeholder="姓" value="' + escapeAttr(nm[0]) + '">' +
+            '<input id="sGiven" type="text" placeholder="名" value="' + escapeAttr(nm[1]) + '"></div></div>' +
+          phoneFieldHtml(r ? r.phone : '', '名簿にあれば入れてください（返信が無いときに職員から電話するため）。') +
+          (mode === 'one'
+            ? '<div class="field"><label>対応できる業務</label><div class="checks">' +
+                '<label><input type="checkbox" name="sSkill" value="テイク" checked>テイク</label>' +
+                '<label><input type="checkbox" name="sSkill" value="介助" checked>介助</label></div>' +
+                '<p class="hint">本人もマイページで直せます。</p></div>'
+            : '');
+      }
+      document.getElementById('staffDialogTitle').textContent = title;
+      document.getElementById('staffDialogBody').innerHTML = tabs + body + '<div id="staffDialogMsg" class="smsg"></div>';
+      var go = document.getElementById('staffDialogGo');
+      go.textContent = mode === 'edit' ? '直す' : '登録する';
+      go.disabled = mode === 'bulk';   // 貼った内容は「読み取って確かめる」のあとで登録できる
+      var modal = document.getElementById('staffDialog');
+      var wasOpen = !modal.hidden;
+      modal.hidden = false;
+      document.body.classList.add('help-open');
+      var first = document.getElementById(mode === 'bulk' ? 'bulkText' : 'sAccount');
+      if (wasOpen) { if (first) first.focus(); } else dialogOpen(modal, first);
+    }
+
+    function closeStaffDialog() {
+      var modal = document.getElementById('staffDialog');
+      if (modal.hidden) return;
+      modal.hidden = true;
+      document.body.classList.remove('help-open');
+      dialogClose(modal);
+    }
+
+    // ── 名簿から貼った内容を読む（支援室の Excel：学部・学籍・氏名・備考・D65）──
+    // 見出しの行があれば「学籍」「氏名」の列を使う。無ければ、学籍番号の形のセルと、その右のセルを氏名として読む。
+    // 登録済みかどうかは、いま表示している名簿（DATA）で先に印を付ける（最後はサーバーが学籍番号で見分ける）。
+    var STUDENT_NO_RE = /^[A-Za-z]{0,3}\d{2}(\d{3,}|[A-Za-z][A-Za-z0-9]{1,})$/;   // Util.gs の studentNoOfEmail_ と同じ形
+    var MAIL_DOMAIN = '@mail.ryukoku.ac.jp';
+    function toAccount(c) {
+      var v = String(c || '').trim().replace(/[０-９Ａ-Ｚａ-ｚ＠．]/g, function (x) { return String.fromCharCode(x.charCodeAt(0) - 0xFEE0); });
+      if (v.indexOf('@') !== -1) {
+        if (v.toLowerCase().slice(-MAIL_DOMAIN.length) !== MAIL_DOMAIN) return '';
+        v = v.slice(0, v.indexOf('@'));
+      }
+      return STUDENT_NO_RE.test(v) ? v.toUpperCase() : '';
+    }
+    function headerIndex(cells, words) {
+      for (var i = 0; i < cells.length; i++) {
+        for (var k = 0; k < words.length; k++) if (cells[i].indexOf(words[k]) !== -1) return i;
+      }
+      return -1;
+    }
+    function parseBulk(text) {
+      var lines = String(text || '').split(/\r?\n/);
+      var head = null;   // { acc, name, phone }（見出しの行の列の位置）
+      var out = [];
+      lines.forEach(function (line, i) {
+        if (!line.trim()) return;
+        var cells = (line.indexOf('\t') !== -1 ? line.split('\t') : line.split(',')).map(function (c) { return c.trim(); });
+        if (!out.length && !head) {
+          var hAcc = headerIndex(cells, ['学籍', '学生番号', '学生証']);
+          var hName = headerIndex(cells, ['氏名', '名前']);
+          if (hAcc !== -1 && hName !== -1) { head = { acc: hAcc, name: hName, phone: headerIndex(cells, ['電話']) }; return; }
+        }
+        var acc = '', rawAcc = '', name = '', phone = '', noAcc = false;
+        if (head) {
+          rawAcc = cells[head.acc] || '';
+          acc = toAccount(rawAcc);
+          name = cells[head.name] || '';
+          phone = head.phone !== -1 ? (cells[head.phone] || '') : '';
+        } else {
+          // 見出しの行が無い（または読めない）とき：学籍番号の形のセルと、その右のセルを氏名として読む。
+          // どの行も捨てない（1行目を見出しとみなして黙って捨てると、おかしい1行目に気づけない・PR #59 のレビュー）。
+          // 電話は読まない（備考の数字を電話と取り違えるため。電話の列は見出しで「電話」と書いたときだけ読む）
+          var ai = -1;
+          for (var j = 0; j < cells.length; j++) if (toAccount(cells[j])) { ai = j; break; }
+          if (ai !== -1) {
+            rawAcc = cells[ai]; acc = toAccount(rawAcc);
+            for (var k = ai + 1; k < cells.length; k++) if (cells[k]) { name = cells[k]; break; }
+          } else {
+            noAcc = true;
+          }
+        }
+        var nm = splitName(name.replace(/　/g, ' '));
+        var why = noAcc ? '学籍番号が見つかりません（見出しの行なら「学籍」と「氏名」の列があるか確かめてください）'
+          : !rawAcc && !acc ? '学籍番号がありません'
+          : !acc ? '学籍番号の形が違います（' + rawAcc + '）'
+          : !name ? '氏名がありません'
+          : (!nm[0] || !nm[1]) ? '姓と名が分けられません（姓と名の間に空白を入れてください）' : '';
+        out.push({ line: i + 1, account: acc || rawAcc || (noAcc ? cells.filter(Boolean)[0] || '' : ''),
+          family_name: nm[0], given_name: nm[1], phone: phone, why: why });
+      });
+      // 登録済み・同じ貼り付けの中で2回目、の印（サーバーでも同じように見分ける）
+      var known = {};
+      ((DATA && DATA.rows) || []).forEach(function (r) { if (r.account) known[r.account] = r; });
+      var seen = {};
+      out.forEach(function (r) {
+        if (r.why) return;
+        var now = known[r.account];
+        var full = r.family_name + ' ' + r.given_name;
+        if (now) { r.state = 'registered'; r.current = now.name; r.nameDiffers = nameKey(now.name) !== nameKey(full); return; }
+        if (seen[r.account]) {
+          if (nameKey(seen[r.account]) !== nameKey(full)) r.why = '同じ学籍番号が上の行にもあり、氏名が違います';
+          else r.state = 'duplicate';
+          return;
+        }
+        seen[r.account] = full;
+        r.state = 'new';
+      });
+      return out;
+    }
+    function nameKey(n) { return String(n || '').replace(/[\s　]+/g, ''); }
+
+    function bulkPreview() {
+      var rows = parseBulk(document.getElementById('bulkText').value);
+      DIALOG.parsed = rows;
+      var bad = rows.filter(function (r) { return r.why; }).length;
+      var fresh = rows.filter(function (r) { return r.state === 'new'; }).length;
+      var skip = rows.filter(function (r) { return r.state === 'registered' || r.state === 'duplicate'; }).length;
+      var differs = rows.filter(function (r) { return r.nameDiffers; }).length;
+      var stateText = function (r) {
+        if (r.why) return '<td class="why">' + escapeHtml(r.why) + '</td>';
+        if (r.state === 'new') return '<td class="st">新しく登録</td>';
+        if (r.state === 'duplicate') return '<td class="st">上の行と同じ人（飛ばす）</td>';
+        return r.nameDiffers
+          ? '<td class="st warn">登録済み・名簿の名前が違う（今の名簿：' + escapeHtml(r.current) + '）</td>'
+          : '<td class="st">登録済み（飛ばす）</td>';
+      };
+      var table = rows.length
+        ? '<table class="ptable"><thead><tr><th>行</th><th>学籍番号</th><th>姓</th><th>名</th><th></th></tr></thead><tbody>' +
+          rows.map(function (r) {
+            var cls = r.why ? ' class="bad"' : (r.state === 'new' ? '' : ' class="skip"');
+            return '<tr' + cls + '><td>' + r.line + '</td><td>' + escapeHtml(r.account) + '</td>' +
+              '<td>' + escapeHtml(r.family_name) + '</td><td>' + escapeHtml(r.given_name) + '</td>' + stateText(r) + '</tr>';
+          }).join('') + '</tbody></table>'
+        : '';
+      document.getElementById('bulkPreview').innerHTML = table +
+        '<p class="hint">' + (rows.length
+          ? rows.length + ' 人を読み取りました。<b>新しく登録するのは ' + fresh + ' 人</b>' +
+            (skip ? '（登録済みなどで飛ばすのが ' + skip + ' 人）' : '') + '。'
+          : '読み取れる行がありません。見出しの行に「学籍」と「氏名」があるか確かめてください。') +
+        (differs ? ' 名前が今の名簿と違う人が ' + differs + ' 人います（書き換えません。直すときはその人の詳細から）。' : '') +
+        (bad ? ' <b>赤い行を直してから、もう一度「読み取って確かめる」を押してください。</b>' : '') + '</p>';
+      var go = document.getElementById('staffDialogGo');
+      go.disabled = !fresh || bad > 0;
+      go.textContent = fresh ? fresh + ' 人を登録する' : '登録する';
+      setDialogMsg('', '');
+    }
+
+    function staffDialogGo() {
+      if (viewCacheLocked()) return;
+      var mode = DIALOG.mode;
+      var go = document.getElementById('staffDialogGo');
+      var payload;
+      if (mode === 'bulk') {
+        // 登録済みの人も含めて全部送る（サーバーが学籍番号で見分けて飛ばす。この画面を開いたあとに登録された人もいるため）
+        payload = DIALOG.parsed.map(function (r) {
+          return { account: r.account, family_name: r.family_name, given_name: r.given_name, phone: r.phone };
+        });
+      } else {
+        var err = phoneError();
+        if (err) { setDialogMsg('err', escapeHtml(err)); return; }
+        var entry = {
+          account: document.getElementById('sAccount').value.trim(),
+          family_name: document.getElementById('sFamily').value.trim(),
+          given_name: document.getElementById('sGiven').value.trim(),
+          phone: phoneValue(),
+        };
+        if (mode === 'one') {
+          var skills = Array.prototype.filter.call(document.getElementsByName('sSkill'), function (c) { return c.checked; })
+            .map(function (c) { return c.value; });
+          if (!skills.length) { setDialogMsg('err', '対応できる業務を1つ以上選んでください（選んでいないと、どの代行依頼も届きません）。'); return; }
+          entry.skills = skills;
+          payload = [entry];
+        } else {
+          entry.staff_id = DIALOG.staffId;
+          var cur = rowById(DIALOG.staffId);
+          entry.account_before = cur ? cur.account : '';   // ほかの画面で学籍番号が直されていたら、サーバーが止める
+          payload = entry;
+        }
+      }
+      var label = go.textContent;
+      go.disabled = true;
+      go.textContent = mode === 'edit' ? '直しています…' : '登録しています…';
+      var done = function (res) {
+        go.textContent = label;
+        if (mode !== 'edit' && res && res.ok === false) {
+          // 1人でも直すところがあれば、誰も登録していない。何行目の何かを出す
+          var lineOf = function (i) { return mode === 'bulk' && DIALOG.parsed[i - 1] ? DIALOG.parsed[i - 1].line : i; };
+          setDialogMsg('err', 'まだ誰も登録していません。次を直してください：<br>' + res.errors.map(function (e) {
+            return (mode === 'bulk' ? lineOf(e.line) + '行目 ' : '') + escapeHtml(e.account ? e.account + '：' : '') + escapeHtml(e.message);
+          }).join('<br>'));
+          go.disabled = false;
+          return;
+        }
+        var reg = (res && res.registered) || [];
+        var skipped = (res && res.skipped) || [];
+        // 1人ずつで、もう登録されている人だった（何も作っていない）
+        if (mode === 'one' && !reg.length && skipped.length) {
+          setDialogMsg('err', escapeHtml('この学籍番号は、もう登録されています（' + (skipped[0].current || skipped[0].name) + 'さん）。'));
+          go.disabled = false;
+          return;
+        }
+        closeStaffDialog();
+        if (mode === 'edit') {
+          setRosterMsg('ok', '直しました。' + (res && res.reconfirm ? '学籍番号を変えたので、本人の確認をやり直します。' : ''));
+        } else {
+          var differs = skipped.filter(function (x) { return x.nameDiffers; });
+          setRosterMsg(differs.length ? 'warn' : 'ok',
+            (reg.length
+              ? reg.length + ' 人を登録しました（' + reg.map(function (x) { return x.name; }).join('・') + '）。本人が初めて開いたときに確認が出ます。'
+              : '新しく登録する人はいませんでした。') +
+            (skipped.length ? '　登録済みなどの ' + skipped.length + ' 人は飛ばしました。' : '') +
+            (differs.length ? '　名前が今の名簿と違う人：' + differs.map(function (x) {
+              return x.account + '（貼った名前：' + x.name + '／今の名簿：' + x.current + '）';
+            }).join('・') + '。書き換えていません。直すときはその人の詳細から直してください。' : ''));
+        }
+        viewCacheClear();
+        load();
+      };
+      google.script.run
+        .withSuccessHandler(done)
+        .withFailureHandler(function (e) {
+          go.disabled = false;
+          go.textContent = label;
+          setDialogMsg('err', escapeHtml(e.message));
+        })[mode === 'edit' ? 'updateStaffContact' : 'registerStaff'](payload);
+    }
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeStaffDialog();
+    });
+
+    // 同じタブで再び開いたときは前回の名簿を先に出す（D49）。登録・修正があるので、前回の表示の間は操作を止める（lock）。
     function load() {
       viewCacheLoad({
         owner: '<?= user.staff_id ?>',
         key: 'getStaffRoster',
         rootId: 'body',
+        lock: true,   // 登録・修正をするので、前回の表示の間は操作させない（D49）
         run: function (ok, ng) {
           google.script.run.withSuccessHandler(ok).withFailureHandler(ng).getStaffRoster();
         },

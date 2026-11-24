@@ -1,6 +1,9 @@
 /**
  * 利用登録の申請と承認（D28）
  *
+ * ⚠️ 2026-11-21 から、学生の申請は受け付けていない（D64）。職員が名簿から登録する（StaffAdmin.gs）。
+ *    ここに残っているのは、すでに出ていた申請を承認・却下するための部分だけ。
+ *
  * 名簿（contacts）に無いアカウントは、これまで「利用登録がありません」で**行き止まり**だった。
  * そこから先は職員が staffs / contacts へ手で行を作るしかなく、学期開始に負担が集中する。
  * ここでは本人に申請を出させ、**職員が承認して初めて名簿に入る**形にする。
@@ -29,115 +32,12 @@ const REGISTRATION_STATUS = {
   REJECTED: '却下',
 };
 
-// ─── 申請側（未登録者が使う）────────────────────────────────
-
-/**
- * 申請画面に出す情報を返す。**contacts に無いアカウントでも呼べる**必要があるため、
- * getCurrentUser_() ではなく Session から直接メールを取る。
- */
-function getSignupContext() {
-  const email = String(Session.getActiveUser().getEmail() || '').trim();
-  if (!email) {
-    throw new Error('ログイン情報を取得できませんでした。大学のアカウントでログインしてください。');
-  }
-
-  // 既に名簿にいるなら申請は不要（画面側で通常画面へ促す）
-  const contact = findRowCI_(SHEET.CONTACTS, 'email', email);
-  const existing = findRegistrationByEmail_(email);
-
-  // 空きコマはマイページと同じく業務ごとに聞く（D32・D54）。移動の枠は聞かない（D57）。
-  const periods = readRows_(SHEET.PERIODS).filter(function (p) {
-    // 移動の枠は空きコマとして聞かない（D57・移動介助のコマを作らなくなったため）
-    return String(p.period).trim() && !isMovePeriod_(p);
-  }).map(function (p) {
-    return {
-      period: String(p.period).trim(),
-      label: periodLabelOf_(p.period, p),
-      time: p.start_time ? p.start_time + '〜' + p.end_time : '',
-      supportTypes: SUPPORT_TYPES.filter(function (t) { return periodAllowsSupportType_(p, t); }),
-    };
-  });
-
-  return {
-    email: email,
-    alreadyRegistered: !!contact,
-    status: existing ? String(existing.status || '').trim() : '',
-    appliedAt: existing ? String(existing.applied_at || '').trim() : '',
-    rejectReason: existing ? String(existing.reject_reason || '').trim() : '',
-    // 申請中・却下のときは前回の入力を出して直せるようにする
-    name: existing ? String(existing.name || '').trim() : '',
-    phone: existing ? String(existing.phone || '').trim() : '',
-    webhook_url: existing ? String(existing.webhook_url || '').trim() : '',
-    skills: existing ? String(existing.skills || '').trim() : '',
-    slotsByType: {
-      'テイク': existing ? splitSlots_(existing.slots) : [],
-      '介助': existing ? splitSlots_(existing.assist_slots) : [],
-    },
-    supportTypes: SUPPORT_TYPES.slice(),
-    note: existing ? String(existing.note || '').trim() : '',
-    days: WORK_DAYS.slice(),
-    periods: periods,
-  };
-}
-
-/**
- * 利用登録を申請する（未登録者が実行）。registrations に「申請中」で積むだけで、
- * staffs / contacts には**一切書かない**。
- *
- * @param {{family_name, given_name, phone, webhook_url, skills, slotsByType, note}} payload
- */
-function submitRegistration(payload) {
-  const email = String(Session.getActiveUser().getEmail() || '').trim();
-  if (!email) throw new Error('ログイン情報を取得できませんでした。');
-
-  if (findRowCI_(SHEET.CONTACTS, 'email', email)) {
-    throw new Error('このアカウントは既に登録済みです。画面を再読み込みしてください。');
-  }
-
-  const p = payload || {};
-  // 姓と名を分けて受け取り、半角スペースでつないで保存する（書き方を揃えるため・D54）
-  const family = validatePersonName_('姓', p.family_name);
-  const given = validatePersonName_('名', p.given_name);
-  if (/[\s　]/.test(family + given)) throw new Error('姓と名の中に空白は入れないでください。');
-  const name = validatePersonName_('氏名', family + ' ' + given);
-  const phone = validatePhone_(p.phone);
-  const webhook = String(p.webhook_url || '').trim();
-  const note = String(p.note || '').trim();
-  if (note.length > 500) throw new Error('備考は500文字以内で入力してください。');
-  assertNotFormula_('備考', note);
-  // 氏名は承認後に機能Bでカレンダーの氏名と突合する（D7③）。姓名の間の扱いは運用で揃える。
-  if (webhook && !isChatWebhook_(webhook)) {
-    throw new Error('Chat の Webhook URL の形式が違います（https://chat.googleapis.com/ で始まる必要があります）。');
-  }
-
-  // 空きコマは Profile.gs と同じ検証を通す（実在しないスロットを入れない）
-  const byType = p.slotsByType || {};
-  const slots = normalizeSlots_(byType['テイク'], 'テイク');
-  const assistSlots = normalizeSlots_(byType['介助'], '介助');
-  // skills は本人の申告。承認時に職員が確定させるので、ここでは値の見張りだけする。
-  // 申請の時点では「まだ決まっていない」があり得るので、空のままを許す（マイページとは別扱い）。
-  const skills = splitSkills_(p.skills).join(',');
-
-  const existing = findRegistrationByEmail_(email);
-  const row = {
-    email: email, name: name, phone: phone, webhook_url: webhook,
-    skills: skills, slots: slots, assist_slots: assistSlots, note: note,
-    status: REGISTRATION_STATUS.PENDING,
-    applied_at: nowString_(),
-    // 出し直しなので、前回の却下の痕跡は消す
-    decided_at: '', decided_by: '', staff_id: '', reject_reason: '',
-  };
-
-  if (existing) {
-    if (String(existing.status).trim() === REGISTRATION_STATUS.APPROVED) {
-      throw new Error('この申請は既に承認されています。画面を再読み込みしてください。');
-    }
-    updateRow_(SHEET.REGISTRATIONS, 'registration_id', existing.registration_id, row);
-    return { ok: true, registration_id: existing.registration_id, resubmitted: true };
-  }
-  const id = appendRowWithId_(SHEET.REGISTRATIONS, 'registration_id', 'R', row);
-  return { ok: true, registration_id: id, resubmitted: false };
-}
+// ─── 申請側（2026-11-21 にやめた・D64）────────────────────────
+//
+// 以前はここに getSignupContext / submitRegistration（未登録者が自分で申請する）があった。
+// 職員が支援室の名簿から登録する形（StaffAdmin.gs の registerStaff）に替えたので消した。
+// 使わない入口を残すと、画面が無くても google.script.run から申請を作れてしまうため。
+// すでに出ていた申請（申請中）は、下の承認・却下で今まで通り片付けられる。
 
 // ─── 承認側（職員が使う）────────────────────────────────────
 
@@ -190,10 +90,17 @@ function approveRegistration(registrationId, opts) {
     throw new Error('この申請は既に「' + String(reg.status).trim() + '」です。画面を更新してください。');
   }
 
+  // 名簿は学籍番号（account）で持つ（D65）。申請はログインしたアカウントのメールなので、そこから作る
+  assertAccountColumn_();
   const email = String(reg.email || '').trim();
-  if (findRowCI_(SHEET.CONTACTS, 'email', email)) {
-    throw new Error('このメールは既に名簿にあります（二重登録の防止）。申請を却下してください。');
-  }
+  const account = accountOfEmail_(email);
+  if (!account) throw new Error('大学のアカウント（@' + UNIVERSITY_MAIL_DOMAIN + '）からの申請ではないため、承認できません。申請を却下してください。');
+  const alreadyIn = function () {
+    if (findRowCI_(SHEET.CONTACTS, ACCOUNT_COL, account)) {
+      throw new Error('この学籍番号は既に名簿にあります（二重登録の防止）。申請を却下してください。');
+    }
+  };
+  alreadyIn();   // 先に一度（ロックを待たずに、よくある場合を早く返す）
 
   // 申請の時点の確認と同じものを、名簿へ写す前にもう一度通す（申請はシートを直接直されることもある）
   const name = validatePersonName_('申請の氏名', reg.name);
@@ -207,35 +114,46 @@ function approveRegistration(registrationId, opts) {
   // 2つのスプレッドシートをまたぐので原子的にはできない。staffs を先に作るのは、
   // staff_id の採番元がそちらだから。contacts 側で失敗したら staff_id を名指しで返し、
   // 職員が手で直せるようにする（黙って片側だけ残さない）。
-  const staffId = appendRowWithId_(SHEET.STAFFS, 'staff_id', 'S', {
-    name: name,
-    role: role,
-    skills: skills,
-    available_slots: String(reg.slots || '').trim(),
-    assist_slots: String(reg.assist_slots || '').trim(),   // 業務ごとに申請してもらう（D54）
-    personal_code: '',              // 列は残っているが使わない（機能Bを実装しないため・2026-09-13）
-    slots_updated_at: nowString_(), // 本人の申告なので「本人が出した」扱いにする（D28）
-  });
-
-  try {
-    appendRow_(SHEET.CONTACTS, {
-      staff_id: staffId,
+  // 重複の確認と書き込みを同じロックの中で行う（PR #59 のレビュー。2つのタブで同時に承認しても、同じ学籍番号の行を2つ作らない）
+  const staffId = withLock_(function () {
+    alreadyIn();
+    const now = findRow_(SHEET.REGISTRATIONS, 'registration_id', registrationId);
+    if (!now || String(now.status).trim() !== REGISTRATION_STATUS.PENDING) {
+      throw new Error('この申請は、ほかの画面で先に処理されました。画面を更新してください。');
+    }
+    const staffId = appendRowWithId_(SHEET.STAFFS, 'staff_id', 'S', {
       name: name,
-      email: email,
-      phone: phone,
-      webhook_url: String(reg.webhook_url || '').trim(),
+      role: role,
+      skills: skills,
+      available_slots: String(reg.slots || '').trim(),
+      assist_slots: String(reg.assist_slots || '').trim(),   // 業務ごとに申請してもらう（D54）
+      personal_code: '',              // 列は残っているが使わない（機能Bを実装しないため・2026-09-13）
+      slots_updated_at: nowString_(), // 本人の申告なので「本人が出した」扱いにする（D28）
     });
-  } catch (e) {
-    throw new Error('名簿（staffs）に ' + staffId + ' を作りましたが、連絡先の作成に失敗しました：'
-      + e.message + '　連絡先DBに手で行を足すか、staffs の ' + staffId + ' を消してやり直してください。');
-  }
 
-  updateRow_(SHEET.REGISTRATIONS, 'registration_id', registrationId, {
-    status: REGISTRATION_STATUS.APPROVED,
-    decided_at: nowString_(),
-    decided_by: me.staff_id,
-    staff_id: staffId,
-    reject_reason: '',
+    try {
+      appendRow_(SHEET.CONTACTS, {
+        staff_id: staffId,
+        name: name,
+        account: account,
+        phone: phone,
+        webhook_url: String(reg.webhook_url || '').trim(),
+        // 申請は本人が自分のアカウントでログインして出したものなので、メールアドレスは本人のもの。確認済みにする（D64）
+        confirmed_at: nowString_(),
+      });
+    } catch (e) {
+      throw new Error('名簿（staffs）に ' + staffId + ' を作りましたが、連絡先の作成に失敗しました：'
+        + e.message + '　連絡先DBに手で行を足すか、staffs の ' + staffId + ' を消してやり直してください。');
+    }
+
+    updateRow_(SHEET.REGISTRATIONS, 'registration_id', registrationId, {
+      status: REGISTRATION_STATUS.APPROVED,
+      decided_at: nowString_(),
+      decided_by: me.staff_id,
+      staff_id: staffId,
+      reject_reason: '',
+    });
+    return staffId;
   });
 
   // 承認をChatで知らせる。挨拶が目的ではなく、**申請された Webhook URL が本当に届くかを

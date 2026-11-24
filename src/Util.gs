@@ -70,6 +70,7 @@ function preferredNameSpelling_(spellings) {
  * 学籍番号は「英字 + 入学年度の下2桁 + 番号」（例：y240241 → 24）。読めなければ空。
  * 大学院生は年度の後に英字が付く（例：y24m012 → 24）。大学院生も同じ入学年度のまとまりに入れる（区別しない）。
  * 名簿を入学年度でまとめるのに使う。職員のアドレスなど、学籍番号でないものは空になる。
+ * 「@」の無い値（contacts.account・D65）もそのまま読める（「@より前」だけを見るため）。
  * @return {{studentNo:string, entryYear:string}}
  */
 function studentNoOfEmail_(email) {
@@ -118,4 +119,75 @@ function hhmmToMin_(v) {
 function jstMinutes_(d) {
   const hm = Utilities.formatDate(d, 'Asia/Tokyo', 'HH:mm');
   return hhmmToMin_(hm);
+}
+
+/**
+ * contacts の行が「本人の確認がまだ」か（D64・StaffAdmin.gs）。
+ * 列が無い（移行前）か値が入っていれば確認済み。**空になるのは職員が新しく登録した人だけ**。
+ * 確認がまだの人には通知を送らない（buildWebhookMap_）・学生の画面の関数も止める（getOpenUser_）。
+ */
+function isUnconfirmedContact_(contact) {
+  if (!contact || !Object.prototype.hasOwnProperty.call(contact, CONFIRMED_COL)) return false;
+  return !String(contact[CONFIRMED_COL] == null ? '' : contact[CONFIRMED_COL]).trim();
+}
+
+/** contacts に account 列があるか（D65 の移行が済んでいるか） */
+function hasAccountColumn_() {
+  return getHeaders_(SHEET.CONTACTS).map(function (x) { return String(x).trim(); }).indexOf(ACCOUNT_COL) !== -1;
+}
+
+/** 名簿から登録・修正する前に、移行が済んでいることを確かめる */
+function assertAccountColumn_() {
+  if (!hasAccountColumn_()) {
+    throw new Error('連絡先DBに account 列がありません。GAS エディタから migrateContactsToAccount() を1回実行してください。');
+  }
+}
+
+/**
+ * ログインしたメールから、contacts.account の値を作る（D65）。大学のドメインでなければ空。
+ * 「@より前」を大文字にそろえる（学籍番号は名簿の Excel でも大文字）。
+ */
+function accountOfEmail_(email) {
+  const s = String(email == null ? '' : email).trim();
+  const at = s.lastIndexOf('@');
+  if (at <= 0) return '';
+  if (s.slice(at + 1).toLowerCase() !== UNIVERSITY_MAIL_DOMAIN) return '';
+  return s.slice(0, at).toUpperCase();
+}
+
+/**
+ * contacts の1行の識別子（D65）。移行の前（account 列が無く email 列がある）は、email から作って返す（名簿の表示用）。
+ */
+function contactAccount_(contact) {
+  if (!contact) return '';
+  const acc = String(contact[ACCOUNT_COL] == null ? '' : contact[ACCOUNT_COL]).trim().toUpperCase();
+  if (acc) return acc;
+  return contact.email ? accountOfEmail_(contact.email) : '';
+}
+
+/** contacts.account から大学のメールを作る（D65）。DM の宛先にも使う */
+function emailOfAccount_(account) {
+  const a = String(account == null ? '' : account).trim();
+  return a ? a.toLowerCase() + '@' + UNIVERSITY_MAIL_DOMAIN : '';
+}
+
+/**
+ * 入力された識別子をそろえる（D65）。学籍番号でも、大学のメールアドレスでもよい（メールなら「@より前」を使う）。
+ * 全角の英数字は半角に、英字は大文字に。形がおかしければ例外。
+ * @param {string} value
+ * @param {{studentOnly:boolean}} [opts] studentOnly … 学籍番号の形でなければ受け付けない（学生スタッフの登録・修正）
+ */
+function normalizeAccount_(value, opts) {
+  var s = String(value == null ? '' : value).trim()
+    .replace(/[０-９Ａ-Ｚａ-ｚ＠．＿－]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); });
+  if (!s) throw new Error('学籍番号を入れてください。');
+  if (s.indexOf('@') !== -1) {
+    const acc = accountOfEmail_(s);
+    if (!acc) throw new Error('大学のメール（@' + UNIVERSITY_MAIL_DOMAIN + '）ではありません：' + s);
+    s = acc;
+  }
+  s = s.toUpperCase();
+  if (s.length > 64 || !/^[A-Z0-9._-]+$/.test(s)) throw new Error('学籍番号の形が違います：' + s);
+  if (opts && opts.studentOnly && !studentNoOfEmail_(s).studentNo) throw new Error('学籍番号の形が違います：' + s);
+  return s;
 }

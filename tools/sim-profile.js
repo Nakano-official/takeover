@@ -34,17 +34,17 @@ function setup() {
   });
   h.add('staffs', { staff_id: 'T1', name: '職員 花子', role: '職員' });
   h.add('contacts', {
-    staff_id: 'S101', name: '学生 太郎', email: 's101@example.ac.jp',
+    staff_id: 'S101', name: '学生 太郎', email: 's101@mail.ryukoku.ac.jp',
     phone: '090-1111-1111', webhook_url: OK_HOOK,
   });
-  h.add('contacts', { staff_id: 'T1', name: '職員 花子', email: 't1@example.ac.jp' });
+  h.add('contacts', { staff_id: 'T1', name: '職員 花子', email: 't1@mail.ryukoku.ac.jp' });
   h.add('staffs', {
     staff_id: 'S102', name: '別の学生', role: '学生', skills: 'テイク', available_slots: '月1',
   });
-  h.add('contacts', { staff_id: 'S102', name: '別の学生', email: 's102@example.ac.jp', phone: '090-9999-9999' });
+  h.add('contacts', { staff_id: 'S102', name: '別の学生', email: 's102@mail.ryukoku.ac.jp', phone: '090-9999-9999' });
 }
-const asStudent = () => h.setUser({ staff_id: 'S101', name: '学生 太郎', role: '学生', email: 's101@example.ac.jp' });
-const asStaff = () => h.setUser({ staff_id: 'T1', name: '職員 花子', role: '職員', email: 't1@example.ac.jp' });
+const asStudent = () => h.setUser({ staff_id: 'S101', name: '学生 太郎', role: '学生', email: 's101@mail.ryukoku.ac.jp' });
+const asStaff = () => h.setUser({ staff_id: 'T1', name: '職員 花子', role: '職員', email: 't1@mail.ryukoku.ac.jp' });
 const staffRow = (id) => h.row('staffs', 'staff_id', id);
 const contactRow = (id) => h.row('contacts', 'staff_id', id);
 
@@ -97,14 +97,14 @@ let res = G.updateMyProfile({
   available_slots: '月1,月2,月3',
 });
 h.check(res.ok === true, '保存できる');
-h.check(contactRow('S101').phone === '080-2222-2222', '電話が更新される');
+h.check(contactRow('S101').phone === '080-2222-2222', '★電話番号は本人が直せる（支援室の名簿に電話番号は無い・D65。D64 で一度職員の管理にしたのを戻した）');
 h.check(staffRow('S101').name === '学生 太郎', '★氏名は書き換わらない（機能Bの照合キー・D7③）');
 h.check(staffRow('S101').role === '学生', '★role は書き換わらない（権限昇格を防ぐ）');
 h.check(staffRow('S101').skills === 'テイク,介助', 'skills は本人が更新できる（D31）');
 h.check(staffRow('S101').personal_code === 'Y200001',
   '★personal_code は書き換わらない（列は残っているが誰も使わない・機能B未実装）');
 h.check(p.personal_code === undefined, '★personal_code はマイページにも返さない');
-h.check(contactRow('S101').email === 's101@example.ac.jp', '★メールは書き換わらない（本人を特定するキー）');
+h.check(contactRow('S101').account === 'S101', '★学籍番号（account）は書き換わらない（本人を特定するキー・D65）');
 
 h.section('2b) staff_id は Session から取る（payload の id は見ない）');
 h.check(staffRow('S102').available_slots === '月1', '★payload の staff_id で他人の行を書き換えられない');
@@ -167,14 +167,14 @@ h.check(typeof before === 'string', '（前回値は文字列）');
 h.section('5b) 職員の保存では空きコマに触らない');
 setup(); asStaff();
 G.updateMyProfile({ phone: '06-1111-2222', webhook_url: OK_HOOK, slots: ['月1'] });
-h.check(contactRow('T1').phone === '06-1111-2222', '職員も連絡先は更新できる');
+h.check(contactRow('T1').phone === '06-1111-2222' && contactRow('T1').webhook_url === OK_HOOK, '職員も電話番号と通知先は更新できる');
 h.check(!staffRow('T1').available_slots, '★職員の available_slots は書かない（意味を持たないため）');
 h.check(!staffRow('T1').slots_updated_at, '職員には更新日時も入らない');
 
 // ── 6) 名簿に行が無い場合 ──────────────────────────────────
 h.section('6) 行が見つからないときは理由を返す');
 setup();
-h.setUser({ staff_id: 'S999', name: '幽霊', role: '学生', email: 'ghost@example.ac.jp' });
+h.setUser({ staff_id: 'S999', name: '幽霊', role: '学生', email: 'ghost@mail.ryukoku.ac.jp' });
 threw = '';
 try { G.updateMyProfile({ phone: '090-1111-1111', webhook_url: OK_HOOK, slots: [] }); } catch (e) { threw = e.message; }
 h.check(/連絡先の行が見つかりません/.test(threw), '職員に問い合わせるよう促す');
@@ -273,9 +273,19 @@ try {
 h.check(rejected, '★テイクの空きコマに移動枠は入れられない（画面を通さない経路でも弾く）');
 h.check(staffRow('S101').assist_slots === '月移動1-2', '★弾いたときは介助ぶんも書き換えない');
 
-h.section('電話番号の形');
+h.section('電話番号の形（D65 で本人が入れる形に戻した）');
+setup(); asStudent();
+const phoneBefore = contactRow('S101').phone;
 threw = '';
 try { G.updateMyProfile({ phone: '=1+1', webhook_url: OK_HOOK, slots: ['月1'] }); } catch (e) { threw = e.message; }
-h.check(threw.indexOf('電話番号') !== -1, '数字と - 以外の電話番号は保存しない');
+h.check(/電話番号/.test(threw) && contactRow('S101').phone === phoneBefore, '★数式のような電話番号は弾き、書き換えない');
+G.updateMyProfile({ phone: '09012345678', slots: ['月1'] });
+h.check(contactRow('S101').phone === '090-1234-5678', 'ハイフンの無い11桁は 3-4-4 にそろえる');
+const w = G.updateMyProfile({ phone: '', slots: ['月1'] });
+h.check(contactRow('S101').phone === '' && w.warnings.some((x) => /電話番号が未登録/.test(x)), '空にすると消え、未登録の注意を返す');
+G.updateMyProfile({ phone: '090-1111-2222', slots: ['月1'] });
+G.updateMyProfile({ slots: ['月2'] });
+h.check(contactRow('S101').phone === '090-1111-2222', '★電話番号を送らない保存では、電話番号を変えない（空にしない）');
+h.check(G.getMyProfile().phone === '090-1111-2222', 'マイページには登録済みの電話番号を出す（入力欄に入れて見せる）');
 
 process.exitCode = h.report();
